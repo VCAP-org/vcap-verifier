@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vcap verifier</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; padding: 2rem 1rem; max-width: 46rem; margin-inline: auto; line-height: 1.45; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  .muted { opacity: .7; font-size: .9rem; }
+  .drop { margin-top: 1.5rem; border: 2px dashed currentColor; border-radius: .75rem; padding: 2rem; text-align: center; opacity: .8; }
+  .drop.over { opacity: 1; background: rgba(127,127,127,.08); }
+  .verdict { margin-top: 1.5rem; border-radius: .75rem; padding: 1rem 1.25rem; border: 1px solid transparent; }
+  .green { background: #e6f6ea; border-color: #2e8b57; color: #0f3d22; }
+  .amber { background: #fff4d6; border-color: #b8860b; color: #4a3400; }
+  .red { background: #fde8e8; border-color: #b22222; color: #4a0f0f; }
+  .grey { background: #eee; border-color: #888; color: #222; }
+  @media (prefers-color-scheme: dark) { .green{background:#0f3d22;color:#e6f6ea} .amber{background:#4a3400;color:#fff4d6} .red{background:#4a0f0f;color:#fde8e8} .grey{background:#222;color:#eee} }
+  .verdict h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
+  ul { margin: .5rem 0 0; padding-left: 1.2rem; }
+  code { font-family: ui-monospace, monospace; font-size: .85em; word-break: break-all; }
+  details { margin-top: .75rem; }
+  footer { margin-top: 3rem; font-size: .8rem; opacity: .6; }
+</style>
+</head>
+<body>
+<h1>vcap verifier</h1>
+<p class="muted">Drop a sealed photo or video. Everything happens in this page: no upload, no account, no server of ours. If the file has a <code>.vcap</code> sidecar, drop it too.</p>
+<div class="drop" id="drop">
+  <p><label><input type="file" id="file" multiple> </label></p>
+  <p class="muted">or drag files here</p>
+</div>
+<div id="out"></div>
+<footer>
+  What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated by this page yet. Bundle hash: <code id="hash">see verifier.js.sha256</code>.
+</footer>
+<script type="module" src="verifier.js"></script>
+</body>
+</html>

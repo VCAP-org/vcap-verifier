@@ -1,11 +1,20 @@
 name: ci
 on: [push, pull_request]
 jobs:
-  test:
+  core:
+    name: verification core against the vcap-spec vectors
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
-      # TODO: npm ci && npm test && run the vcap-spec conformance vectors.
-      - run: echo "no core yet"
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # The page: one bundle, its hash printed so a verdict can name its verifier.
+      - run: npm run build --workspace web
+      - run: test -s web/dist/verifier.js && cat web/dist/verifier.js.sha256

@@ -17,7 +17,12 @@ part of correctness:
 
 - `core/` is published as a package and consumed by the platform and the
   libraries. Never fork it: a second implementation of the same verdict is the
-  failure this project cannot afford.
+  failure this project cannot afford. It uses WebCrypto and Uint8Array only —
+  no `Buffer`, no `node:` imports — so the same file runs in a browser, in Node
+  and in the platform.
+- `spec/` is the `vcap-spec` submodule; `core/test/conformance.test.ts` runs
+  every vector in it. A vector that fails is a spec conversation, never a local
+  expectation edit.
 - No analytics, no telemetry, no uploads. Nothing leaves the browser, and that
   must stay auditable in a single read of the source.
 - Publish the failures too: the demo set includes the cases where verification
