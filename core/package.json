@@ -24,5 +24,6 @@
   "dependencies": {
     "asn1js": "^3.0.10",
     "cbor-x": "^1.6.6"
-  }
+  },
+  "license": "MIT"
 }
