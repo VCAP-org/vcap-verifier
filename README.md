@@ -55,7 +55,7 @@ differ, and CI runs both.
 ```
 git submodule update --init      # the spec and its vectors
 npm ci
-npm run typecheck && npm test    # core: 32 vectors + attachment tests
+npm run typecheck && npm test    # core: 32 vectors + attachment and evidence tests
 npm run build --workspace web    # web/dist/{index.html, verifier.js, verifier.js.sha256}
 npm run dev --workspace web      # serves the page with a watcher
 ```
@@ -93,7 +93,10 @@ weaker of the two security levels, locked device with verified boot; revocation
 through an injected status lookup). From those the verdict carries `level`:
 claimed, proven and the §7 ceiling, with *inconsistent claim* when the claim
 exceeds the evidence. X.509 and CMS are read with `asn1js` over WebCrypto (RSA
-PKCS#1 v1.5 and ECDSA with SHA-256/384/512).
+PKCS#1 v1.5 and ECDSA with SHA-256/384/512). Besides synthetic chains, the tests
+run a chain minted by real hardware (`core/test/fixtures/`, from
+`SDK-Android/tools/attest-dump`): five certificates under Remote Key Provisioning
+down to the pinned 2025 Google root, clock pinned to capture time.
 
 Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
 `nested_proof`, `corrupted_proof`, `no_proof_found`, `unsupported_format_version`.
