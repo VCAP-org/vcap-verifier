@@ -1,11 +1,26 @@
 name: ci
 on: [push, pull_request]
 jobs:
-  test:
+  core:
+    name: verification core against the vcap-spec vectors
     runs-on: ubuntu-latest
     steps:
+      # The spec is a private repository until decision D4 opens it. With the
+      # secret SPEC_READ_TOKEN (fine-grained, Contents: read on vcap-spec) the
+      # submodule is cloned and the committed snapshot is checked against it;
+      # without it the snapshot alone runs. Either way the vectors run.
       - uses: actions/checkout@v4
+        with:
+          submodules: ${{ secrets.SPEC_READ_TOKEN != '' && 'recursive' || 'false' }}
+          token: ${{ secrets.SPEC_READ_TOKEN || github.token }}
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
-      # TODO: npm ci && npm test && run the vcap-spec conformance vectors.
-      - run: echo "no core yet"
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run vectors:check --workspace core
+      - run: npm run typecheck
+      - run: npm test
+      # The page: one bundle, its hash printed so a verdict can name its verifier.
+      - run: npm run build --workspace web
+      - run: test -s web/dist/verifier.js && cat web/dist/verifier.js.sha256

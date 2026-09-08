@@ -10,8 +10,13 @@ check a file without trusting us.
 
 ## Status
 
-Phase 3. New implementation: the PoC verifier stays online for its own samples
-and is not a code source.
+Started early (phase 1, September 2026) because the core is what the platform
+API and the libraries import: `core/` verifies the signature layer of vcap/1.0
+and passes every conformance vector of `vcap-spec`; `web/` is a first static
+page over it. Not yet: attestation-chain evaluation (the proven level), RFC 3161
+tokens (labelled *trusted time not evaluated*), the watermark detector.
+
+The PoC verifier stays online for its own samples and is not a code source.
 
 ## Design constraints
 
@@ -31,9 +36,43 @@ and is not a code source.
 ## Layout
 
 ```
-core/    isomorphic verification core (TypeScript)
-web/     the static verifier page
+core/    isomorphic verification core (TypeScript, WebCrypto only — no Buffer, no Node API)
+web/     the static verifier page (esbuild, one bundle with its SHA-256 published)
+spec/    vcap-spec as a git submodule: the conformance vectors the core runs in CI
 ```
+
+## Working on it
+
+The vectors run from the `spec` submodule when it is checked out and from the
+committed snapshot `core/vectors` otherwise; `npm run vectors:sync --workspace
+core` refreshes the snapshot, `vectors:check` fails when the two differ. CI
+runs without any secret; with the optional repository secret `SPEC_READ_TOKEN`
+(fine-grained, *Contents: read* on `VCAP-org/vcap-spec`) it also checks out the
+submodule and verifies the snapshot is current. Unnecessary once the spec is
+public (D4).
+
+```
+git submodule update --init      # the spec and its vectors
+npm ci
+npm run typecheck && npm test    # core: 32 vectors + attachment tests
+npm run build --workspace web    # web/dist/{index.html, verifier.js, verifier.js.sha256}
+npm run dev --workspace web      # serves the page with a watcher
+```
+
+## What the core verifies
+
+Trailer and footer (structure first, CRC second), nested trailers, sidecar
+precedence, canonical bytes (JPEG APP11 JUMBF stripped, BMFF untouched), the
+signed core (`ES256` over `JCS(core)`, P1363, `key_id` derived), video segment
+chains over messages, the version policy (unknown minor: *not evaluated*;
+unknown major: unsupported), the §8 labels for absent attachments, and — when
+present — the `registry` attachment against trusted log keys (signed tree head,
+RFC 6962 inclusion, key binding, *registered after the declared capture*) and
+the `anchor` attachment (root recomputed; compared with the chain only through
+an injected reader, otherwise *anchoring not verified*).
+
+Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
+`nested_proof`, `corrupted_proof`, `no_proof_found`, `unsupported_format_version`.
 
 ## Project documentation
 

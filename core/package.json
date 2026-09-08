@@ -1,0 +1,22 @@
+{
+  "name": "vcap-verify-core",
+  "version": "0.1.0",
+  "description": "vcap proof verification, isomorphic: the same verdict in a browser, in Node, in the platform. Uses WebCrypto only.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "vectors:sync": "node vectors-sync.mjs",
+    "vectors:check": "node vectors-sync.mjs --check"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
