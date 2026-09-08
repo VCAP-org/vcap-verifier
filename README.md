@@ -43,13 +43,10 @@ spec/    vcap-spec as a git submodule: the conformance vectors the core runs in 
 
 ## Working on it
 
-The vectors run from the `spec` submodule when it is checked out and from the
-committed snapshot `core/vectors` otherwise; `npm run vectors:sync --workspace
-core` refreshes the snapshot, `vectors:check` fails when the two differ. CI
-runs without any secret; with the optional repository secret `SPEC_READ_TOKEN`
-(fine-grained, *Contents: read* on `VCAP-org/vcap-spec`) it also checks out the
-submodule and verifies the snapshot is current. Unnecessary once the spec is
-public (D4).
+The vectors run from the `spec` submodule (public, MIT) when it is checked out
+and from the committed snapshot `core/vectors` otherwise; `npm run vectors:sync
+--workspace core` refreshes the snapshot, `vectors:check` fails when the two
+differ, and CI runs both.
 
 ```
 git submodule update --init      # the spec and its vectors
