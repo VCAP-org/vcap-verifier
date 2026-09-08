@@ -5,14 +5,12 @@ jobs:
     name: verification core against the vcap-spec vectors
     runs-on: ubuntu-latest
     steps:
-      # The spec is a private repository until decision D4 opens it. With the
-      # secret SPEC_READ_TOKEN (fine-grained, Contents: read on vcap-spec) the
-      # submodule is cloned and the committed snapshot is checked against it;
-      # without it the snapshot alone runs. Either way the vectors run.
+      # vcap-spec is public (D4, MIT): the submodule clones with the default
+      # token, the vectors run from it, and the committed snapshot is checked
+      # against it so a stale copy fails here.
       - uses: actions/checkout@v4
         with:
-          submodules: ${{ secrets.SPEC_READ_TOKEN != '' && 'recursive' || 'false' }}
-          token: ${{ secrets.SPEC_READ_TOKEN || github.token }}
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
