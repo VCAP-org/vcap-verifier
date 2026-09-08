@@ -7,11 +7,15 @@ import { sha256 } from '../src/sha.js'
 import type { Json } from '../src/jcs.js'
 
 /**
- * The conformance vectors of vcap-spec, checked out as the `spec` submodule.
- * This core was written from the spec, not from the reference verifier; the
- * vectors are where the two must agree byte for byte.
+ * The conformance vectors of vcap-spec. Source of truth: the `spec` submodule;
+ * fallback: the snapshot in core/vectors, kept equal by vectors-sync.mjs so CI
+ * needs no token for the private spec repository. This core was written from
+ * the spec, not from the reference verifier; the vectors are where the two
+ * must agree byte for byte.
  */
-const VECTORS = join(import.meta.dirname, '..', '..', 'spec', 'vectors')
+const SUBMODULE = join(import.meta.dirname, '..', '..', 'spec', 'vectors')
+const SNAPSHOT = join(import.meta.dirname, '..', 'vectors')
+const VECTORS = existsSync(SUBMODULE) && readdirSync(SUBMODULE).length > 0 ? SUBMODULE : SNAPSHOT
 const dirs = existsSync(VECTORS) ? readdirSync(VECTORS).filter((d) => /^\d\d-/.test(d)).sort() : []
 
 const pick = (actual: object, expected: Record<string, unknown>) =>
