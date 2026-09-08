@@ -60,6 +60,21 @@ npm run build --workspace web    # web/dist/{index.html, verifier.js, verifier.j
 npm run dev --workspace web      # serves the page with a watcher
 ```
 
+## Public page
+
+The page is served from GitHub Pages at
+**https://vcap-org.github.io/vcap-verifier/**. It deploys from `main` through
+`.github/workflows/pages.yml`: checkout with the `spec` submodule, `npm ci`,
+typecheck and the core tests as a gate (a red core never deploys), then the
+`web` build and the `web/dist` artifact as published — nothing more. The page is
+static and stays so: no server of ours is in the path, nothing is fetched from
+our infrastructure.
+
+The bundle hash lives next to the bundle,
+`https://vcap-org.github.io/vcap-verifier/verifier.js.sha256`, and every
+deploy prints it in the workflow log, so an expert can prove which verifier
+produced a given verdict.
+
 ## What the core verifies
 
 Trailer and footer (structure first, CRC second), nested trailers, sidecar
