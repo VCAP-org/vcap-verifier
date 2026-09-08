@@ -1,0 +1,47 @@
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The deploy token only needs to publish the artifact; nothing here writes to the repo.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a running one finishes so the page never ends up half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: build and publish the verifier page
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Gate: the page never deploys over a red core.
+      - run: npm run typecheck
+      - run: npm test
+      # The artifact is web/dist as built: index.html, the bundle and its SHA-256,
+      # so an expert can name the verifier that produced a verdict. Static only,
+      # nothing fetched from our infrastructure.
+      - run: npm run build --workspace web
+      - run: test -s web/dist/verifier.js && cat web/dist/verifier.js.sha256
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
