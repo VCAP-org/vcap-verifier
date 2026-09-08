@@ -43,6 +43,10 @@ spec/    vcap-spec as a git submodule: the conformance vectors the core runs in 
 
 ## Working on it
 
+CI needs the repository secret `SPEC_READ_TOKEN`: a fine-grained GitHub token
+with *Contents: read* on `VCAP-org/vcap-spec`, so the private spec submodule
+can be cloned. It becomes unnecessary the day the spec is public (D4).
+
 ```
 git submodule update --init      # the spec and its vectors
 npm ci

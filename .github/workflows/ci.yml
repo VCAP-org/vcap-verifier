@@ -5,9 +5,14 @@ jobs:
     name: verification core against the vcap-spec vectors
     runs-on: ubuntu-latest
     steps:
+      # The spec is a private repository until decision D4 opens it; the job's
+      # default token sees only this repository, so the submodule needs a
+      # fine-grained token with read access to VCAP-org/vcap-spec, stored as
+      # the repository secret SPEC_READ_TOKEN.
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ secrets.SPEC_READ_TOKEN }}
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
