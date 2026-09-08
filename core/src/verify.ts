@@ -7,6 +7,9 @@ import { importP256Spki, verifyEs256 } from './es256.js'
 import { type SegmentEntry, verifyChain } from './segments.js'
 import { type RegistryAttachment, type TrustedLog, verifyRegistry } from './registry.js'
 import { type AnchorAttachment, type ChainReader, verifyAnchor } from './anchor.js'
+import { validateTimestamp } from './rfc3161.js'
+import { type Certificate, parseCertificate } from './x509.js'
+import { type RevocationLookup, validateAndroidAttestation } from './attestation/android.js'
 
 /**
  * The verdict of the signature layer of vcap/1.0, from bytes to words. This
@@ -28,7 +31,10 @@ export interface Verdict {
   // What the attachments proved, when present and evaluated.
   registry?: { ok: boolean, detail: string, secure_hw?: string }
   anchor?: { ok: boolean, detail: string, on_chain?: boolean }
-  // Claimed by the device; the proven level needs the attestation chain (not evaluated here).
+  timestamp?: { ok: boolean, detail: string, gen_time?: string }
+  attestation?: { proven: string, detail: string, boot_state?: { locked: boolean, state: string } }
+  // §7: claimed by the device, proven by the evidence, and the ceiling the two allow.
+  level?: { claimed: string, proven: string, ceiling: 'green' | 'amber' | 'red' }
   claimed_secure_hw?: string
   device_clock?: number
 }
@@ -37,6 +43,13 @@ export interface VerifyOptions {
   sidecar?: Bytes
   trustedLogs?: TrustedLog[]
   readChain?: ChainReader
+  // TSA roots (DER) the timestamp attachment may chain to; none → not evaluated.
+  tsaRoots?: Bytes[]
+  // Google's attestation roots are pinned; override for tests only.
+  googleRoots?: Certificate[]
+  // Google's status list, when online; absent → *revocation not checked*.
+  revocation?: RevocationLookup
+  now?: Date
 }
 
 const CORE_KEYS = ['v', 'capture_id', 'media', 'device', 'watermark', 'time', 'location', 'policy'] as const
@@ -154,7 +167,43 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     if (!a.ok) labels.push('anchor evidence invalid')
     else if (!a.onChain) labels.push('anchoring not verified')
   }
-  if ('timestamp' in proof) labels.push('trusted time not evaluated')
+  if (isObj(proof.timestamp) && typeof proof.timestamp.tsr === 'string') {
+    if (!o.tsaRoots?.length) labels.push('trusted time not evaluated')
+    else {
+      let token: Bytes | null = null
+      try { token = fromBase64(proof.timestamp.tsr) } catch { token = null }
+      const t = token ? await validateTimestamp(token, coreHash, o.tsaRoots.map(parseCertificate), o.now) : null
+      verdict.timestamp = t?.ok ? { ok: true, detail: `existed before ${t.genTime}`, gen_time: t.genTime } : { ok: false, detail: t ? t.checks.filter((c) => c.outcome === 'fail').map((c) => c.detail).join('; ') : 'token malformed' }
+      if (!verdict.timestamp.ok) labels.push('timestamp evidence invalid')
+    }
+  }
+
+  // 7. The proof level (§7): proven by the attestation (Android) or by the
+  // registry leaf (iOS, App Attest goes to the registry), never by the claim.
+  const claimed = device.secure_hw as string
+  let proven: string = 'none'
+  if (Array.isArray(proof.attestation) && device.platform === 'android') {
+    let ders: Bytes[] | null = null
+    try { ders = (proof.attestation as string[]).map(fromBase64) } catch { ders = null }
+    const a = ders ? await validateAndroidAttestation(ders, spki, { roots: o.googleRoots, revocation: o.revocation, now: o.now }) : null
+    proven = a?.proven ?? 'none'
+    verdict.attestation = a
+      ? { proven: a.proven, detail: a.checks.filter((c) => c.outcome === 'fail').map((c) => c.detail).join('; ') || 'chain to a pinned Google root', boot_state: a.bootState }
+      : { proven: 'none', detail: 'attestation malformed' }
+    if (a && a.revocation === 'not_checked') labels.push('revocation not checked')
+    if (a && a.revocation === 'revoked') labels.push('key revoked')
+  } else if (device.platform === 'ios' && verdict.registry?.ok && verdict.registry.secure_hw === 'secureEnclave') {
+    proven = 'secureEnclave'
+  }
+  const rank: Record<string, number> = { none: 0, tee: 1, secureEnclave: 1, strongbox: 2 }
+  // A claim above the evidence is flagged only when there is evidence: with no
+  // attestation the §7 label is *origin not hardware-attested* alone.
+  if (verdict.attestation && (rank[claimed] ?? 0) > (rank[proven] ?? 0)) labels.push('inconsistent claim')
+  const inLog = verdict.registry?.ok === true && !labels.includes('registered after the declared capture')
+  const ceiling: 'green' | 'amber' | 'red' = verdict.outcome === 'tampered' || labels.includes('key revoked') ? 'red'
+    : proven !== 'none' && inLog && verdict.outcome === 'authentic' && !labels.includes('inconsistent claim') && !labels.includes('revocation not checked') && !labels.includes('key revoked') ? 'green'
+    : 'amber'
+  verdict.level = { claimed, proven, ceiling }
 
   verdict.labels = labels.sort()
   return verdict
