@@ -12,9 +12,13 @@ check a file without trusting us.
 
 Started early (phase 1, September 2026) because the core is what the platform
 API and the libraries import: `core/` verifies the signature layer of vcap/1.0
-and passes every conformance vector of `vcap-spec`; `web/` is a first static
-page over it. Not yet: attestation-chain evaluation (the proven level), RFC 3161
-tokens (labelled *trusted time not evaluated*), the watermark detector.
+and passes every conformance vector of `vcap-spec`, evaluates RFC 3161 tokens
+against injected TSA roots and Android attestation chains against the pinned
+Google roots (the §7 proven level and ceiling); `web/` is a first static page
+over it, still without TSA roots (so it labels *trusted time not evaluated*).
+Not yet: App Attest (the iOS proven level comes from the registry leaf), Google's
+status list online (offline it labels *revocation not checked*), the watermark
+detector.
 
 The PoC verifier stays online for its own samples and is not a code source.
 
@@ -66,7 +70,15 @@ unknown major: unsupported), the §8 labels for absent attachments, and — when
 present — the `registry` attachment against trusted log keys (signed tree head,
 RFC 6962 inclusion, key binding, *registered after the declared capture*) and
 the `anchor` attachment (root recomputed; compared with the chain only through
-an injected reader, otherwise *anchoring not verified*).
+an injected reader, otherwise *anchoring not verified*), the `timestamp`
+attachment (CMS over TSTInfo: imprint = core hash, signed attributes, signature,
+chain to the given TSA roots, timeStamping usage, genTime) and the `attestation`
+attachment on Android (chain to a pinned Google root, leaf key = `sig.pub`,
+weaker of the two security levels, locked device with verified boot; revocation
+through an injected status lookup). From those the verdict carries `level`:
+claimed, proven and the §7 ceiling, with *inconsistent claim* when the claim
+exceeds the evidence. X.509 and CMS are read with `asn1js` over WebCrypto (RSA
+PKCS#1 v1.5 and ECDSA with SHA-256/384/512).
 
 Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
 `nested_proof`, `corrupted_proof`, `no_proof_found`, `unsupported_format_version`.
