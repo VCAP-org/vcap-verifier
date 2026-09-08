@@ -127,3 +127,10 @@ person needs it. Not "works on my branch".
 
 Code, comments, README and commit messages in English. Project documentation in
 `Doc/` is in Italian.
+
+## License
+
+MIT (`LICENSE`), like `vcap-spec`: a verifier anyone can audit, run and embed
+is the promise. Copyright holder "the vcap authors" until decision D1 names the
+legal entity.
+
