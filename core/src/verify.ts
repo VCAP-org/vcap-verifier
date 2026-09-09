@@ -68,7 +68,6 @@ const ABSENT: [string, string][] = [
   ['attestation', 'origin not hardware-attested'], ['integrity', 'integrity unevaluated'], ['watermark', 'no watermark']
 ]
 const PLATFORMS = new Set(['android', 'ios', 'web'])
-const SECURE_HW = new Set(['strongbox', 'tee', 'secureEnclave', 'none'])
 
 type Obj = { [key: string]: Json }
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -88,7 +87,9 @@ export const coreHashOf = (proof: Obj): Promise<Bytes> => sha256(jcs(extractCore
 const shapeProblem = (proof: Obj): string | null => {
   if (!b64Len(proof.capture_id, 16)) return 'capture_id missing or not 16 bytes'
   if (!isObj(proof.media) || typeof proof.media.hash !== 'string' || typeof proof.media.mime !== 'string') return 'media.hash or media.mime missing'
-  if (!isObj(proof.device) || !PLATFORMS.has(proof.device.platform as string) || !SECURE_HW.has(proof.device.secure_hw as string) || typeof proof.device.key_id !== 'string') return 'device incomplete'
+  // §7/§9: a secure_hw value v1.0 does not define is read as `none`, never
+  // refused — the signature still verifies and the capture is still readable.
+  if (!isObj(proof.device) || !PLATFORMS.has(proof.device.platform as string) || typeof proof.device.secure_hw !== 'string' || typeof proof.device.key_id !== 'string') return 'device incomplete'
   if (!isObj(proof.sig) || typeof proof.sig.value !== 'string' || typeof proof.sig.pub !== 'string' || typeof proof.sig.alg !== 'string') return 'sig incomplete'
   if ('segments' in proof && (!Array.isArray(proof.segments) || !Number.isInteger((proof.media as Obj).segment_count))) return 'segments without media.segment_count'
   // §8: media.mime alone decides that a proof is a video proof, and a video
