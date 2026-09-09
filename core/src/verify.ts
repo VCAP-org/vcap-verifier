@@ -141,6 +141,10 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   const mediaObj = proof.media as { hash: string, segment_count?: number }
   const mediaMatches = toBase64url(await sha256(canonicalBytes(media))) === mediaObj.hash
   for (const [k, label] of ABSENT) if (!(k in proof)) labels.push(label)
+  // §7: a declared watermark is the writer saying a mark was embedded, not a
+  // promise a reader finds it. This core carries no detector, so the honest
+  // outcome is *watermark not evaluated* — silence would read as a match.
+  if ('watermark' in proof) labels.push('watermark not evaluated')
   if (flags !== null) {
     const expected = ('segments' in proof ? 2 : 0) | ((isObj(proof.policy) && proof.policy.pseudonymous === true) ? 4 : 0)
     if ((flags & 6) !== expected) labels.push('flags disagree')
