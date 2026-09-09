@@ -15,10 +15,16 @@ export const segmentMessage = (captureId: Bytes, index: number, contentHash: Byt
 
 export type ChainStatus = 'complete' | 'clip' | 'tampered'
 
-export const verifyChain = async (captureId: Bytes, segmentCount: number, segments: SegmentEntry[], key: CryptoKey): Promise<{ status: ChainStatus, verified: number[], reason?: string }> => {
+/**
+ * `recomputed` carries the content hashes read back from the container (§5),
+ * keyed by segment index; a segment absent from it was not recomputed and is
+ * verified at message level, which is all a verifier without a demuxer can do.
+ */
+export const verifyChain = async (captureId: Bytes, segmentCount: number, segments: SegmentEntry[], key: CryptoKey, recomputed?: Map<number, Bytes>): Promise<{ status: ChainStatus, verified: number[], contradicted?: number[], reason?: string }> => {
   const byIndex = new Map(segments.map((s) => [s.gop, s]))
   const messages = new Map<number, Bytes>()
   const verified: number[] = []
+  const contradicted: number[] = []
   for (const index of [...byIndex.keys()].sort((a, b) => a - b)) {
     const entry = byIndex.get(index) as SegmentEntry
     let hash: Bytes, storedPrev: Bytes, sig: Bytes
@@ -30,8 +36,15 @@ export const verifyChain = async (captureId: Bytes, segmentCount: number, segmen
     try { message = segmentMessage(captureId, index, hash, storedPrev) } catch { return { status: 'tampered', verified, reason: `segment ${index}: malformed` } }
     if (!await verifyEs256(key, message, sig)) return { status: 'tampered', verified, reason: `segment ${index}: signature invalid` }
     messages.set(index, message)
-    verified.push(index)
+    // §5: the frames of a present segment are not the signed frames —
+    // substitution inside a signed range, red, never a clip. The chain runs
+    // over the signed messages, so the walk continues and reports which
+    // segments do verify.
+    const content = recomputed?.get(index)
+    if (content && !equal(content, hash)) contradicted.push(index)
+    else verified.push(index)
   }
+  if (contradicted.length > 0) return { status: 'tampered', verified, contradicted, reason: `segment ${contradicted.join(', ')}: content differs from the container` }
   const complete = verified.length === segmentCount && verified.every((v, i) => v === i)
   return { status: complete ? 'complete' : 'clip', verified }
 }

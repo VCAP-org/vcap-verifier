@@ -2,7 +2,8 @@ import { type Bytes, equal, fromBase64, fromUtf8, toBase64url, toHex } from './b
 import { sha256 } from './sha.js'
 import { jcs, type Json } from './jcs.js'
 import { parseTrailer } from './trailer.js'
-import { canonicalBytes } from './canonical.js'
+import { canonicalBytes, detectContainer } from './canonical.js'
+import { recomputeSegments } from './container.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import { type SegmentEntry, verifyChain } from './segments.js'
 import { type RegistryAttachment, type TrustedLog, verifyRegistry } from './registry.js'
@@ -26,7 +27,10 @@ export interface Verdict {
   labels: string[]
   not_evaluated: string[]
   core_hash?: string
-  segments?: { verified: number[] }
+  segments?: { verified: number[], contradicted?: number[] }
+  // §5 recomputation: whether the segment hashes were read back from the
+  // container, and why not when they were not.
+  content?: { recomputed: boolean, detail: string }
   reason?: string
   // What the attachments proved, when present and evaluated.
   registry?: { ok: boolean, detail: string, secure_hw?: string }
@@ -45,6 +49,11 @@ export interface VerifyOptions {
   readChain?: ChainReader
   // TSA roots (DER) the timestamp attachment may chain to; none → not evaluated.
   tsaRoots?: Bytes[]
+  // §5 recomputation from the container, on by default: a verifier holding the
+  // file and trusting the proof's own hashes has checked that somebody signed
+  // some hashes, not that these are the frames. Off for a caller that has only
+  // a sidecar, or no demuxable container.
+  recomputeSegments?: boolean
   // Google's attestation roots are pinned; override for tests only.
   googleRoots?: Certificate[]
   // Google's status list, when online; absent → *revocation not checked*.
@@ -153,9 +162,18 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   if (isObj(proof.time) && typeof proof.time.device_clock === 'number') verdict.device_clock = proof.time.device_clock
 
   if ('segments' in proof) {
-    const chain = await verifyChain(fromBase64(proof.capture_id as string), mediaObj.segment_count as number, proof.segments as unknown as SegmentEntry[], key)
-    verdict.segments = { verified: chain.verified }
-    if (chain.status === 'tampered') return { ...tampered(chain.reason ?? 'segment chain'), segments: verdict.segments }
+    const captureId = fromBase64(proof.capture_id as string)
+    let recomputed: Map<number, Bytes> | undefined
+    if (o.recomputeSegments !== false && detectContainer(media) === 'bmff') {
+      const content = await recomputeSegments(media, captureId)
+      if (content.kind === 'hashes') recomputed = new Map(content.gops.map((g) => [g.index, g.hash]))
+      verdict.content = content.kind === 'hashes' ? { recomputed: true, detail: `${content.gops.length} GOPs read from the container` } : { recomputed: false, detail: content.reason }
+    } else {
+      verdict.content = { recomputed: false, detail: o.recomputeSegments === false ? 'recomputation not requested' : 'not an ISO-BMFF container' }
+    }
+    const chain = await verifyChain(captureId, mediaObj.segment_count as number, proof.segments as unknown as SegmentEntry[], key, recomputed)
+    verdict.segments = { verified: chain.verified, ...(chain.contradicted ? { contradicted: chain.contradicted } : {}) }
+    if (chain.status === 'tampered') return { ...tampered(chain.reason ?? 'segment chain'), segments: verdict.segments, content: verdict.content }
     if (!mediaMatches || chain.status === 'clip') { verdict.outcome = 'verified_clip'; verdict.reason = mediaMatches ? 'segments missing' : 'media.hash does not match the received file' }
   } else if (!mediaMatches) {
     return tampered('media.hash does not match the canonical bytes')

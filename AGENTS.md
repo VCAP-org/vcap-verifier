@@ -20,6 +20,13 @@ part of correctness:
   failure this project cannot afford. It uses WebCrypto and Uint8Array only —
   no `Buffer`, no `node:` imports — so the same file runs in a browser, in Node
   and in the platform.
+- `core/src/container.ts` recomputes the §5 segment hashes from the ISO-BMFF
+  container and is on by default in `verify`: a verdict that reads the hashes
+  out of the proof has checked that somebody signed some hashes, not that these
+  are the frames. It stays optional at the API level
+  (`verify(file, { recomputeSegments: false })`) for callers that hold a sidecar
+  and no demuxable container, and the verdict always says which of the two ran
+  (`verdict.content`).
 - `spec/` is the `vcap-spec` submodule; `core/test/conformance.test.ts` runs
   every vector in it. A vector that fails is a spec conversation, never a local
   expectation edit.
