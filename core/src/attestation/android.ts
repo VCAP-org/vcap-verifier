@@ -21,6 +21,10 @@ export interface AndroidResult {
   checks: { id: string, outcome: 'pass' | 'fail' | 'skip', detail: string }[]
   bootState?: { locked: boolean, state: string }
   revocation: 'clear' | 'revoked' | 'not_checked'
+  // Set when the chain was valid at the instant it was validated at but has
+  // expired since: the earliest notAfter in the chain. The caller decides what
+  // to say about it, because that depends on how the instant was proven (§7).
+  expiredSince?: string
 }
 
 export type RevocationLookup = (serialHex: string) => Promise<{ status: string } | null>
@@ -43,12 +47,18 @@ const parseDescription = (value: Bytes): Description => {
   return d
 }
 
-export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Bytes, o: { roots?: Certificate[], revocation?: RevocationLookup, now?: Date } = {}): Promise<AndroidResult> => {
+export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Bytes, o: { roots?: Certificate[], revocation?: RevocationLookup, now?: Date, clock?: Date } = {}): Promise<AndroidResult> => {
   const checks: AndroidResult['checks'] = []
   const pass = (id: string, detail: string) => checks.push({ id, outcome: 'pass', detail })
   const fail = (id: string, detail: string) => checks.push({ id, outcome: 'fail', detail })
   const result: AndroidResult = { proven: 'none', checks, revocation: 'not_checked' }
+  // §7: `now` is the proven instant of the capture, which is what path
+  // validation uses; `clock` is the verifier's own clock, used only to notice
+  // that a chain valid then has expired since. An RKP intermediate lives about
+  // twelve days, so with the two collapsed into one every attested capture
+  // would read as unattested a fortnight later.
   const now = o.now ?? new Date()
+  const clock = o.clock ?? new Date()
 
   let certs: Certificate[]
   try { certs = chainB64.map(parseCertificate); if (!certs.length) throw new Error('empty') } catch { fail('chain_parsed', 'chain is empty or not DER certificates'); return result }
@@ -65,7 +75,12 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
   const chain = await chainToRoot(certs[certs.length - 1] as Certificate, [], o.roots ?? googleRoots())
   if (chain) pass('chain_root', 'ends in a pinned Google attestation root'); else fail('chain_root', 'chain does not end in a pinned Google root')
   const outside = certs.findIndex((c) => !withinValidity(c, now))
-  if (outside === -1) pass('chain_validity', 'every certificate is within its validity period'); else fail('chain_validity', `certificate ${outside} is outside its validity period`)
+  if (outside === -1) pass('chain_validity', `every certificate is within its validity period at ${now.toISOString()}`)
+  else fail('chain_validity', `certificate ${outside} is outside its validity period at ${now.toISOString()}`)
+  if (outside === -1) {
+    const expired = certs.filter((c) => !withinValidity(c, clock)).map((c) => c.notAfter.getTime())
+    if (expired.length > 0) result.expiredSince = new Date(Math.min(...expired)).toISOString()
+  }
 
   if (o.revocation) {
     let hit: string | null = null

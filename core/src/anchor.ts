@@ -10,10 +10,13 @@ export interface AnchorAttachment {
   chain: string, tx: string, block: number, anchor_id: number, index: number, tree_size: number, root: string, merkle_path: string[]
 }
 
-export type ChainReader = (chain: string, anchorId: number) => Promise<{ root: Bytes, treeSize: number } | null>
+// A reader may also return the block's time: §7 makes it the proven instant of
+// the capture when no timestamp token is present. Optional, because a light
+// client that only reads the contract's storage does not have it.
+export type ChainReader = (chain: string, anchorId: number) => Promise<{ root: Bytes, treeSize: number, blockTime?: Date } | null>
 
 export type AnchorOutcome =
-  | { ok: true, onChain: boolean, chain: string, block: number }
+  | { ok: true, onChain: boolean, chain: string, block: number, blockTime?: string }
   | { ok: false, reason: string }
 
 export const verifyAnchor = async (a: AnchorAttachment, coreHash: Bytes, readChain?: ChainReader): Promise<AnchorOutcome> => {
@@ -24,5 +27,5 @@ export const verifyAnchor = async (a: AnchorAttachment, coreHash: Bytes, readCha
   const recorded = await readChain(a.chain, a.anchor_id)
   if (!recorded) return { ok: false, reason: 'anchor not found on chain' }
   const same = recorded.treeSize === a.tree_size && recorded.root.length === root.length && recorded.root.every((b, i) => b === root[i])
-  return same ? { ok: true, onChain: true, chain: a.chain, block: a.block } : { ok: false, reason: 'anchored root differs from the chain' }
+  return same ? { ok: true, onChain: true, chain: a.chain, block: a.block, blockTime: recorded.blockTime?.toISOString() } : { ok: false, reason: 'anchored root differs from the chain' }
 }
