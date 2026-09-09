@@ -35,6 +35,10 @@ const render = (name: string, v: Verdict): void => {
     v.claimed_secure_hw ? `<li>claimed level: <code>${escape(v.claimed_secure_hw)}</code> (attestation not evaluated by this page)</li>` : '',
     v.device_clock ? `<li>declared capture time: ${new Date(v.device_clock).toISOString()} (device clock, not trusted time)</li>` : '',
     v.segments ? `<li>segments verified: ${v.segments.verified.length ? v.segments.verified.join(', ') : 'none'}</li>` : '',
+    v.segments?.contradicted?.length ? `<li>segments whose frames are not the signed frames: ${v.segments.contradicted.join(', ')}</li>` : '',
+    // §5 recomputation either happened or did not, and the page says which:
+    // "every segment verifies" means much less when nothing read the frames.
+    v.content ? `<li>segment content: ${v.content.recomputed ? 'recomputed from the container' : 'not recomputed'} (${escape(v.content.detail)})</li>` : '',
     v.registry ? `<li>transparency log: ${escape(v.registry.detail)}</li>` : '',
     v.anchor ? `<li>anchor: ${escape(v.anchor.detail)}</li>` : '',
     v.core_hash ? `<li>proof identity: <code>${v.core_hash}</code></li>` : '',
