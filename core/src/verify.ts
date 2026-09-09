@@ -82,6 +82,9 @@ const shapeProblem = (proof: Obj): string | null => {
   if (!isObj(proof.device) || !PLATFORMS.has(proof.device.platform as string) || !SECURE_HW.has(proof.device.secure_hw as string) || typeof proof.device.key_id !== 'string') return 'device incomplete'
   if (!isObj(proof.sig) || typeof proof.sig.value !== 'string' || typeof proof.sig.pub !== 'string' || typeof proof.sig.alg !== 'string') return 'sig incomplete'
   if ('segments' in proof && (!Array.isArray(proof.segments) || !Number.isInteger((proof.media as Obj).segment_count))) return 'segments without media.segment_count'
+  // §8: media.mime alone decides that a proof is a video proof, and a video
+  // proof needs its segments — the container and duration_ms decide nothing.
+  if ((proof.media.mime as string).startsWith('video/') && !('segments' in proof && Number.isInteger((proof.media as Obj).segment_count))) return 'video proof without segments'
   if (hasFloat(extractCore(proof))) return 'floating-point number in the core'
   return null
 }
