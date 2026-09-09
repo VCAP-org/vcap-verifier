@@ -34,11 +34,16 @@ export interface Verdict {
   reason?: string
   // What the attachments proved, when present and evaluated.
   registry?: { ok: boolean, detail: string, secure_hw?: string }
-  anchor?: { ok: boolean, detail: string, on_chain?: boolean }
+  anchor?: { ok: boolean, detail: string, on_chain?: boolean, block_time?: string }
   timestamp?: { ok: boolean, detail: string, gen_time?: string }
   attestation?: { proven: string, detail: string, boot_state?: { locked: boolean, state: string } }
   // §7: claimed by the device, proven by the evidence, and the ceiling the two allow.
   level?: { claimed: string, proven: string, ceiling: 'green' | 'amber' | 'red' }
+  // §7: the instant every certificate path was validated at, and what proved
+  // it. A verifier must be able to say this: the same file reads differently
+  // depending on whether the capture time came from a token or from the
+  // device's own word.
+  validated_at?: { instant: string, source: 'timestamp' | 'anchor' | 'device_clock' | 'verifier_clock' }
   claimed_secure_hw?: string
   device_clock?: number
 }
@@ -192,7 +197,7 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   }
   if (isObj(proof.anchor)) {
     const a = await verifyAnchor(proof.anchor as unknown as AnchorAttachment, coreHash, o.readChain)
-    verdict.anchor = a.ok ? { ok: true, detail: a.onChain ? `anchored on ${a.chain}, block ${a.block}` : 'merkle path reaches the anchored root; chain not consulted', on_chain: a.onChain } : { ok: false, detail: a.reason }
+    verdict.anchor = a.ok ? { ok: true, detail: a.onChain ? `anchored on ${a.chain}, block ${a.block}` : 'merkle path reaches the anchored root; chain not consulted', on_chain: a.onChain, block_time: a.blockTime } : { ok: false, detail: a.reason }
     if (!a.ok) labels.push('anchor evidence invalid')
     else if (!a.onChain) labels.push('anchoring not verified')
   }
@@ -207,7 +212,19 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     }
   }
 
-  // 7. The proof level (§7): proven by the attestation (Android) or by the
+  // 7. The instant every certificate path is validated at (§7). In order: a
+  // valid timestamp token, a verified anchor's block, the device's own clock,
+  // and — with none of the three — the verifier's clock, which proves nothing
+  // about the capture and is only there so validation has an instant at all.
+  const instant: { at: Date, source: NonNullable<Verdict['validated_at']>['source'] } =
+    verdict.timestamp?.ok === true && verdict.timestamp.gen_time ? { at: new Date(verdict.timestamp.gen_time), source: 'timestamp' }
+      : verdict.anchor?.ok === true && verdict.anchor.block_time ? { at: new Date(verdict.anchor.block_time), source: 'anchor' }
+        : verdict.device_clock !== undefined ? { at: new Date(verdict.device_clock), source: 'device_clock' }
+          : { at: o.now ?? new Date(), source: 'verifier_clock' }
+  verdict.validated_at = { instant: instant.at.toISOString(), source: instant.source }
+  const trustedInstant = instant.source === 'timestamp' || instant.source === 'anchor'
+
+  // 8. The proof level (§7): proven by the attestation (Android) or by the
   // registry leaf (iOS, App Attest goes to the registry), never by the claim.
   // §7: the claim reported in the level is one of the values this version
   // defines, or `none` — the same rule as the reference verifier's
@@ -219,13 +236,18 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   if (Array.isArray(proof.attestation) && device.platform === 'android') {
     let ders: Bytes[] | null = null
     try { ders = (proof.attestation as string[]).map(fromBase64) } catch { ders = null }
-    const a = ders ? await validateAndroidAttestation(ders, spki, { roots: o.googleRoots, revocation: o.revocation, now: o.now }) : null
+    const a = ders ? await validateAndroidAttestation(ders, spki, { roots: o.googleRoots, revocation: o.revocation, now: instant.at, clock: o.now }) : null
     proven = a?.proven ?? 'none'
     verdict.attestation = a
       ? { proven: a.proven, detail: a.checks.filter((c) => c.outcome === 'fail').map((c) => c.detail).join('; ') || 'chain to a pinned Google root', boot_state: a.bootState }
       : { proven: 'none', detail: 'attestation malformed' }
     if (a && a.revocation === 'not_checked') labels.push('revocation not checked')
     if (a && a.revocation === 'revoked') labels.push('key revoked')
+    // §7: a chain valid at the proven instant and expired since is not an
+    // error — the verifier is late, the capture is not forged. It is only worth
+    // saying when the instant is the device's own claim, because then nothing
+    // independent places the capture inside the chain's validity.
+    if (a?.expiredSince && !trustedInstant) labels.push('attestation chain expired, capture time not proven')
   } else if (device.platform === 'ios' && verdict.registry?.ok && verdict.registry.secure_hw === 'secureEnclave') {
     proven = 'secureEnclave'
   }
@@ -235,7 +257,7 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   if (verdict.attestation && (rank[claimed] ?? 0) > (rank[proven] ?? 0)) labels.push('inconsistent claim')
   const inLog = verdict.registry?.ok === true && !labels.includes('registered after the declared capture')
   const ceiling: 'green' | 'amber' | 'red' = verdict.outcome === 'tampered' || labels.includes('key revoked') ? 'red'
-    : proven !== 'none' && inLog && verdict.outcome === 'authentic' && !labels.includes('inconsistent claim') && !labels.includes('revocation not checked') && !labels.includes('key revoked') ? 'green'
+    : proven !== 'none' && inLog && verdict.outcome === 'authentic' && !labels.includes('inconsistent claim') && !labels.includes('revocation not checked') && !labels.includes('key revoked') && !labels.includes('attestation chain expired, capture time not proven') ? 'green'
     : 'amber'
   verdict.level = { claimed, proven, ceiling }
 

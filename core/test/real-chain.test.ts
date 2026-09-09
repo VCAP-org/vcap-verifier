@@ -22,7 +22,19 @@ describe('real device chain (moto g75 5G, Android 16, RKP, TEE)', () => {
     expect(r.revocation).toBe('clear')
   })
 
-  it('proves nothing once the RKP intermediate has expired', async () => {
+  it('still proves tee a month later, and reports since when the chain has been expired', async () => {
+    // §7: the path is validated at the proven instant of the capture, and the
+    // verifier's own clock only tells the caller that the chain has lapsed
+    // since. This is the case that would otherwise rot on its own: the
+    // intermediate in this fixture expires on 18 September 2026, so a suite
+    // that validated at `new Date()` would start failing on the 19th without
+    // anyone touching the code.
+    const r = await validateAndroidAttestation(chain, spki, { now: capturedAt, clock: new Date(capturedAt.getTime() + 30 * 86_400_000), revocation: async () => null })
+    expect(r.proven).toBe('tee')
+    expect(r.expiredSince).toBe('2026-09-18T04:58:41.000Z')
+  })
+
+  it('proves nothing when the instant itself is after the intermediate expired', async () => {
     const r = await validateAndroidAttestation(chain, spki, { now: new Date(capturedAt.getTime() + 30 * 86_400_000) })
     expect(r.checks.find((c) => c.id === 'chain_validity')?.outcome).toBe('fail')
     expect(r.proven).toBe('none')

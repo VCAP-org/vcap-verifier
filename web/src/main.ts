@@ -24,6 +24,13 @@ const TITLE: Record<Verdict['outcome'], string> = {
   unsupported_format_version: 'Unsupported format version'
 }
 
+const SOURCE: Record<string, string> = {
+  timestamp: 'proven by the timestamp token',
+  anchor: 'proven by the anchored block',
+  device_clock: 'the device\'s own clock, not proven',
+  verifier_clock: 'this browser\'s clock; the proof declares no time'
+}
+
 const escape = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
 
 const render = (name: string, v: Verdict): void => {
@@ -34,6 +41,10 @@ const render = (name: string, v: Verdict): void => {
   const details = [
     v.claimed_secure_hw ? `<li>claimed level: <code>${escape(v.claimed_secure_hw)}</code> (attestation not evaluated by this page)</li>` : '',
     v.device_clock ? `<li>declared capture time: ${new Date(v.device_clock).toISOString()} (device clock, not trusted time)</li>` : '',
+    // §7: which clock the certificate paths were validated at. A reader who is
+    // not told cannot tell a capture time proven by a token from one the device
+    // asserted about itself.
+    v.validated_at ? `<li>validated at: ${escape(v.validated_at.instant)} (${escape(SOURCE[v.validated_at.source] ?? v.validated_at.source)})</li>` : '',
     v.segments ? `<li>segments verified: ${v.segments.verified.length ? v.segments.verified.join(', ') : 'none'}</li>` : '',
     v.segments?.contradicted?.length ? `<li>segments whose frames are not the signed frames: ${v.segments.contradicted.join(', ')}</li>` : '',
     // §5 recomputation either happened or did not, and the page says which:

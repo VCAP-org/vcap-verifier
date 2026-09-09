@@ -3,7 +3,7 @@ import { parseCertificate } from '../src/x509.js'
 import { validateTimestamp } from '../src/rfc3161.js'
 import { validateAndroidAttestation } from '../src/attestation/android.js'
 import { sha256, subtle } from '../src/sha.js'
-import { androidChain, genKey, issue, timestampToken, tsaSigner } from './fixtures.js'
+import { type Issued, androidChain, genKey, issue, timestampToken, tsaSigner } from './fixtures.js'
 
 const coreHash = await sha256(new Uint8Array([1, 2, 3]))
 const failed = (v: { checks: { id: string, outcome: string }[] }) => v.checks.filter((c) => c.outcome === 'fail').map((c) => c.id)
@@ -123,6 +123,53 @@ describe('verdict with evidence attachments', async () => {
     expect(v.timestamp?.ok).toBe(false)
     expect(v.labels).toContain('timestamp evidence invalid')
   })
+  // §7: what instant the certificate paths are validated at, and what proved it.
+  const clock = new Date(1757332800000)               // vector 01's device_clock
+  const dayBefore = new Date(clock.getTime() - 86_400_000)
+  const dayAfter = new Date(clock.getTime() + 86_400_000)
+  const monthLater = new Date(clock.getTime() + 30 * 86_400_000)
+  // Two TSA identities: one still current when the verifier runs, one that
+  // covered the capture and has expired since.
+  const current = await tsaSigner({ notBefore: dayBefore, notAfter: new Date(clock.getTime() + 365 * 86_400_000) })
+  const lapsed = await tsaSigner({ notBefore: dayBefore, notAfter: dayAfter })
+  const tokenAt = async (t: { root: Issued, signer: Issued }) => toBase64url(await timestampToken(t.signer, hash, { genTime: clock }))
+
+  it('names the device clock as the instant when nothing better exists', async () => {
+    const v = await verify(trailer.media, { sidecar: withProof({}) })
+    expect(v.validated_at).toEqual({ instant: clock.toISOString(), source: 'device_clock' })
+  })
+  it('names the token as the instant when one is valid', async () => {
+    const v = await verify(trailer.media, { sidecar: withProof({ timestamp: { tsr: await tokenAt(current) } }), tsaRoots: [current.root.der], now: monthLater })
+    expect(v.validated_at).toEqual({ instant: clock.toISOString(), source: 'timestamp' })
+  })
+  it('keeps a chain that was valid at the capture and expired since, and says the capture time is only claimed', async () => {
+    // The measured case: an RKP intermediate lives about twelve days, so a
+    // month after the capture the chain is expired at the verifier's clock and
+    // valid at the instant the proof declares.
+    const a = await androidChain({ validity: { notBefore: dayBefore, notAfter: dayAfter } })
+    const v = await verify(trailer.media, { sidecar: withProof({ attestation: a.chain.map(toBase64url) }), googleRoots: [parseCertificate(a.root.der)], now: monthLater })
+    expect(v.attestation?.detail).not.toContain('outside its validity')
+    expect(v.labels).toContain('attestation chain expired, capture time not proven')
+    expect(v.level?.ceiling).toBe('amber')
+  })
+  it('says nothing about the expiry when the instant is proven by a token', async () => {
+    const a = await androidChain({ validity: { notBefore: dayBefore, notAfter: dayAfter } })
+    const v = await verify(trailer.media, {
+      sidecar: withProof({ attestation: a.chain.map(toBase64url), timestamp: { tsr: await tokenAt(current) } }),
+      googleRoots: [parseCertificate(a.root.der)], tsaRoots: [current.root.der], now: monthLater
+    })
+    expect(v.validated_at?.source).toBe('timestamp')
+    expect(v.labels).not.toContain('attestation chain expired, capture time not proven')
+  })
+  it('validates the TSA chain at genTime, so a token outlives its TSA certificate', async () => {
+    // Without this, long-term validation is impossible: the token proves the
+    // bytes existed in 2026 and becomes unverifiable the day the TSA
+    // certificate expires, which is the opposite of what it is for.
+    const v = await verify(trailer.media, { sidecar: withProof({ timestamp: { tsr: await tokenAt(lapsed) } }), tsaRoots: [lapsed.root.der], now: monthLater })
+    expect(v.timestamp?.ok).toBe(true)
+    expect(v.labels).not.toContain('timestamp evidence invalid')
+  })
+
   it('flags an attestation chain whose key is not the signer, and the claim above it', async () => {
     const a = await androidChain()
     const v = await verify(trailer.media, { sidecar: withProof({ attestation: a.chain.map(toBase64url) }), googleRoots: [parseCertificate(a.root.der)] })

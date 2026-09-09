@@ -7,9 +7,10 @@ import { type Certificate, chainToRoot, hashOf, importForVerify, parseCertificat
  * RFC 3161 token validation, offline, as a verifier meets it in a proof:
  * messageImprint equals core_hash; the signed attributes name TSTInfo and hash
  * it; the signer's signature over them verifies; the signer chains to a pinned
- * TSA root; the signer certificate is for time-stamping; genTime is not in the
- * future. No nonce (the verifier never made the request). Same eight checks as
- * the platform, over WebCrypto.
+ * TSA root **at genTime** (§7: the proven instant, not the verifier's clock);
+ * the signer certificate is for time-stamping; genTime is not in the future.
+ * No nonce (the verifier never made the request). Same eight checks as the
+ * platform, over WebCrypto.
  */
 const OID = {
   sha256: '2.16.840.1.101.3.4.2.1', sha384: '2.16.840.1.101.3.4.2.2', sha512: '2.16.840.1.101.3.4.2.3',
@@ -106,9 +107,16 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
   if (verified) pass('signature', 'signed by the TSA certificate')
   else fail('signature', sigHash ? 'signature does not verify with the signer certificate' : `unsupported signature algorithm ${signatureAlg}`)
 
+  // §7: the TSA chain is validated at the instant the token proves, not at the
+  // verifier's clock. genTime lives inside the signed TSTInfo, so it cannot be
+  // moved without breaking the TSA signature — and validating at "now" would
+  // make every token unverifiable the day its TSA certificate expires, which
+  // destroys the long-term validation the token exists to provide. Falls back
+  // to the verifier's clock only when genTime could not be read.
+  const at = verdict.genTime ? new Date(verdict.genTime) : now
   const chain = await chainToRoot(signer, certs, roots)
-  if (chain && chain.every((c) => withinValidity(c, now))) pass('signer_chain', 'signer chains to a pinned TSA root')
-  else fail('signer_chain', chain ? 'a certificate in the chain is outside its validity' : 'signer does not chain to a pinned TSA root')
+  if (chain && chain.every((c) => withinValidity(c, at))) pass('signer_chain', `signer chains to a pinned TSA root, valid at ${at.toISOString()}`)
+  else fail('signer_chain', chain ? `a certificate in the chain is outside its validity at ${at.toISOString()}` : 'signer does not chain to a pinned TSA root')
 
   const eku = signer.extensions.get(OID.extendedKeyUsage)
   let stamping = false

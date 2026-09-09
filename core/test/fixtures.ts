@@ -30,9 +30,9 @@ const der = (n: asn1js.AsnType) => new Uint8Array(n.toBER(false))
 const ctx = (tag: number, ...value: asn1js.AsnType[]) => new asn1js.Constructed({ idBlock: { tagClass: 3, tagNumber: tag }, value })
 const spkiOf = async (k: CryptoKey) => new Uint8Array(await subtle().exportKey('spki', k))
 
-export const tsaSigner = async (): Promise<{ root: Issued, signer: Issued }> => {
-  const root = await issue({ subject: 'CN=Test TSA Root', ca: true })
-  const signer = await issue({ subject: 'CN=Test TSA', issuer: root, extensions: [new x509.ExtendedKeyUsageExtension(['1.3.6.1.5.5.7.3.8'], true)] })
+export const tsaSigner = async (v: { notBefore?: Date, notAfter?: Date } = {}): Promise<{ root: Issued, signer: Issued }> => {
+  const root = await issue({ subject: 'CN=Test TSA Root', ca: true, ...v })
+  const signer = await issue({ subject: 'CN=Test TSA', issuer: root, extensions: [new x509.ExtendedKeyUsageExtension(['1.3.6.1.5.5.7.3.8'], true)], ...v })
   return { root, signer }
 }
 
@@ -82,9 +82,15 @@ export const keyDescription = (o: { attestation: Level, keyMint: Level, locked?:
   return new x509.Extension('1.3.6.1.4.1.11129.2.1.17', false, body)
 }
 
-export const androidChain = async (o: { attestation?: Level, keyMint?: Level, locked?: boolean, bootState?: number, withRot?: boolean, leafKeys?: CryptoKeyPair } = {}): Promise<{ root: Issued, chain: Uint8Array[], spki: Uint8Array }> => {
-  const root = await issue({ subject: 'CN=Test Android Root', ca: true })
-  const inter = await issue({ subject: 'CN=Test Android Intermediate', issuer: root, ca: true })
-  const leaf = await issue({ subject: 'CN=Android Keystore Key', issuer: inter, keys: o.leafKeys, extensions: [keyDescription({ attestation: o.attestation ?? 1, keyMint: o.keyMint ?? 1, locked: o.locked, bootState: o.bootState, withRot: o.withRot })] })
+export const androidChain = async (o: { attestation?: Level, keyMint?: Level, locked?: boolean, bootState?: number, withRot?: boolean, leafKeys?: CryptoKeyPair, validity?: { notBefore: Date, notAfter: Date } } = {}): Promise<{ root: Issued, chain: Uint8Array[], spki: Uint8Array }> => {
+  // A root that outlives the window it certifies, as a pinned Google root does:
+  // one year before, ten after, so a test can place the capture anywhere in it.
+  const span = o.validity && { notBefore: new Date(o.validity.notBefore.getTime() - 365 * 86_400_000), notAfter: new Date(o.validity.notAfter.getTime() + 3650 * 86_400_000) }
+  const root = await issue({ subject: 'CN=Test Android Root', ca: true, ...span })
+  // The short window applies to the intermediate and the leaf, not the root:
+  // that is the shape of a real RKP chain, where the short-lived certificate is
+  // the per-device intermediate under a long-lived Google root.
+  const inter = await issue({ subject: 'CN=Test Android Intermediate', issuer: root, ca: true, ...o.validity })
+  const leaf = await issue({ subject: 'CN=Android Keystore Key', issuer: inter, keys: o.leafKeys, ...o.validity, extensions: [keyDescription({ attestation: o.attestation ?? 1, keyMint: o.keyMint ?? 1, locked: o.locked, bootState: o.bootState, withRot: o.withRot })] })
   return { root, chain: [leaf.der, inter.der, root.der], spki: await spkiOf(leaf.keys.publicKey) }
 }
