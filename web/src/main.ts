@@ -51,6 +51,7 @@ const render = (name: string, v: Verdict): void => {
     // "every segment verifies" means much less when nothing read the frames.
     v.content ? `<li>segment content: ${v.content.recomputed ? 'recomputed from the container' : 'not recomputed'} (${escape(v.content.detail)})</li>` : '',
     v.registry ? `<li>transparency log: ${escape(v.registry.detail)}</li>` : '',
+    v.attestation_status ? `<li>chain revocation: ${escape(v.attestation_status.detail)}</li>` : '',
     v.anchor ? `<li>anchor: ${escape(v.anchor.detail)}</li>` : '',
     v.core_hash ? `<li>proof identity: <code>${v.core_hash}</code></li>` : '',
     v.reason ? `<li>${escape(v.reason)}</li>` : ''

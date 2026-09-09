@@ -4,6 +4,7 @@ import { jcs, type Json } from './jcs.js'
 import { parseTrailer } from './trailer.js'
 import { canonicalBytes, detectContainer } from './canonical.js'
 import { recomputeSegments } from './container.js'
+import { type StatusAttachment, type StatusOutcome, verifyStatus } from './attestation-status.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import { type SegmentEntry, verifyChain } from './segments.js'
 import { type RegistryAttachment, type TrustedLog, verifyRegistry } from './registry.js'
@@ -37,6 +38,8 @@ export interface Verdict {
   anchor?: { ok: boolean, detail: string, on_chain?: boolean, block_time?: string }
   timestamp?: { ok: boolean, detail: string, gen_time?: string }
   attestation?: { proven: string, detail: string, boot_state?: { locked: boolean, state: string } }
+  // §6.2: the chain's revocation status as frozen while the chain was current.
+  attestation_status?: { ok: boolean, detail: string }
   // §7: claimed by the device, proven by the evidence, and the ceiling the two allow.
   level?: { claimed: string, proven: string, ceiling: 'green' | 'amber' | 'red' }
   // §7: the instant every certificate path was validated at, and what proved
@@ -67,7 +70,7 @@ export interface VerifyOptions {
 }
 
 const CORE_KEYS = ['v', 'capture_id', 'media', 'device', 'watermark', 'time', 'location', 'policy'] as const
-const KNOWN = new Set([...CORE_KEYS, 'sig', 'segments', 'attestation', 'registry', 'timestamp', 'anchor', 'integrity'])
+const KNOWN = new Set([...CORE_KEYS, 'sig', 'segments', 'attestation', 'attestation_status', 'registry', 'timestamp', 'anchor', 'integrity'])
 const ABSENT: [string, string][] = [
   ['timestamp', 'no trusted time'], ['anchor', 'not anchored'], ['registry', 'key not in transparency log'],
   ['attestation', 'origin not hardware-attested'], ['integrity', 'integrity unevaluated'], ['watermark', 'no watermark']
@@ -241,7 +244,39 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     verdict.attestation = a
       ? { proven: a.proven, detail: a.checks.filter((c) => c.outcome === 'fail').map((c) => c.detail).join('; ') || 'chain to a pinned Google root', boot_state: a.bootState }
       : { proven: 'none', detail: 'attestation malformed' }
-    if (a && a.revocation === 'not_checked') labels.push('revocation not checked')
+    // §6.2: the frozen snapshot answers, offline, the question the online
+    // status list can no longer answer once the chain has expired. It is read
+    // *after* the instant is known, because the same entries mean different
+    // things before and after the capture.
+    let frozen: StatusOutcome | null = null
+    if (isObj(proof.attestation_status)) {
+      frozen = await verifyStatus(proof.attestation_status as unknown as StatusAttachment, coreHash, o.trustedLogs ?? [], (proof.registry as Obj | undefined)?.log_id as string | undefined)
+      if (!frozen.ok) {
+        verdict.attestation_status = { ok: false, detail: frozen.reason }
+        // An attachment that does not check out adds nothing and takes nothing
+        // away: the chain's revocation is simply not established (§9's fallback
+        // for an unknown source is the same outcome).
+        frozen = null
+      } else if (frozen.revoked === null) {
+        verdict.attestation_status = { ok: true, detail: `no certificate of the chain was revoked as of ${new Date(frozen.fetchedAt).toISOString()}` }
+      } else {
+        const when = frozen.fetchedAt <= instant.at.getTime() ? 'at or before the capture' : 'after the capture'
+        verdict.attestation_status = { ok: true, detail: `certificate ${frozen.revoked.serial} revoked ${when}${frozen.revoked.reason ? ` (${frozen.revoked.reason})` : ''}` }
+      }
+    }
+    // Revocation is temporal, as for the device key: a certificate revoked at
+    // or before the proven instant means the chain was already worthless when
+    // the capture was claimed; revoked afterwards leaves the level at that
+    // instant standing, because a batch key withdrawn later does not un-attest
+    // what it attested.
+    const revokedBeforeCapture = frozen?.ok === true && frozen.revoked !== null && frozen.fetchedAt <= instant.at.getTime()
+    if (revokedBeforeCapture) { proven = 'none'; labels.push('attestation key revoked') }
+    else if (frozen?.ok === true && frozen.revoked !== null) labels.push('attestation key revoked after the capture')
+    // The snapshot *is* the revocation check when it clears the chain: without
+    // it an offline verifier can never reach green, which is the whole reason
+    // the attachment exists.
+    const checkedByFrozen = frozen?.ok === true && frozen.revoked === null
+    if (a && a.revocation === 'not_checked' && !checkedByFrozen) labels.push('revocation not checked')
     if (a && a.revocation === 'revoked') labels.push('key revoked')
     // §7: a chain valid at the proven instant and expired since is not an
     // error — the verifier is late, the capture is not forged. It is only worth
@@ -256,7 +291,7 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   // attestation the §7 label is *origin not hardware-attested* alone.
   if (verdict.attestation && (rank[claimed] ?? 0) > (rank[proven] ?? 0)) labels.push('inconsistent claim')
   const inLog = verdict.registry?.ok === true && !labels.includes('registered after the declared capture')
-  const ceiling: 'green' | 'amber' | 'red' = verdict.outcome === 'tampered' || labels.includes('key revoked') ? 'red'
+  const ceiling: 'green' | 'amber' | 'red' = verdict.outcome === 'tampered' || labels.includes('key revoked') || labels.includes('attestation key revoked') ? 'red'
     : proven !== 'none' && inLog && verdict.outcome === 'authentic' && !labels.includes('inconsistent claim') && !labels.includes('revocation not checked') && !labels.includes('key revoked') && !labels.includes('attestation chain expired, capture time not proven') ? 'green'
     : 'amber'
   verdict.level = { claimed, proven, ceiling }
