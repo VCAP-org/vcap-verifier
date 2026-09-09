@@ -68,6 +68,7 @@ const ABSENT: [string, string][] = [
   ['attestation', 'origin not hardware-attested'], ['integrity', 'integrity unevaluated'], ['watermark', 'no watermark']
 ]
 const PLATFORMS = new Set(['android', 'ios', 'web'])
+const SECURE_HW = new Set(['strongbox', 'tee', 'secureEnclave', 'none'])
 
 type Obj = { [key: string]: Json }
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -87,9 +88,11 @@ export const coreHashOf = (proof: Obj): Promise<Bytes> => sha256(jcs(extractCore
 const shapeProblem = (proof: Obj): string | null => {
   if (!b64Len(proof.capture_id, 16)) return 'capture_id missing or not 16 bytes'
   if (!isObj(proof.media) || typeof proof.media.hash !== 'string' || typeof proof.media.mime !== 'string') return 'media.hash or media.mime missing'
-  // §7/§9: a secure_hw value v1.0 does not define is read as `none`, never
-  // refused — the signature still verifies and the capture is still readable.
-  if (!isObj(proof.device) || !PLATFORMS.has(proof.device.platform as string) || typeof proof.device.secure_hw !== 'string' || typeof proof.device.key_id !== 'string') return 'device incomplete'
+  // Shape only: any string passes here. §9 makes the format additive, so a
+  // platform or secure_hw v1.0 does not define is a later version's value, not
+  // a broken proof — refusing it would turn a valid signature over readable
+  // bytes into *no proof found*. Unknown values are read as `none` below.
+  if (!isObj(proof.device) || typeof proof.device.platform !== 'string' || typeof proof.device.secure_hw !== 'string' || typeof proof.device.key_id !== 'string') return 'device incomplete'
   if (!isObj(proof.sig) || typeof proof.sig.value !== 'string' || typeof proof.sig.pub !== 'string' || typeof proof.sig.alg !== 'string') return 'sig incomplete'
   if ('segments' in proof && (!Array.isArray(proof.segments) || !Number.isInteger((proof.media as Obj).segment_count))) return 'segments without media.segment_count'
   // §8: media.mime alone decides that a proof is a video proof, and a video
@@ -159,7 +162,7 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     const expected = ('segments' in proof ? 2 : 0) | ((isObj(proof.policy) && proof.policy.pseudonymous === true) ? 4 : 0)
     if ((flags & 6) !== expected) labels.push('flags disagree')
   }
-  const verdict: Verdict = { outcome: 'authentic', labels, not_evaluated: notEvaluated, core_hash: hash, claimed_secure_hw: device.secure_hw as string }
+  const verdict: Verdict = { outcome: 'authentic', labels, not_evaluated: notEvaluated, core_hash: hash, claimed_secure_hw: device.secure_hw as string }  // as written by the device, unknown values included
   if (isObj(proof.time) && typeof proof.time.device_clock === 'number') verdict.device_clock = proof.time.device_clock
 
   if ('segments' in proof) {
@@ -206,7 +209,12 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
 
   // 7. The proof level (§7): proven by the attestation (Android) or by the
   // registry leaf (iOS, App Attest goes to the registry), never by the claim.
-  const claimed = device.secure_hw as string
+  // §7: the claim reported in the level is one of the values this version
+  // defines, or `none` — the same rule as the reference verifier's
+  // claimedLevel(). The raw string stays in claimed_secure_hw, so a reader can
+  // still see what the device wrote without the level ranking a name it cannot
+  // interpret.
+  const claimed = SECURE_HW.has(device.secure_hw as string) && PLATFORMS.has(device.platform as string) ? device.secure_hw as string : 'none'
   let proven: string = 'none'
   if (Array.isArray(proof.attestation) && device.platform === 'android') {
     let ders: Bytes[] | null = null

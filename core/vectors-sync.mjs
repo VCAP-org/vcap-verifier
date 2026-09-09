@@ -24,6 +24,11 @@ const listing = (dir) => {
 }
 
 if (!existsSync(source) || readdirSync(source).length === 0) {
+  // In --check the missing submodule is the failure: CI checks it out, so its
+  // absence means the snapshot was compared against nothing and the gate would
+  // pass without having read a single vector. Outside --check a working copy
+  // without the submodule is normal and the snapshot is left alone.
+  if (check) { console.error('[vcap] spec submodule not checked out: nothing to check the snapshot against (git submodule update --init)'); process.exit(1) }
   console.log('[vcap] spec submodule not checked out; snapshot left as is')
   process.exit(0)
 }
