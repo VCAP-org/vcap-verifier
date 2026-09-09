@@ -17,6 +17,10 @@ export const stripC2paFromJpeg = (jpeg: Bytes): Bytes => {
   while (pos + 4 <= jpeg.length) {
     if (jpeg[pos] !== 0xff) throw new Error('JPEG: marker expected')
     const marker = jpeg[pos + 1] as number
+    // §4.1 keeps fill bytes (0xFF padding before a marker) and length-less
+    // markers (TEM, RSTn) as they are: content, not a segment to judge.
+    if (marker === 0xff) { kept.push(jpeg.subarray(pos, pos + 1)); pos += 1; continue }
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { kept.push(jpeg.subarray(pos, pos + 2)); pos += 2; continue }
     if (marker === 0xda) break
     const length = readU16BE(jpeg, pos + 2)
     const segment = jpeg.subarray(pos, pos + 2 + length)
