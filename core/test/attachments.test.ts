@@ -5,6 +5,7 @@ import { leafHash, nodeHash } from '../src/merkle.js'
 import { sha256, subtle } from '../src/sha.js'
 import { logIdOf, treeHeadMessage, verifyRegistry, type RegistryAttachment } from '../src/registry.js'
 import { verifyAnchor } from '../src/anchor.js'
+import { type StatusAttachment, statusMessage, verifyStatus } from '../src/attestation-status.js'
 
 // Attachments are not in the spec vectors yet (they need the log and the
 // chain), so they are exercised here with a test log key and trees built by
@@ -81,5 +82,58 @@ describe('bytes', () => {
     const b = new Uint8Array([0, 1, 2, 250, 251, 252, 253, 254, 255])
     expect(fromBase64(toBase64url(b))).toEqual(b)
     expect(toHex(b)).toBe('000102fafbfcfdfeff')
+  })
+})
+
+// §6.2, `attestation_status`: the chain's revocation status frozen while the
+// chain was still current, countersigned by the log key the verifier already
+// holds for tree heads.
+describe('chain revocation snapshot', () => {
+  const coreHash = new Uint8Array(32).fill(9)
+  const entries = [{ serial: 'aa', status: 'valid' }]
+  const snapshot = async (o: { entries?: StatusAttachment['entries'], fetchedAt?: number, source?: string, signer?: (m: Uint8Array) => Promise<Uint8Array> } = {}): Promise<StatusAttachment> => {
+    const a: StatusAttachment = { source: o.source ?? 'googleStatusList', fetched_at: o.fetchedAt ?? 1757332800000, entries: o.entries ?? entries, sig: '' }
+    a.sig = toBase64url(await (o.signer ?? sign)(statusMessage(coreHash, a)))
+    return a
+  }
+  const trusted = async () => [{ logId: await logIdOf(logSpki), spki: logSpki }]
+
+  it('reads a countersigned snapshot that clears the chain', async () => {
+    expect(await verifyStatus(await snapshot(), coreHash, await trusted())).toEqual({ ok: true, fetchedAt: 1757332800000, revoked: null })
+  })
+
+  it('names the revoked certificate and the instant the list was read', async () => {
+    const a = await snapshot({ entries: [{ serial: 'aa', status: 'valid' }, { serial: 'bb', status: 'revoked', reason: 'KEY_COMPROMISE' }] })
+
+    expect(await verifyStatus(a, coreHash, await trusted())).toEqual({ ok: true, fetchedAt: 1757332800000, revoked: { serial: 'bb', reason: 'KEY_COMPROMISE' } })
+  })
+
+  it('refuses a snapshot signed by a key the verifier does not trust for tree heads', async () => {
+    const other = await subtle().generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+    const a = await snapshot({ signer: async (m) => new Uint8Array(await subtle().sign({ name: 'ECDSA', hash: 'SHA-256' }, other.privateKey, Uint8Array.from(m))) })
+
+    expect(await verifyStatus(a, coreHash, await trusted())).toEqual({ ok: false, reason: 'countersignature does not verify under any trusted log key' })
+  })
+
+  it('refuses a snapshot whose entries were edited after signing', async () => {
+    const a = await snapshot()
+    a.entries = [{ serial: 'aa', status: 'revoked' }]
+
+    expect((await verifyStatus(a, coreHash, await trusted())).ok).toBe(false)
+  })
+
+  it('refuses a snapshot moved to another instant, because fetched_at is signed', async () => {
+    const a = await snapshot()
+    a.fetched_at += 1000
+
+    expect((await verifyStatus(a, coreHash, await trusted())).ok).toBe(false)
+  })
+
+  it('ignores a source it does not know (§9), rather than guessing what the values mean', async () => {
+    expect(await verifyStatus(await snapshot({ source: 'someOtherList' }), coreHash, await trusted())).toEqual({ ok: false, reason: 'unknown status source someOtherList' })
+  })
+
+  it('says so when it holds no log key to check the countersignature with', async () => {
+    expect((await verifyStatus(await snapshot(), coreHash, [])).ok).toBe(false)
   })
 })
