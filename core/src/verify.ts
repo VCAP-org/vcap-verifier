@@ -231,7 +231,10 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   if (isObj(proof.anchor)) {
     const a = await verifyAnchor(proof.anchor as unknown as AnchorAttachment, coreHash, o.readChain)
     verdict.anchor = a.ok ? { ok: true, detail: a.onChain ? `anchored on ${a.chain}, block ${a.block}` : 'merkle path reaches the anchored root; chain not consulted', on_chain: a.onChain, block_time: a.blockTime } : { ok: false, detail: a.reason }
-    if (!a.ok) labels.push('anchor evidence invalid')
+    // §8's rule for every attachment: present and not holding up carries the
+    // absent label too. *not anchored* is what a reader is shown, *anchor
+    // evidence invalid* is what an operator can act on.
+    if (!a.ok) labels.push('anchor evidence invalid', 'not anchored')
     else if (!a.onChain) labels.push('anchoring not verified')
   }
   if (isObj(proof.timestamp) && typeof proof.timestamp.tsr === 'string') {
@@ -241,7 +244,7 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
       try { token = fromBase64(proof.timestamp.tsr) } catch { token = null }
       const t = token ? await validateTimestamp(token, coreHash, o.tsaRoots.map(parseCertificate), o.now) : null
       verdict.timestamp = t?.ok ? { ok: true, detail: `existed before ${t.genTime}`, gen_time: t.genTime } : { ok: false, detail: t ? t.checks.filter((c) => c.outcome === 'fail').map((c) => c.detail).join('; ') : 'token malformed' }
-      if (!verdict.timestamp.ok) labels.push('timestamp evidence invalid')
+      if (!verdict.timestamp.ok) labels.push('timestamp evidence invalid', 'no trusted time')
     }
   }
 
