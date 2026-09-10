@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { verify, verifyChain, jcs, toHex, extractCore, fromBase64 } from '../src/index.js'
+import { verify, verifyChain, jcs, toHex, extractCore, fromBase64, parseCertificate, pemToDer } from '../src/index.js'
 import { importP256Spki } from '../src/es256.js'
 import { sha256 } from '../src/sha.js'
 import type { Json } from '../src/jcs.js'
@@ -18,6 +18,23 @@ const SNAPSHOT = join(import.meta.dirname, '..', 'vectors')
 const VECTORS = existsSync(SUBMODULE) && readdirSync(SUBMODULE).length > 0 ? SUBMODULE : SNAPSHOT
 const dirs = existsSync(VECTORS) ? readdirSync(VECTORS).filter((d) => /^\d\d-/.test(d)).sort() : []
 
+// `_trust/` holds the anchors the corpus assumes a verifier already has: the
+// root its attestation chains end in — a test root standing in for a pinned
+// Google root — and the public key of the log it pretends to trust. They ship
+// as loadable files rather than compiled into a verifier precisely so a second
+// implementation can reproduce the verdicts; loading them here is what makes
+// this core that second implementation. Absent, the §7 vectors fail loudly with
+// `proven: none`, which is the honest answer for a verifier holding no anchor.
+const TRUST = join(VECTORS, '_trust')
+const pemCerts = (pem: string) => (pem.match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) ?? []).map((b) => parseCertificate(pemToDer(b)))
+const googleRoots = existsSync(join(TRUST, 'attestation-roots.pem'))
+  ? pemCerts(readFileSync(join(TRUST, 'attestation-roots.pem'), 'utf8'))
+  : undefined
+const trustedLogs = existsSync(join(TRUST, 'logs.json'))
+  ? (JSON.parse(readFileSync(join(TRUST, 'logs.json'), 'utf8')).logs as { log_id: string, spki: string }[])
+      .map((l) => ({ logId: l.log_id, spki: fromBase64(l.spki) }))
+  : undefined
+
 // Compare only what the vector asks about, at every depth: a verdict may carry
 // more than the corpus pins (this core names the contradicted segments, the
 // reference verifier does not) and extra diagnostics must not read as a
@@ -30,12 +47,21 @@ const pick = (actual: unknown, expected: Record<string, unknown>): Record<string
   }))
 
 describe('vcap-spec conformance vectors', () => {
-  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(30) })
+  // A floor, not a count: it catches a missing submodule and an accidental
+  // downgrade. It cannot catch a submodule left behind a newer spec — raising
+  // it is the deliberate act of adopting new vectors, and that is the point.
+  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(45) })
 
   for (const dir of dirs) {
     it(dir, async () => {
       const path = join(VECTORS, dir)
-      const { kind, debug: _d, schema_valid: _s, ...want } = JSON.parse(readFileSync(join(path, 'expected.json'), 'utf8'))
+      // `verifier_clock` is an input, not an expectation: a §7 verdict depends on
+      // when the verifier runs, so the corpus fixes that instant instead of
+      // letting the wall clock decide. Vectors 43 and 45 say the same chain twice
+      // and differ only by it. Comparing it as an output is how it read as a
+      // failure while the logic underneath was right.
+      const { kind, debug: _d, schema_valid: _s, verifier_clock: clock, ...want } = JSON.parse(readFileSync(join(path, 'expected.json'), 'utf8'))
+      const now = typeof clock === 'number' ? new Date(clock) : undefined
       if (kind === 'file' || kind === 'container') {
         // A container vector is a file vector with one more question asked of
         // the same bytes: recompute every segment's content_hash from the GOPs
@@ -44,7 +70,10 @@ describe('vcap-spec conformance vectors', () => {
         const sidecarPath = join(path, `${input}.vcap`)
         const verdict = await verify(new Uint8Array(readFileSync(join(path, input))), {
           sidecar: existsSync(sidecarPath) ? new Uint8Array(readFileSync(sidecarPath)) : undefined,
-          recomputeSegments: kind === 'container'
+          recomputeSegments: kind === 'container',
+          googleRoots,
+          trustedLogs,
+          now
         })
         expect(pick(verdict, want)).toEqual(want)
       } else if (kind === 'segments') {
