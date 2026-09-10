@@ -76,14 +76,21 @@ describe('Android key attestation', () => {
     expect(failed(r)).toEqual(['key_binding'])
     expect(r.proven).toBe('none')
   })
-  it('uses the status list when given', async () => {
+  it('reports the status list finding and draws no conclusion from it', async () => {
+    // The level stays: revocation is temporal (§6.2) and this function is not
+    // told the proven instant of the capture, only the instant to validate the
+    // path at. Withdrawing the level here would say a batch key withdrawn in
+    // 2028 un-attests a capture from 2026 — which is exactly what it used to
+    // say, while the frozen snapshot next to it said the opposite.
     const a = await androidChain()
     const revoked = parseCertificate(a.chain[1]!).serialHex
     const r = await validateAndroidAttestation(a.chain, a.spki, { roots: [parseCertificate(a.root.der)], revocation: async (s) => s === revoked ? { status: 'REVOKED' } : null })
     expect(r.revocation).toBe('revoked')
-    expect(r.proven).toBe('none')
+    expect(r.revoked).toEqual({ serial: revoked, status: 'REVOKED' })
+    expect(r.proven).toBe('tee')
     const clear = await validateAndroidAttestation(a.chain, a.spki, { roots: [parseCertificate(a.root.der)], revocation: async () => null })
     expect(clear.revocation).toBe('clear')
+    expect(clear.revoked).toBeUndefined()
     expect(clear.proven).toBe('tee')
   })
   it('falls back to none without the attestation extension', async () => {

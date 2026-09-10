@@ -21,6 +21,15 @@ export interface AndroidResult {
   checks: { id: string, outcome: 'pass' | 'fail' | 'skip', detail: string }[]
   bootState?: { locked: boolean, state: string }
   revocation: 'clear' | 'revoked' | 'not_checked'
+  // Which certificate the status list had an entry for, when it had one. The
+  // *when* is missing on purpose: Google's list is a current-status list and
+  // carries no revocation date, so the only instant an online answer can speak
+  // for is the moment it was fetched. §6.2's temporal rule therefore applies to
+  // it exactly as to the frozen snapshot, with the fetch time as `fetched_at` —
+  // which is why this result reports the finding and draws no conclusion from
+  // it. Zeroing the proven level here would say a batch key withdrawn in 2028
+  // un-attests a capture from 2026.
+  revoked?: { serial: string, status: string }
   // Set when the chain was valid at the instant it was validated at but has
   // expired since: the earliest notAfter in the chain. The caller decides what
   // to say about it, because that depends on how the instant was proven (§7).
@@ -83,10 +92,13 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
   }
 
   if (o.revocation) {
-    let hit: string | null = null
-    for (const c of certs) { const r = await o.revocation(c.serialHex); if (r) { hit = `${c.serialHex} is ${r.status}`; break } }
-    result.revocation = hit ? 'revoked' : 'clear'
-    if (hit) fail('chain_revocation', `certificate ${hit}`); else pass('chain_revocation', 'no certificate in the chain is revoked')
+    for (const c of certs) {
+      const r = await o.revocation(c.serialHex)
+      if (r) { result.revoked = { serial: c.serialHex, status: r.status }; break }
+    }
+    result.revocation = result.revoked ? 'revoked' : 'clear'
+    if (result.revoked) fail('chain_revocation', `certificate ${result.revoked.serial} is ${result.revoked.status}`)
+    else pass('chain_revocation', 'no certificate in the chain is revoked')
   } else {
     checks.push({ id: 'chain_revocation', outcome: 'skip', detail: 'revocation list not available offline' })
   }
@@ -107,7 +119,11 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
   const structural = checks.filter((c) => ['key_binding', 'chain_signatures', 'chain_root', 'chain_validity', 'boot_state'].includes(c.id)).every((c) => c.outcome === 'pass')
   if (weakest === 'software') fail('security_level', 'attestation or key is software')
   else pass('security_level', `attestation ${d.attestationLevel}, key ${d.keyMintLevel}`)
-  result.proven = structural && weakest !== 'software' && result.revocation !== 'revoked' ? weakest : 'none'
+  // Revocation does not enter here: it is temporal (§6.2) and this function
+  // does not know the proven instant of the capture, only the instant it was
+  // asked to validate the path at. The caller withdraws the level when the
+  // revocation precedes the capture, and leaves it standing when it follows.
+  result.proven = structural && weakest !== 'software' ? weakest : 'none'
   return result
 }
 

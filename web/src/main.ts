@@ -52,6 +52,10 @@ const render = (name: string, v: Verdict): void => {
     v.content ? `<li>segment content: ${v.content.recomputed ? 'recomputed from the container' : 'not recomputed'} (${escape(v.content.detail)})</li>` : '',
     v.registry ? `<li>transparency log: ${escape(v.registry.detail)}</li>` : '',
     v.attestation_status ? `<li>chain revocation: ${escape(v.attestation_status.detail)}</li>` : '',
+    // The device key's own standing, which is the one thing this page cannot
+    // establish from the file: it ships with no log to ask, so it says so
+    // rather than leaving the reader to assume it was checked.
+    v.key_status ? `<li>key revocation: ${escape(v.key_status.detail)}</li>` : '',
     v.anchor ? `<li>anchor: ${escape(v.anchor.detail)}</li>` : '',
     v.core_hash ? `<li>proof identity: <code>${v.core_hash}</code></li>` : '',
     v.reason ? `<li>${escape(v.reason)}</li>` : ''
