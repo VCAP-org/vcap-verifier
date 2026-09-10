@@ -1,4 +1,8 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { leafHash, nodeHash, verifyConsistency } from '../src/merkle.js'
+import { fromBase64, fromHex } from '../src/bytes.js'
+import { pemToDer } from '../src/x509.js'
 import { parseCertificate } from '../src/x509.js'
 import { validateTimestamp } from '../src/rfc3161.js'
 import { validateAndroidAttestation } from '../src/attestation/android.js'
@@ -237,3 +241,110 @@ describe('verdict with evidence attachments', async () => {
     expect(v.level?.ceiling).toBe('amber')
   })
 })
+
+describe('what the platform needs from the core', () => {
+  // Two additions made for `vcap-platform`'s data plane, so it can stop
+  // carrying its own copies. Both are a *reader's* checks, which is the
+  // argument for their living here: the party that would benefit from a split
+  // view is the log, so the verification cannot live only in the log's code.
+
+  it('verifies a consistency proof between two heads of the same tree', async () => {
+    // Every earlier head against every later one, up to nine leaves. That
+    // covers both shapes: `first` a power of two, where the first tree is a
+    // complete subtree and its root seeds the walk, and the ragged case where
+    // the path carries the seed instead.
+    const leaves = await hashedLeaves(9)
+    for (let second = 2; second <= leaves.length; second++) {
+      for (let first = 1; first < second; first++) {
+        const ok = await verifyConsistency(
+          first, second,
+          await rootOf(leaves.slice(0, first)),
+          await rootOf(leaves.slice(0, second)),
+          await consistencyPath(leaves, first, second))
+        expect(ok, `${first} -> ${second}`).toBe(true)
+      }
+    }
+  })
+
+  it('refuses a consistency proof for a tree that was rewritten', async () => {
+    // The split view: the same size, a different history. Nothing about an
+    // inclusion proof catches this, which is the whole reason for the check.
+    const honest = await hashedLeaves(5)
+    const rewritten = [...honest]
+    rewritten[1] = await leafHash(new TextEncoder().encode('a leaf that replaced another'))
+
+    const ok = await verifyConsistency(
+      3, 5,
+      await rootOf(honest.slice(0, 3)),
+      await rootOf(rewritten),
+      await consistencyPath(honest, 3, 5))
+    expect(ok).toBe(false)
+  })
+
+  it('refuses the degenerate shapes rather than accepting them quietly', async () => {
+    const root = await leafHash(new Uint8Array([1]))
+    // Equal sizes need no proof, and a path there is evidence of confusion.
+    expect(await verifyConsistency(3, 3, root, root, [])).toBe(true)
+    expect(await verifyConsistency(3, 3, root, root, [root])).toBe(false)
+    // An empty first tree is consistent with anything; a shrinking one with
+    // nothing.
+    expect(await verifyConsistency(0, 4, root, root, [])).toBe(true)
+    expect(await verifyConsistency(5, 4, root, root, [])).toBe(false)
+  })
+
+  it('reads the serial and the policy out of a timestamp token', async () => {
+    // Not checks — nothing verifies them — but the serial is what you cite to
+    // a TSA when disputing a token, and the platform stores it per token.
+    const token = timestampFixture()
+    if (!token) return
+    const verdict = await validateTimestamp(token.tsr, token.coreHash, token.roots)
+    expect(verdict.ok).toBe(true)
+    expect(verdict.serialNumber).toMatch(/^[0-9a-f]+$/)
+    expect(verdict.policy).toMatch(/^[0-9.]+$/)
+  })
+})
+
+const hashedLeaves = (count: number): Promise<Uint8Array[]> =>
+  Promise.all(Array.from({ length: count }, (_, i) => leafHash(new TextEncoder().encode(`leaf ${i}`))))
+
+/** RFC 6962 MTH over already-hashed leaves. */
+const rootOf = async (hashes: Uint8Array[]): Promise<Uint8Array> => {
+  if (hashes.length === 1) return hashes[0] as Uint8Array
+  const k = 1 << (31 - Math.clz32(hashes.length - 1))
+  return nodeHash(await rootOf(hashes.slice(0, k)), await rootOf(hashes.slice(k)))
+}
+
+/**
+ * The audit path of RFC 6962 §2.1.2, built here because the core only ever
+ * verifies — a producer lives in the log, and a test needs one to verify
+ * against.
+ */
+const consistencyPath = async (hashes: Uint8Array[], first: number, second: number): Promise<Uint8Array[]> => {
+  const sub = async (start: number, end: number, complete: boolean): Promise<Uint8Array[]> => {
+    const n = end - start
+    if (first - start === n) return complete ? [] : [await rootOf(hashes.slice(start, end))]
+    const k = 1 << (31 - Math.clz32(n - 1))
+    return first - start <= k
+      ? [...await sub(start, start + k, complete), await rootOf(hashes.slice(start + k, end))]
+      : [...await sub(start + k, end, false), await rootOf(hashes.slice(start, start + k))]
+  }
+  return sub(0, second, true)
+}
+
+/**
+ * The corpus's committed token, when the submodule carries one. Returns null
+ * otherwise so this file does not fail on a corpus that predates the
+ * timestamp slice.
+ */
+const timestampFixture = (): { tsr: Uint8Array, coreHash: Uint8Array, roots: ReturnType<typeof parseCertificate>[] } | null => {
+  const dir = new URL('../vectors/_timestamps/valid.json', import.meta.url)
+  const trust = new URL('../vectors/_trust/tsa-roots.pem', import.meta.url)
+  if (!existsSync(dir) || !existsSync(trust)) return null
+  const file = JSON.parse(readFileSync(dir, 'utf8')) as { core_hash: string, tsr: string }
+  const pems = readFileSync(trust, 'utf8').match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) ?? []
+  return {
+    tsr: fromBase64(file.tsr.replace(/-/g, '+').replace(/_/g, '/')),
+    coreHash: fromHex(file.core_hash),
+    roots: pems.map((pem) => parseCertificate(pemToDer(pem)))
+  }
+}

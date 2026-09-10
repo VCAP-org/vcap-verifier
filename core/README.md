@@ -58,12 +58,19 @@ difference.
 | `parseTrailer`, `canonicalBytes`, `detectContainer` | §3 and §4.1 on their own |
 | `verifyChain`, `segmentMessage`, `recomputeSegments` | §5 at message level and from a container |
 | `verifyRegistry`, `verifyKeyStatus`, `verifyAnchor`, `validateTimestamp` | the §6.2 attachments, individually |
-| `leafHash`, `nodeHash`, `verifyInclusion` | RFC 6962, shared by the log and the anchor |
+| `leafHash`, `nodeHash`, `verifyInclusion`, `verifyConsistency` | RFC 6962, shared by the log and the anchor |
 | `validateAndroidAttestation`, `googleRoots`, `parseCertificate` | §7's proven level |
 
 The pieces are exported as well as `verify` because a service usually has one
 question, not all of them — the platform validates an attestation at enrolment
 and never touches a file.
+
+`verifyConsistency` is there for the same reason it is a reader's check at all:
+it catches a **split view**, a log showing one head to one reader and another
+to another, and the party that would benefit from one is the log. So the
+verification cannot live only in the log's own code, and the platform's tests
+now check its proofs with this implementation rather than with the one that
+made them.
 
 ## Consuming it
 

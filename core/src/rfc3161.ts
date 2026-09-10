@@ -26,6 +26,17 @@ export interface TimestampVerdict {
   checks: { id: TimestampCheckId, outcome: 'pass' | 'fail' | 'skip', detail: string }[]
   genTime?: string
   tsa?: string
+  /**
+   * The TSA's own identifier for this token, hex, and the policy it issued
+   * under.
+   *
+   * Not checks — nothing here verifies them — but the serial is what you cite
+   * to a TSA when disputing a token, and a party that has to ask "which stamp
+   * do you mean" without it has to send the whole token back. Read once here
+   * because the parse is already done.
+   */
+  serialNumber?: string
+  policy?: string
 }
 
 export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots: Certificate[], now = new Date()): Promise<TimestampVerdict> => {
@@ -61,6 +72,8 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
     const alg = oid(sequence(imprint[0] as Node, 'hashAlgorithm')[0] as Node, 'hashAlgorithm')
     if (alg === OID.sha256 && equal(octets(imprint[1] as Node, 'hashedMessage'), coreHash)) pass('imprint', 'messageImprint is SHA-256 of the core hash')
     else fail('imprint', alg === OID.sha256 ? 'messageImprint differs from the core hash' : 'messageImprint is not SHA-256')
+    verdict.policy = oid(tst[1] as Node, 'policy')
+    verdict.serialNumber = integerHex(tst[3] as Node, 'serialNumber')
     const genTime = (tst[4] as { toDate: () => Date }).toDate()
     verdict.genTime = genTime.toISOString()
     if (genTime.getTime() <= now.getTime() + 5 * 60_000) pass('gen_time', verdict.genTime)
