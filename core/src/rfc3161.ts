@@ -1,7 +1,7 @@
 import { type Bytes, equal } from './bytes.js'
 import { Asn1Error, type Node, children, contextTag, explicitContent, integerHex, octets, oid, parseDer, sequence, set, derOf } from './asn1.js'
 import { sha256, subtle, owned } from './sha.js'
-import { type Certificate, chainToRoot, hashOf, importForVerify, parseCertificate, verifyWith, withinValidity } from './x509.js'
+import { type Certificate, chainToRoot, commonName, hashOf, importForVerify, parseCertificate, verifyWith, withinValidity } from './x509.js'
 
 /**
  * RFC 3161 token validation, offline, as a verifier meets it in a proof:
@@ -136,7 +136,11 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
   try { stamping = eku !== undefined && sequence(parseDer(eku), 'EKU').some((n) => oid(n, 'eku') === OID.timeStamping) } catch { stamping = false }
   if (stamping) pass('signer_usage', 'signer certificate is for time-stamping')
   else fail('signer_usage', 'signer certificate lacks the timeStamping extended key usage')
-  verdict.tsa = `serial ${signer.serialHex}`
+  // The common name when the certificate has one: this string reaches a
+  // person on the verifier page, and a serial tells them nothing about who
+  // vouched for the time. The serial stays as the fallback, and separately as
+  // `serialNumber`, which is what you cite to a TSA in a dispute.
+  verdict.tsa = commonName(signer) ?? `serial ${signer.serialHex}`
 
   verdict.ok = checks.every((c) => c.outcome !== 'fail')
   return verdict
