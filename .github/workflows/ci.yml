@@ -19,6 +19,12 @@ jobs:
       - run: npm run vectors:check --workspace core
       - run: npm run typecheck
       - run: npm test
+      # The package as a consumer gets it: built to `dist` with declarations,
+      # and imported from plain Node. The tests alias to `src`, so without this
+      # step a broken build would ship unnoticed.
+      - run: npm run build --workspace core
+      - run: node -e "import('vcap-verify-core').then(m => { if (typeof m.verify !== 'function') { throw new Error('the built package does not export verify') } })"
+      - run: test -f core/dist/index.d.ts
       # The CLI's own tests run it in-process, so the shim and the exit code
       # are only exercised by actually invoking it. `!` because a tampered file
       # must exit non-zero: the run succeeds, the file fails.
