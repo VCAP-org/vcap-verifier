@@ -217,7 +217,15 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   if (isObj(proof.registry)) {
     const r = await verifyRegistry(proof.registry as unknown as RegistryAttachment, { keyIdHex: hexKeyId(device.key_id as string), sigPub: spki }, o.trustedLogs ?? [])
     verdict.registry = r.ok ? { ok: true, detail: 'key in the transparency log before tree head', secure_hw: r.secureHw } : { ok: false, detail: r.reason }
-    if (!r.ok) labels.push(r.reason === 'log not trusted' ? 'log not trusted' : 'registry evidence invalid')
+    // §6.2: evidence that does not hold up emits **both** labels — the second
+    // is what a reader is shown (nobody can confirm this key was registered)
+    // and the first is what an operator can act on (somebody presented a proof
+    // that does not hold up). A log this verifier holds no key for is neither:
+    // it is absent evidence, not a lie, and gets *log not trusted* alone.
+    if (!r.ok) {
+      if (r.reason === 'log not trusted') labels.push('log not trusted')
+      else labels.push('registry evidence invalid', 'key not in transparency log')
+    }
     else if (verdict.device_clock !== undefined && r.treeHeadTimestamp > verdict.device_clock) labels.push('registered after the declared capture')
   }
   if (isObj(proof.anchor)) {
