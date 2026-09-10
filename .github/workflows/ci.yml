@@ -34,3 +34,24 @@ jobs:
   # The page: built twice from clean checkouts, identical or red (build-web.yml).
   web:
     uses: ./.github/workflows/build-web.yml
+
+  # Offline use, proved on the artifact that ships: the page is loaded once,
+  # its static server is stopped and the browser taken offline, and the
+  # vectors still verify from the service worker's cache.
+  offline:
+    name: offline use against the built page
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e --workspace web
