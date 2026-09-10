@@ -1,7 +1,7 @@
 import { build, context } from 'esbuild'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 // One bundle, one HTML file, no external requests: the page must be archivable
@@ -51,8 +51,12 @@ const html = (fields) => Object.entries(fields).reduce(
   readFileSync('src/index.html', 'utf8')
 )
 
+// Shipped as they are: the web app manifest and its icon.
+const STATIC = ['manifest.webmanifest', 'icon.svg']
+
 rmSync('dist', { recursive: true, force: true })
 mkdirSync('dist')
+for (const name of STATIC) copyFileSync(`src/${name}`, `dist/${name}`)
 
 if (serve) {
   const ctx = await context(options)
@@ -74,14 +78,36 @@ if (serve) {
   writeFileSync('dist/verifier.js.sha256', `${bundleHash}  verifier.js\n`)
   writeFileSync('dist/index.html', html({ bundle_sha256: bundleHash, commit, commit_short: commit.slice(0, 7), esbuild: esbuildVersion }))
 
+  // The service worker precaches every shipped file. Its cache is named after
+  // a build id derived from their hashes, so a new build is a new cache and
+  // the old one goes; the worker itself is not in its own list (the browser
+  // fetches it), nor is what is written after it — but the hash records are,
+  // as URLs, so they are readable offline too.
+  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', ...STATIC]
+  const hashOf = (name) => sha256(readFileSync(`dist/${name}`))
+  const buildId = sha256(shipped.map((name) => `${name}:${hashOf(name)}`).join('\n')).slice(0, 16)
+  await build({
+    entryPoints: ['src/sw.ts'],
+    bundle: true,
+    format: 'iife',
+    target: ['es2022'],
+    minify: true,
+    outfile: 'dist/sw.js',
+    legalComments: 'none',
+    define: {
+      __VCAP_BUILD__: JSON.stringify(buildId),
+      __VCAP_PRECACHE__: JSON.stringify([...shipped, 'hashes.json', 'HASHES.md'])
+    }
+  })
+
   // Every shipped file, hashed. `hashes.json` cannot list itself; HASHES.md is
   // the same record for a reader. Unsigned: no signing key exists yet (D1),
   // so the way to trust these is to reproduce the build (README).
-  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256']
-  const files = Object.fromEntries(shipped.map((name) => [name, sha256(readFileSync(`dist/${name}`))]))
+  const files = Object.fromEntries([...shipped, 'sw.js'].sort().map((name) => [name, hashOf(name)]))
   const record = {
     commit,
     dirty,
+    build_id: buildId,
     toolchain: { esbuild: esbuildVersion, node: process.version },
     files,
     signature: 'none: no signing key exists yet; reproduce the build to trust these hashes'

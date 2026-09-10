@@ -1,0 +1,13 @@
+{
+  "name": "vcap verifier",
+  "short_name": "vcap verifier",
+  "description": "Verify a sealed photo or video in the browser. Nothing leaves the page.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2e8b57",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

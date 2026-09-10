@@ -7,12 +7,14 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "node build.mjs",
-    "dev": "node build.mjs --serve"
+    "dev": "node build.mjs --serve",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "vcap-verify-core": "*"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "esbuild": "0.25.12",
     "typescript": "^5.7.3"
   },
