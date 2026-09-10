@@ -64,7 +64,7 @@ export interface VerifyOptions {
   recomputeSegments?: boolean
   // Google's attestation roots are pinned; override for tests only.
   googleRoots?: Certificate[]
-  // Google's status list, when online; absent → *revocation not checked*.
+  // Google's status list, when online; absent → *chain revocation not checked*.
   revocation?: RevocationLookup
   now?: Date
 }
@@ -236,11 +236,17 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   // interpret.
   const claimed = SECURE_HW.has(device.secure_hw as string) && PLATFORMS.has(device.platform as string) ? device.secure_hw as string : 'none'
   let proven: string = 'none'
+  // The level the chain itself establishes, before revocation withdraws it.
+  // *inconsistent claim* is measured against this and not against the final
+  // level: a revoked chain does not contradict the claim, it retracts it, and
+  // saying both would report one fact as two independent faults.
+  let attested: string = 'none'
   if (Array.isArray(proof.attestation) && device.platform === 'android') {
     let ders: Bytes[] | null = null
     try { ders = (proof.attestation as string[]).map(fromBase64) } catch { ders = null }
     const a = ders ? await validateAndroidAttestation(ders, spki, { roots: o.googleRoots, revocation: o.revocation, now: instant.at, clock: o.now }) : null
     proven = a?.proven ?? 'none'
+    attested = proven
     verdict.attestation = a
       ? { proven: a.proven, detail: a.checks.filter((c) => c.outcome === 'fail').map((c) => c.detail).join('; ') || 'chain to a pinned Google root', boot_state: a.bootState }
       : { proven: 'none', detail: 'attestation malformed' }
@@ -272,11 +278,18 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     const revokedBeforeCapture = frozen?.ok === true && frozen.revoked !== null && frozen.fetchedAt <= instant.at.getTime()
     if (revokedBeforeCapture) { proven = 'none'; labels.push('attestation key revoked') }
     else if (frozen?.ok === true && frozen.revoked !== null) labels.push('attestation key revoked after the capture')
-    // The snapshot *is* the revocation check when it clears the chain: without
-    // it an offline verifier can never reach green, which is the whole reason
-    // the attachment exists.
-    const checkedByFrozen = frozen?.ok === true && frozen.revoked === null
-    if (a && a.revocation === 'not_checked' && !checkedByFrozen) labels.push('revocation not checked')
+    // The snapshot *is* the revocation check, whatever it found: without it an
+    // offline verifier can never reach green, which is the whole reason the
+    // attachment exists. A snapshot that found a revocation checked just as
+    // hard as one that cleared the chain — reporting *chain revocation not
+    // checked* next to *attestation key revoked* would deny the very evidence
+    // that produced the second label.
+    const checkedByFrozen = frozen?.ok === true
+    // §6.2's label, not §6.3's: this is the revocation of the *chain's*
+    // certificates, and *revocation not checked* is the device key's status
+    // against the log. Two checks, two labels — saying the second when only the
+    // first ran claims a check nobody performed.
+    if (a && a.revocation === 'not_checked' && !checkedByFrozen) labels.push('chain revocation not checked')
     if (a && a.revocation === 'revoked') labels.push('key revoked')
     // §7: a chain valid at the proven instant and expired since is not an
     // error — the verifier is late, the capture is not forged. It is only worth
@@ -289,10 +302,10 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   const rank: Record<string, number> = { none: 0, tee: 1, secureEnclave: 1, strongbox: 2 }
   // A claim above the evidence is flagged only when there is evidence: with no
   // attestation the §7 label is *origin not hardware-attested* alone.
-  if (verdict.attestation && (rank[claimed] ?? 0) > (rank[proven] ?? 0)) labels.push('inconsistent claim')
+  if (verdict.attestation && (rank[claimed] ?? 0) > (rank[attested] ?? 0)) labels.push('inconsistent claim')
   const inLog = verdict.registry?.ok === true && !labels.includes('registered after the declared capture')
   const ceiling: 'green' | 'amber' | 'red' = verdict.outcome === 'tampered' || labels.includes('key revoked') || labels.includes('attestation key revoked') ? 'red'
-    : proven !== 'none' && inLog && verdict.outcome === 'authentic' && !labels.includes('inconsistent claim') && !labels.includes('revocation not checked') && !labels.includes('key revoked') && !labels.includes('attestation chain expired, capture time not proven') ? 'green'
+    : proven !== 'none' && inLog && verdict.outcome === 'authentic' && !labels.includes('inconsistent claim') && !labels.includes('chain revocation not checked') && !labels.includes('key revoked') && !labels.includes('attestation chain expired, capture time not proven') ? 'green'
     : 'amber'
   verdict.level = { claimed, proven, ceiling }
 

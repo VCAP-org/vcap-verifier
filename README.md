@@ -17,7 +17,7 @@ against injected TSA roots and Android attestation chains against the pinned
 Google roots (the §7 proven level and ceiling); `web/` is a first static page
 over it, still without TSA roots (so it labels *trusted time not evaluated*).
 Not yet: App Attest (the iOS proven level comes from the registry leaf), Google's
-status list online (offline it labels *revocation not checked*), the watermark
+status list online (offline it labels *chain revocation not checked*), the watermark
 detector.
 
 The PoC verifier stays online for its own samples and is not a code source.

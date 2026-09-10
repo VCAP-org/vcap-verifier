@@ -195,7 +195,7 @@ describe('verdict with evidence attachments', async () => {
       const v = await withChain({ attestation_status: await frozen() })
 
       expect(v.attestation_status?.ok).toBe(true)
-      expect(v.labels).not.toContain('revocation not checked')
+      expect(v.labels).not.toContain('chain revocation not checked')
     })
     it('is red for the level when a certificate was revoked at or before the capture', async () => {
       const v = await withChain({ attestation_status: await frozen({ revoked: true, fetchedAt: clock.getTime() - 1000 }) })
@@ -216,7 +216,7 @@ describe('verdict with evidence attachments', async () => {
       const v = await withChain({ attestation_status: forged })
 
       expect(v.attestation_status?.ok).toBe(false)
-      expect(v.labels).toContain('revocation not checked')
+      expect(v.labels).toContain('chain revocation not checked')
       expect(v.labels).not.toContain('attestation key revoked')
     })
   })
@@ -226,7 +226,7 @@ describe('verdict with evidence attachments', async () => {
     const v = await verify(trailer.media, { sidecar: withProof({ attestation: a.chain.map(toBase64url) }), googleRoots: [parseCertificate(a.root.der)] })
     expect(v.attestation?.proven).toBe('none')
     expect(v.labels).toContain('inconsistent claim')
-    expect(v.labels).toContain('revocation not checked')
+    expect(v.labels).toContain('chain revocation not checked')
     expect(v.level?.ceiling).toBe('amber')
   })
 })
