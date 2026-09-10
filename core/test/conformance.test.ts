@@ -50,7 +50,7 @@ describe('vcap-spec conformance vectors', () => {
   // A floor, not a count: it catches a missing submodule and an accidental
   // downgrade. It cannot catch a submodule left behind a newer spec — raising
   // it is the deliberate act of adopting new vectors, and that is the point.
-  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(54) })
+  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(58) })
 
   for (const dir of dirs) {
     it(dir, async () => {
@@ -60,7 +60,7 @@ describe('vcap-spec conformance vectors', () => {
       // letting the wall clock decide. Vectors 43 and 45 say the same chain twice
       // and differ only by it. Comparing it as an output is how it read as a
       // failure while the logic underneath was right.
-      const { kind, debug: _d, schema_valid: _s, verifier_clock: clock, key_status: keyStatus, ...want } = JSON.parse(readFileSync(join(path, 'expected.json'), 'utf8'))
+      const { kind, debug: _d, schema_valid: _s, verifier_clock: clock, key_status: keyStatus, chain_read: chainRead, ...want } = JSON.parse(readFileSync(join(path, 'expected.json'), 'utf8'))
       const now = typeof clock === 'number' ? new Date(clock) : undefined
       if (kind === 'file' || kind === 'container') {
         // A container vector is a file vector with one more question asked of
@@ -78,6 +78,10 @@ describe('vcap-spec conformance vectors', () => {
           // vector without it is one where the log could not be asked, which
           // is *revocation not checked* and never green.
           keyStatus: keyStatus ? async () => keyStatus : undefined,
+          // What the corpus says a caller read from the anchoring contract.
+          readChain: chainRead
+            ? async () => ({ root: fromBase64(chainRead.root), treeSize: chainRead.tree_size, blockTime: chainRead.block_time ? new Date(chainRead.block_time) : undefined })
+            : undefined,
           now
         })
         expect(pick(verdict, want)).toEqual(want)
