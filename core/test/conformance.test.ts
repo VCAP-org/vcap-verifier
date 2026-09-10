@@ -27,6 +27,14 @@ const dirs = existsSync(VECTORS) ? readdirSync(VECTORS).filter((d) => /^\d\d-/.t
 // `proven: none`, which is the honest answer for a verifier holding no anchor.
 const TRUST = join(VECTORS, '_trust')
 const pemCerts = (pem: string) => (pem.match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) ?? []).map((b) => parseCertificate(pemToDer(b)))
+// The TSA roots the corpus ships. Without them a timestamped vector reads as
+// *trusted time not evaluated* — evidence this verifier cannot read — which is
+// a different verdict from the one the vector states, so leaving them out
+// would look like a bug in the timestamp validator.
+const tsaRoots = existsSync(join(TRUST, 'tsa-roots.pem'))
+  ? (readFileSync(join(TRUST, 'tsa-roots.pem'), 'utf8').match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) ?? []).map(pemToDer)
+  : []
+
 const googleRoots = existsSync(join(TRUST, 'attestation-roots.pem'))
   ? pemCerts(readFileSync(join(TRUST, 'attestation-roots.pem'), 'utf8'))
   : undefined
@@ -50,7 +58,7 @@ describe('vcap-spec conformance vectors', () => {
   // A floor, not a count: it catches a missing submodule and an accidental
   // downgrade. It cannot catch a submodule left behind a newer spec — raising
   // it is the deliberate act of adopting new vectors, and that is the point.
-  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(58) })
+  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(63) })
 
   for (const dir of dirs) {
     it(dir, async () => {
@@ -73,6 +81,7 @@ describe('vcap-spec conformance vectors', () => {
           recomputeSegments: kind === 'container',
           googleRoots,
           trustedLogs,
+          tsaRoots,
           // Also an input: §6.2 makes revocation an online question, so the
           // corpus declares what the verifier is assumed to have fetched. A
           // vector without it is one where the log could not be asked, which
