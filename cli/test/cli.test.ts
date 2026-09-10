@@ -128,6 +128,19 @@ describe('vcap-verify', () => {
     expect(text).toContain('the device\'s own clock — a claim')
   })
 
+  it('says what the platform reported about the device, in words', async () => {
+    const { io, out } = capture()
+    // A `failed` integrity verdict on an otherwise authentic file: the file is
+    // real *and* the platform said the device was compromised. Showing only
+    // the outcome would let a reader take no news for good news.
+    await run([...trustArgs(), '--no-recompute', '--at', '2025-09-09T12:00:00.000Z',
+      inputOf('65-jpeg-integrity-failed')], io)
+    const text = out()
+
+    expect(text).toContain('outcome   authentic')
+    expect(text).toContain('this device as failing its integrity checks')
+  })
+
   it('refuses nonsense with a usage code and the usage text', async () => {
     for (const args of [['--nope', 'x'], [], ['--log', 'no-colon', 'x'], ['--at', 'not-a-date', 'x']]) {
       const { io, err } = capture()

@@ -7,6 +7,7 @@ import { recomputeSegments } from './container.js'
 import { type StatusAttachment, type StatusOutcome, verifyStatus } from './attestation-status.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import { type SegmentEntry, verifyChain } from './segments.js'
+import { type IntegrityAttachment, verifyIntegrity } from './integrity.js'
 import { type RegistryAttachment, type TrustedLog, verifyRegistry } from './registry.js'
 import { type AnchorAttachment, type ChainReader, verifyAnchor } from './anchor.js'
 import { validateTimestamp } from './rfc3161.js'
@@ -41,6 +42,11 @@ export interface Verdict {
   attestation?: { proven: string, detail: string, boot_state?: { locked: boolean, state: string } }
   // §6.2: the chain's revocation status as frozen while the chain was current.
   attestation_status?: { ok: boolean, detail: string }
+  // §6.2 integrity: what the platform said about the device's state, relayed by
+  // the registry. Shown, and never a ceiling — §7 takes the proven level from
+  // `attestation`, and the rooted device that fails an integrity check also
+  // fails to chain to a hardware root, so counting it would count it twice.
+  integrity?: { ok: boolean, detail: string, verdict?: string, evaluated_at?: number }
   // §6.2 registry → "Revocation, online": the device key's own standing in the
   // log at the proven instant. The one check that needs network, and the one
   // green cannot be reached without.
@@ -236,6 +242,21 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     // evidence invalid* is what an operator can act on.
     if (!a.ok) labels.push('anchor evidence invalid', 'not anchored')
     else if (!a.onChain) labels.push('anchoring not verified')
+  }
+  if (isObj(proof.integrity)) {
+    const i = await verifyIntegrity(proof.integrity as unknown as IntegrityAttachment, coreHash, o.trustedLogs ?? [])
+    verdict.integrity = i.ok
+      ? { ok: true, detail: `${i.source} reported ${i.verdict}`, verdict: i.verdict, evaluated_at: i.evaluatedAt }
+      : { ok: false, detail: i.reason }
+    // §8's uniform rule, with the same split as `registry`: evidence that does
+    // not hold up carries the absent label *and* the operator's one, while
+    // evidence signed by a key this verifier does not follow is absence alone —
+    // a relabelled verdict and an honest verdict from an unfollowed registry
+    // are indistinguishable from here, and the honest report is the weaker one.
+    if (!i.ok) {
+      if (i.trusted) labels.push('integrity evidence invalid')
+      labels.push('integrity unevaluated')
+    } else labels.push(`integrity ${i.verdict}`)
   }
   if (isObj(proof.timestamp) && typeof proof.timestamp.tsr === 'string') {
     if (!o.tsaRoots?.length) labels.push('trusted time not evaluated')

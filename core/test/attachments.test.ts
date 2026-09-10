@@ -5,6 +5,7 @@ import { sha256, subtle } from '../src/sha.js'
 import { verifyRegistry } from '../src/registry.js'
 import { verifyAnchor } from '../src/anchor.js'
 import { type StatusAttachment, statusMessage, verifyStatus } from '../src/attestation-status.js'
+import { type IntegrityAttachment, integrityMessage, verifyIntegrity } from '../src/integrity.js'
 import { deviceKeyIdHex as keyIdHex, deviceSpki, logSpki, path, registryFor, root, sign, trusted } from './log.js'
 
 describe('registry attachment', () => {
@@ -36,6 +37,55 @@ describe('anchor attachment', () => {
     expect(await verifyAnchor(attachment, coreHash, async () => null)).toMatchObject({ ok: false, reason: 'anchor not found on chain' })
     expect(await verifyAnchor({ ...attachment, index: 0 }, coreHash)).toMatchObject({ ok: false })
     expect(await verifyAnchor(attachment, await sha256(utf8('another core')))).toMatchObject({ ok: false })
+  })
+})
+
+describe('integrity attachment', () => {
+  const attachmentFor = async (verdict: string, source = 'playIntegrity'): Promise<IntegrityAttachment> => {
+    const coreHash = await sha256(utf8('a core'))
+    return { source, verdict, evaluated_at: 1757331000, sig: toBase64url(await sign(integrityMessage(coreHash, verdict))) }
+  }
+
+  it('relays a verdict signed by a trusted registry key', async () => {
+    const coreHash = await sha256(utf8('a core'))
+    for (const verdict of ['hardware', 'basic', 'unevaluated', 'failed']) {
+      expect(await verifyIntegrity(await attachmentFor(verdict), coreHash, trusted))
+        .toMatchObject({ ok: true, verdict, source: 'playIntegrity' })
+    }
+  })
+
+  it('will not let a verdict be relabelled, because the verdict is inside the signature', async () => {
+    const coreHash = await sha256(utf8('a core'))
+    const failed = await attachmentFor('failed')
+    // The one attack this attachment exists to stop: a relay that says
+    // `hardware` where the platform said `failed`.
+    expect(await verifyIntegrity({ ...failed, verdict: 'hardware' }, coreHash, trusted))
+      .toMatchObject({ ok: false, trusted: false })
+  })
+
+  it('is bound to the core it was issued for', async () => {
+    expect(await verifyIntegrity(await attachmentFor('hardware'), await sha256(utf8('another core')), trusted))
+      .toMatchObject({ ok: false, trusted: false })
+  })
+
+  it('separates a verdict it cannot read from one that failed', async () => {
+    const coreHash = await sha256(utf8('a core'))
+    // Unknown values are the attachment's own fault: §9 makes them a later
+    // version's, but relaying one as if understood is worse than saying so.
+    // `trusted: true` is what §8 turns into *integrity evidence invalid*.
+    expect(await verifyIntegrity(await attachmentFor('rooted'), coreHash, trusted))
+      .toMatchObject({ ok: false, trusted: true })
+    expect(await verifyIntegrity(await attachmentFor('hardware', 'knoxAttest'), coreHash, trusted))
+      .toMatchObject({ ok: false, trusted: true })
+    const short = await attachmentFor('hardware')
+    expect(await verifyIntegrity({ ...short, sig: toBase64url(new Uint8Array(63)) }, coreHash, trusted))
+      .toMatchObject({ ok: false, trusted: true })
+    expect(await verifyIntegrity({ ...short, evaluated_at: -1 }, coreHash, trusted))
+      .toMatchObject({ ok: false, trusted: true })
+    // And a registry this verifier does not follow is absence, not failure:
+    // indistinguishable from a forgery here, so reported as the weaker one.
+    expect(await verifyIntegrity(short, coreHash, []))
+      .toMatchObject({ ok: false, trusted: false })
   })
 })
 

@@ -63,7 +63,7 @@ differ, and CI runs both.
 ```
 git submodule update --init      # the spec and its vectors
 npm ci
-npm run typecheck && npm test    # core: 32 vectors + attachment and evidence tests
+npm run typecheck && npm test    # core: 67 vectors + attachment and evidence tests
 npm run build --workspace web    # web/dist/{index.html, verifier.js, verifier.js.sha256}
 npm run dev --workspace web      # serves the page with a watcher
 ```
@@ -105,7 +105,12 @@ stands; only a snapshot dated before the capture withdraws it). The device key's
 own standing is a separate question with a separate label, answered by the log's
 signed statement over `"vcap/1.0/status" ‖ key_id ‖ at ‖ tree_size ‖ status`,
 whose `at` is checked against the proven instant so a log cannot be quoted out of
-context. From those the verdict carries `level`:
+context. The `integrity` attachment relays what Play Integrity or App Attest
+said about the device, signed by the registry over `core_hash ‖ verdict` — the
+verdict sits inside the signed message, so it cannot be relabelled — and it is
+**shown without changing any ceiling**: the same rooted device that fails an
+integrity check also fails to chain to a hardware root, so counting it in §7
+would count one fact twice. From those the verdict carries `level`:
 claimed, proven and the §7 ceiling, with *inconsistent claim* when the claim
 exceeds the evidence. X.509 and CMS are read with `asn1js` over WebCrypto (RSA
 PKCS#1 v1.5 and ECDSA with SHA-256/384/512). Besides synthetic chains, the tests

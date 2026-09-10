@@ -57,7 +57,7 @@ difference.
 | `coreHashOf`, `extractCore`, `jcs` | the identity of a proof and the canonical bytes it is over |
 | `parseTrailer`, `canonicalBytes`, `detectContainer` | §3 and §4.1 on their own |
 | `verifyChain`, `segmentMessage`, `recomputeSegments` | §5 at message level and from a container |
-| `verifyRegistry`, `verifyKeyStatus`, `verifyAnchor`, `validateTimestamp` | the §6.2 attachments, individually |
+| `verifyRegistry`, `verifyKeyStatus`, `verifyAnchor`, `validateTimestamp`, `verifyIntegrity` | the §6.2 attachments, individually |
 | `leafHash`, `nodeHash`, `verifyInclusion`, `verifyConsistency` | RFC 6962, shared by the log and the anchor |
 | `validateAndroidAttestation`, `googleRoots`, `parseCertificate` | §7's proven level |
 
