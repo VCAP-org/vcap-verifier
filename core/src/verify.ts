@@ -105,6 +105,12 @@ export const coreHashOf = (proof: Obj): Promise<Bytes> => sha256(jcs(extractCore
 const shapeProblem = (proof: Obj): string | null => {
   if (!b64Len(proof.capture_id, 16)) return 'capture_id missing or not 16 bytes'
   if (!isObj(proof.media) || typeof proof.media.hash !== 'string' || typeof proof.media.mime !== 'string') return 'media.hash or media.mime missing'
+  // §8: the pixel dimensions are required. Not evidence — nothing is proven by
+  // them — but a reader that cannot say how large the frame is cannot place a
+  // watermark payload or a segment in it. Missing is malformed, and the check
+  // sits here so the signature is never examined: reporting *tampered* would be
+  // reporting a check this verifier had not run (vector 46).
+  if (!Number.isInteger(proof.media.w) || !Number.isInteger(proof.media.h) || (proof.media.w as number) < 1 || (proof.media.h as number) < 1) return 'media.w or media.h missing'
   // Shape only: any string passes here. §9 makes the format additive, so a
   // platform or secure_hw v1.0 does not define is a later version's value, not
   // a broken proof — refusing it would turn a valid signature over readable
@@ -192,6 +198,13 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     } else {
       verdict.content = { recomputed: false, detail: o.recomputeSegments === false ? 'recomputation not requested' : 'not an ISO-BMFF container' }
     }
+    // §5/§7: skipping the recomputation stays conformant, staying quiet about it
+    // does not. The two answers differ — on vector 39 the same file reads
+    // *verified_clip* without it and *tampered* with it — so a reader who is not
+    // told which one ran cannot know what the verdict means. Keyed off the
+    // result and not the option, because a demux that failed is also a check
+    // that did not run.
+    if (!verdict.content.recomputed) labels.push('segment content not recomputed')
     const chain = await verifyChain(captureId, mediaObj.segment_count as number, proof.segments as unknown as SegmentEntry[], key, recomputed)
     verdict.segments = { verified: chain.verified, ...(chain.contradicted ? { contradicted: chain.contradicted } : {}) }
     if (chain.status === 'tampered') return { ...tampered(chain.reason ?? 'segment chain'), segments: verdict.segments, content: verdict.content }
