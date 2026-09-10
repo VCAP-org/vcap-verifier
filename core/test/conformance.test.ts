@@ -50,7 +50,7 @@ describe('vcap-spec conformance vectors', () => {
   // A floor, not a count: it catches a missing submodule and an accidental
   // downgrade. It cannot catch a submodule left behind a newer spec — raising
   // it is the deliberate act of adopting new vectors, and that is the point.
-  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(46) })
+  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(48) })
 
   for (const dir of dirs) {
     it(dir, async () => {
