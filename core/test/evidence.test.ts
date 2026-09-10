@@ -301,6 +301,9 @@ describe('what the platform needs from the core', () => {
     expect(verdict.ok).toBe(true)
     expect(verdict.serialNumber).toMatch(/^[0-9a-f]+$/)
     expect(verdict.policy).toMatch(/^[0-9.]+$/)
+    // The name a person reads on the verifier page, not the serial. The
+    // corpus's TSA is `CN=Test TSA Signer`.
+    expect(verdict.tsa).toBe('Test TSA Signer')
   })
 })
 

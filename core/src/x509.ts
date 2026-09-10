@@ -1,6 +1,6 @@
 import * as asn1js from 'asn1js'
 import { type Bytes, concat, equal } from './bytes.js'
-import { Asn1Error, type Node, bitStringBytes, contextTag, derOf, explicitContent, integerHex, octets, oid, parseDer, sequence, time } from './asn1.js'
+import { Asn1Error, type Node, bitStringBytes, children, contextTag, derOf, explicitContent, integerHex, octets, oid, parseDer, sequence, set, time } from './asn1.js'
 import { owned, subtle } from './sha.js'
 
 /**
@@ -147,6 +147,32 @@ export const chainToRoot = async (leaf: Certificate, pool: Certificate[], roots:
     chain.push(next); current = next
   }
   return null
+}
+
+/**
+ * The certificate's common name, or null.
+ *
+ * A display string, and the only reason it exists: `tsa` on a timestamp
+ * verdict reaches a person on the verifier page, and "serial ba73e1a52c…"
+ * tells them nothing about who vouched for the time. A Name is an
+ * RDNSequence — a SET of AttributeTypeAndValue at each level — so this walks
+ * two levels and takes the first CN it finds, which is what every reader of a
+ * certificate name does in practice.
+ */
+export const commonName = (cert: Certificate): string | null => {
+  try {
+    for (const rdn of children(parseDer(cert.subject), 'RDNSequence')) {
+      for (const attr of set(rdn, 'RelativeDistinguishedName')) {
+        const [type, value] = sequence(attr, 'AttributeTypeAndValue')
+        if (oid(type as Node, 'attrType') === '2.5.4.3') {
+          return String((value as { valueBlock: { value: string } }).valueBlock.value)
+        }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 export const withinValidity = (cert: Certificate, now: Date): boolean => cert.notBefore <= now && now <= cert.notAfter
