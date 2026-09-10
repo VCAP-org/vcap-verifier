@@ -47,6 +47,7 @@ The PoC verifier stays online for its own samples and is not a code source.
 
 ```
 core/    isomorphic verification core (TypeScript, WebCrypto only — no Buffer, no Node API)
+cli/     `vcap-verify`, a verdict from a shell (see cli/README.md)
 web/     the static verifier page (esbuild, one bundle with its SHA-256 published)
 spec/    vcap-spec as a git submodule: the conformance vectors the core runs in CI
 ```
