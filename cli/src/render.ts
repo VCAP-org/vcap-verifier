@@ -30,6 +30,13 @@ const MEANING: Record<string, string> = {
   'chain revocation not checked': 'the attestation certificates\' revocation was not established',
   'origin not hardware-attested': 'nothing proves the key lives in secure hardware',
   'integrity unevaluated': 'no statement about the state of the device',
+  'integrity evidence invalid': 'the attached device-integrity statement does not hold up',
+  // The four §6.2 verdicts, relayed. `failed` is the reason to show any of
+  // them: the file is authentic *and* the platform said the device was
+  // compromised, and a reader shown nothing takes no news for good news.
+  'integrity hardware': 'the platform reported the device as hardware-backed and intact',
+  'integrity basic': 'the platform reported a device that passes only basic checks',
+  'integrity failed': 'the platform reported this device as failing its integrity checks',
   'no watermark': 'no watermark was looked for',
   'watermark not evaluated': 'a watermark is declared and this verifier ships no detector',
   'segment content not recomputed': 'the segment hashes were taken from the proof, not recomputed from the file',
