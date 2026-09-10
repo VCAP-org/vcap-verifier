@@ -35,6 +35,11 @@ part of correctness:
 - Publish the failures too: the demo set includes the cases where verification
   cannot conclude.
 - Keep the page usable offline and archivable.
+- The page build is reproducible and stays so: nothing in `web/dist` may depend
+  on the clock, the machine or its paths — only on the commit and the pinned
+  toolchain. CI builds twice from clean checkouts and fails if the trees differ.
+  Every shipped file is listed in `hashes.json`; there is nothing to sign it
+  with yet, so say so rather than pretend.
 
 ## Product invariants
 

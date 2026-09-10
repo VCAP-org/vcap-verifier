@@ -16,12 +16,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: build and publish the verifier page
+  # Gate: the page never deploys over a red core.
+  gate:
+    name: typecheck and core tests
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,17 +29,32 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # Gate: the page never deploys over a red core.
       - run: npm run typecheck
       - run: npm test
-      # The artifact is web/dist as built: index.html, the bundle and its SHA-256,
-      # so an expert can name the verifier that produced a verdict. Static only,
+
+  # The build: twice, from clean checkouts, published only if identical.
+  web:
+    uses: ./.github/workflows/build-web.yml
+
+  deploy:
+    name: publish the verifier page
+    needs: [gate, web]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      # The artifact is `web/dist` exactly as the reproducibility job hashed it:
+      # the page, the bundle, `hashes.json` and `HASHES.md`. Static only,
       # nothing fetched from our infrastructure.
-      - run: npm run build --workspace web
-      - run: test -s web/dist/verifier.js && cat web/dist/verifier.js.sha256
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+      - run: cat dist/HASHES.md
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: dist
       - id: deploy
         uses: actions/deploy-pages@v4

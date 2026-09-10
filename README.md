@@ -40,8 +40,8 @@ The PoC verifier stays online for its own samples and is not a code source.
 - **Detector under 10 MB** (WebGPU with a WASM SIMD fallback), distilled from the
   large model, with a documented robustness curve. The verifier states which
   model it used.
-- **Reproducible build**, bundle hash published, so an expert can prove which
-  verifier produced a given verdict.
+- **Reproducible build**, every shipped file hashed and published, so an expert
+  can prove which verifier produced a given verdict — by rebuilding it.
 
 ## Layout
 
@@ -64,7 +64,7 @@ differ, and CI runs both.
 git submodule update --init      # the spec and its vectors
 npm ci
 npm run typecheck && npm test    # core: 67 vectors + attachment and evidence tests
-npm run build --workspace web    # web/dist/{index.html, verifier.js, verifier.js.sha256}
+npm run build --workspace web    # web/dist: index.html, verifier.js, hashes.json, HASHES.md, metafile.json
 npm run dev --workspace web      # serves the page with a watcher
 ```
 
@@ -72,16 +72,56 @@ npm run dev --workspace web      # serves the page with a watcher
 
 The page is served from GitHub Pages at
 **https://vcap-org.github.io/vcap-verifier/**. It deploys from `main` through
-`.github/workflows/pages.yml`: checkout with the `spec` submodule, `npm ci`,
-typecheck and the core tests as a gate (a red core never deploys), then the
-`web` build and the `web/dist` artifact as published — nothing more. The page is
-static and stays so: no server of ours is in the path, nothing is fetched from
-our infrastructure.
+`.github/workflows/pages.yml`: typecheck and the core tests as a gate (a red
+core never deploys), the `web` build through `build-web.yml` — twice, from two
+clean checkouts on two runners, published only if the two `dist/` trees are
+byte-identical — and that same artifact uploaded to Pages. Nothing more. The
+page is static and stays so: no server of ours is in the path, nothing is
+fetched from our infrastructure.
 
-The bundle hash lives next to the bundle,
-`https://vcap-org.github.io/vcap-verifier/verifier.js.sha256`, and every
-deploy prints it in the workflow log, so an expert can prove which verifier
-produced a given verdict.
+### Published hashes
+
+Every deploy publishes, next to the page:
+
+- `https://vcap-org.github.io/vcap-verifier/hashes.json` — the SHA-256 of every
+  shipped file, the commit it was built from, and the tool versions
+  (`toolchain.esbuild`, `toolchain.node`);
+- `https://vcap-org.github.io/vcap-verifier/HASHES.md` — the same, for a reader;
+- `https://vcap-org.github.io/vcap-verifier/verifier.js.sha256` — the bundle
+  hash alone, `sha256sum -c` format.
+
+The page footer shows its own bundle hash and commit, so a user can compare
+the page in front of them with `hashes.json` and with the CI run for that commit
+(the `reproducible` job of `build-web.yml` prints `HASHES.md` in its log).
+
+**These hashes are not signed.** No signing key exists yet — the legal entity
+that would hold one is decision D1, still open — and an unsigned hash file next
+to the file it hashes proves only that the two were published together. What
+makes them worth something is that anyone can reproduce them:
+
+### Reproducing the published build
+
+The build is deterministic: no timestamps, no absolute paths (the bundle
+metafile is checked for them), no environment in the output beyond what
+`hashes.json` records. Same commit, same toolchain, same bytes.
+
+```
+git clone --recurse-submodules https://github.com/VCAP-org/vcap-verifier
+cd vcap-verifier
+git checkout <commit>          # the one in hashes.json / the page footer
+nvm use                        # exact Node version from .nvmrc
+npm ci                         # exact dependency tree from package-lock.json
+npm run build --workspace web
+sha256sum web/dist/*           # compare with the published hashes.json
+```
+
+`verifier.js` and `index.html` depend only on the sources and on the pinned
+esbuild version (`web/package.json`, exact), so they reproduce on any OS and
+any Node 22. `hashes.json` and `HASHES.md` also record `process.version`, so
+they reproduce byte for byte only with the Node in `.nvmrc`; a mismatch there
+with matching bundle hashes means a different Node, not a different verifier.
+A working tree with uncommitted changes under `web/` or `core/src` is recorded
+as `dirty: true` and will not match a CI build.
 
 ## What the core verifies
 
