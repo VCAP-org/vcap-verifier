@@ -19,6 +19,11 @@ jobs:
       - run: npm run vectors:check --workspace core
       - run: npm run typecheck
       - run: npm test
+      # The CLI's own tests run it in-process, so the shim and the exit code
+      # are only exercised by actually invoking it. `!` because a tampered file
+      # must exit non-zero: the run succeeds, the file fails.
+      - run: npx tsx cli/src/cli.ts core/vectors/01-jpeg-sealed/input.jpg
+      - run: "! npx tsx cli/src/cli.ts core/vectors/11-jpeg-pixels-edited/input.jpg"
       # The page: one bundle, its hash printed so a verdict can name its verifier.
       - run: npm run build --workspace web
       - run: test -s web/dist/verifier.js && cat web/dist/verifier.js.sha256
