@@ -9,6 +9,12 @@ const serve = process.argv.includes('--serve')
 mkdirSync('dist', { recursive: true })
 const options = {
   entryPoints: ['src/main.ts'],
+  // The page bundles the core's **source**, not its `dist`. The published
+  // build exists for consumers who compile with `tsc`; here esbuild reads the
+  // TypeScript directly, so the bundle whose hash gets published is made from
+  // the sources somebody auditing it can read — with no build step in between
+  // that could go stale.
+  alias: { 'vcap-verify-core': '../core/src/index.ts' },
   bundle: true,
   format: 'esm',
   target: ['es2022'],
