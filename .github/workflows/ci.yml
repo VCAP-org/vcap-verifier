@@ -30,6 +30,7 @@ jobs:
       # must exit non-zero: the run succeeds, the file fails.
       - run: npx tsx cli/src/cli.ts core/vectors/01-jpeg-sealed/input.jpg
       - run: "! npx tsx cli/src/cli.ts core/vectors/11-jpeg-pixels-edited/input.jpg"
-      # The page: one bundle, its hash printed so a verdict can name its verifier.
-      - run: npm run build --workspace web
-      - run: test -s web/dist/verifier.js && cat web/dist/verifier.js.sha256
+
+  # The page: built twice from clean checkouts, identical or red (build-web.yml).
+  web:
+    uses: ./.github/workflows/build-web.yml

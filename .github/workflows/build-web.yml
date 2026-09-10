@@ -1,0 +1,57 @@
+name: build-web
+# The one build of the page that everything else consumes. Two jobs build the
+# same commit from two clean checkouts on two runners; a third diffs the two
+# `dist/` trees byte for byte and, only when they are identical, publishes one
+# of them as the `web-dist` artifact. The offline test and the Pages deploy
+# both take that artifact — the page that goes live is the page whose hashes
+# were reproduced, not a third build that is hoped to match.
+on:
+  workflow_call:
+
+jobs:
+  build:
+    name: build web (clean checkout ${{ matrix.run }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        run: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # No npm cache on purpose: the two builds share nothing but the commit
+      # and the lockfile, which is what an independent party has too.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: npm run build --workspace web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist-${{ matrix.run }}
+          path: web/dist
+          if-no-files-found: error
+
+  reproducible:
+    name: two clean builds, one set of hashes
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist-1
+          path: first
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist-2
+          path: second
+      - name: the two builds must be byte-identical
+        run: |
+          diff -r first second
+          echo "reproduced: two clean checkouts, identical dist/"
+          cat first/HASHES.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: first
+          if-no-files-found: error
