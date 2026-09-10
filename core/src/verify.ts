@@ -12,6 +12,7 @@ import { type AnchorAttachment, type ChainReader, verifyAnchor } from './anchor.
 import { validateTimestamp } from './rfc3161.js'
 import { type Certificate, parseCertificate } from './x509.js'
 import { type RevocationLookup, validateAndroidAttestation } from './attestation/android.js'
+import { type KeyStatusLookup, verifyKeyStatus } from './key-status.js'
 
 /**
  * The verdict of the signature layer of vcap/1.0, from bytes to words. This
@@ -40,6 +41,10 @@ export interface Verdict {
   attestation?: { proven: string, detail: string, boot_state?: { locked: boolean, state: string } }
   // §6.2: the chain's revocation status as frozen while the chain was current.
   attestation_status?: { ok: boolean, detail: string }
+  // §6.2 registry → "Revocation, online": the device key's own standing in the
+  // log at the proven instant. The one check that needs network, and the one
+  // green cannot be reached without.
+  key_status?: { ok: boolean, detail: string }
   // §7: claimed by the device, proven by the evidence, and the ceiling the two allow.
   level?: { claimed: string, proven: string, ceiling: 'green' | 'amber' | 'red' }
   // §7: the instant every certificate path was validated at, and what proved
@@ -66,6 +71,10 @@ export interface VerifyOptions {
   googleRoots?: Certificate[]
   // Google's status list, when online; absent → *chain revocation not checked*.
   revocation?: RevocationLookup
+  // The transparency log's signed answer about the device key at an instant;
+  // absent → *revocation not checked*, amber (§7). The core contacts nothing:
+  // the caller owns the network.
+  keyStatus?: KeyStatusLookup
   now?: Date
 }
 
@@ -219,11 +228,15 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   // valid timestamp token, a verified anchor's block, the device's own clock,
   // and — with none of the three — the verifier's clock, which proves nothing
   // about the capture and is only there so validation has an instant at all.
+  // The verifier's own clock: it proves nothing about the capture, and is used
+  // only where "when did we look" is the question — an expiry noticed since, an
+  // online status list that can only speak for now.
+  const clock = o.now ?? new Date()
   const instant: { at: Date, source: NonNullable<Verdict['validated_at']>['source'] } =
     verdict.timestamp?.ok === true && verdict.timestamp.gen_time ? { at: new Date(verdict.timestamp.gen_time), source: 'timestamp' }
       : verdict.anchor?.ok === true && verdict.anchor.block_time ? { at: new Date(verdict.anchor.block_time), source: 'anchor' }
         : verdict.device_clock !== undefined ? { at: new Date(verdict.device_clock), source: 'device_clock' }
-          : { at: o.now ?? new Date(), source: 'verifier_clock' }
+          : { at: clock, source: 'verifier_clock' }
   verdict.validated_at = { instant: instant.at.toISOString(), source: instant.source }
   const trustedInstant = instant.source === 'timestamp' || instant.source === 'anchor'
 
@@ -275,22 +288,30 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     // the capture was claimed; revoked afterwards leaves the level at that
     // instant standing, because a batch key withdrawn later does not un-attest
     // what it attested.
-    const revokedBeforeCapture = frozen?.ok === true && frozen.revoked !== null && frozen.fetchedAt <= instant.at.getTime()
-    if (revokedBeforeCapture) { proven = 'none'; labels.push('attestation key revoked') }
-    else if (frozen?.ok === true && frozen.revoked !== null) labels.push('attestation key revoked after the capture')
-    // The snapshot *is* the revocation check, whatever it found: without it an
+    //
+    // Both sources answer the same question and are read under the same rule.
+    // The frozen snapshot carries the instant it was taken and can predate the
+    // capture; Google's status list is a *current*-status list with no
+    // revocation date on it, so the only instant an online answer speaks for is
+    // the moment it was fetched — which is always after the capture. Reading
+    // the online one as if it were dated at the capture is how the two paths
+    // came to disagree: the same chain read red with network and amber without,
+    // and a verdict that depends on which evidence the caller happened to hold
+    // is not a verdict.
+    const seen: { at: number, revoked: { serial: string, reason?: string } | null }[] = []
+    if (frozen?.ok === true) seen.push({ at: frozen.fetchedAt, revoked: frozen.revoked })
+    if (a && a.revocation !== 'not_checked') seen.push({ at: clock.getTime(), revoked: a.revoked ? { serial: a.revoked.serial, reason: a.revoked.status } : null })
+    const atCapture = seen.find((x) => x.revoked !== null && x.at <= instant.at.getTime())
+    const everRevoked = seen.find((x) => x.revoked !== null)
+    if (atCapture) { proven = 'none'; labels.push('attestation key revoked') }
+    else if (everRevoked) labels.push('attestation key revoked after the capture')
+    // Either source *is* the revocation check, whatever it found: without one an
     // offline verifier can never reach green, which is the whole reason the
     // attachment exists. A snapshot that found a revocation checked just as
     // hard as one that cleared the chain — reporting *chain revocation not
     // checked* next to *attestation key revoked* would deny the very evidence
     // that produced the second label.
-    const checkedByFrozen = frozen?.ok === true
-    // §6.2's label, not §6.3's: this is the revocation of the *chain's*
-    // certificates, and *revocation not checked* is the device key's status
-    // against the log. Two checks, two labels — saying the second when only the
-    // first ran claims a check nobody performed.
-    if (a && a.revocation === 'not_checked' && !checkedByFrozen) labels.push('chain revocation not checked')
-    if (a && a.revocation === 'revoked') labels.push('key revoked')
+    if (seen.length === 0) labels.push('chain revocation not checked')
     // §7: a chain valid at the proven instant and expired since is not an
     // error — the verifier is late, the capture is not forged. It is only worth
     // saying when the instant is the device's own claim, because then nothing
@@ -299,13 +320,36 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   } else if (device.platform === 'ios' && verdict.registry?.ok && verdict.registry.secure_hw === 'secureEnclave') {
     proven = 'secureEnclave'
   }
+  // §6.2 registry → "Revocation, online", and §7's *revocation not checked*.
+  // The registry attachment proves the key was in the log when a tree head was
+  // signed; a revocation is a *later* leaf, and nothing in a Merkle tree proves
+  // a leaf's absence, so this is the one question that cannot be answered from
+  // the file. Until it is answered, green would say "sealed in the TEE, key in
+  // the log, revocation checked" with the last third unverified — so an offline
+  // verifier says *revocation not checked* and stops at amber, by design.
+  if (verdict.registry?.ok === true) {
+    const keyIdHex = hexKeyId(device.key_id as string)
+    let statement = null
+    try { statement = o.keyStatus ? await o.keyStatus(keyIdHex, instant.at) : null } catch { statement = null }
+    const st = statement ? await verifyKeyStatus(statement, fromBase64(device.key_id as string), instant.at, o.trustedLogs ?? []) : null
+    if (st?.ok === true && st.status !== 0) {
+      verdict.key_status = { ok: true, detail: st.status === 1 ? `the log placed the key as valid at ${instant.at.toISOString()}` : `the log placed the key as revoked at ${instant.at.toISOString()}` }
+      if (st.status === 2) labels.push('key revoked')
+    } else {
+      // An unknown status and an unreachable log are the same amount of
+      // knowledge, and a statement that does not check out is less than none:
+      // it says so, rather than passing for one.
+      verdict.key_status = { ok: false, detail: st ? (st.ok ? 'the log answered `unknown`' : st.reason) : o.keyStatus ? 'the log could not be asked' : 'no log lookup available' }
+      labels.push('revocation not checked')
+    }
+  }
   const rank: Record<string, number> = { none: 0, tee: 1, secureEnclave: 1, strongbox: 2 }
   // A claim above the evidence is flagged only when there is evidence: with no
   // attestation the §7 label is *origin not hardware-attested* alone.
   if (verdict.attestation && (rank[claimed] ?? 0) > (rank[attested] ?? 0)) labels.push('inconsistent claim')
   const inLog = verdict.registry?.ok === true && !labels.includes('registered after the declared capture')
   const ceiling: 'green' | 'amber' | 'red' = verdict.outcome === 'tampered' || labels.includes('key revoked') || labels.includes('attestation key revoked') ? 'red'
-    : proven !== 'none' && inLog && verdict.outcome === 'authentic' && !labels.includes('inconsistent claim') && !labels.includes('chain revocation not checked') && !labels.includes('key revoked') && !labels.includes('attestation chain expired, capture time not proven') ? 'green'
+    : proven !== 'none' && inLog && verdict.outcome === 'authentic' && !labels.includes('inconsistent claim') && !labels.includes('chain revocation not checked') && !labels.includes('revocation not checked') && !labels.includes('key revoked') && !labels.includes('attestation chain expired, capture time not proven') ? 'green'
     : 'amber'
   verdict.level = { claimed, proven, ceiling }
 

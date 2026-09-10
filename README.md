@@ -16,9 +16,15 @@ and passes every conformance vector of `vcap-spec`, evaluates RFC 3161 tokens
 against injected TSA roots and Android attestation chains against the pinned
 Google roots (the §7 proven level and ceiling); `web/` is a first static page
 over it, still without TSA roots (so it labels *trusted time not evaluated*).
-Not yet: App Attest (the iOS proven level comes from the registry leaf), Google's
-status list online (offline it labels *chain revocation not checked*), the watermark
-detector.
+Both revocation questions §7 asks are implemented as *injected* lookups, because
+this core contacts nothing: the chain's status list and the log's signed answer
+about the device key. Given neither, a verdict says *chain revocation not
+checked* and *revocation not checked* and stops at amber — green is the one
+verdict that cannot be reached from the file alone, by design.
+
+Not yet: App Attest (the iOS proven level comes from the registry leaf, which is
+where enrolment puts it), a page that actually reaches a log or a status list
+(the static build ships no network), the watermark detector.
 
 The PoC verifier stays online for its own samples and is not a code source.
 
@@ -90,7 +96,14 @@ attachment (CMS over TSTInfo: imprint = core hash, signed attributes, signature,
 chain to the given TSA roots, timeStamping usage, genTime) and the `attestation`
 attachment on Android (chain to a pinned Google root, leaf key = `sig.pub`,
 weaker of the two security levels, locked device with verified boot; revocation
-through an injected status lookup). From those the verdict carries `level`:
+through an injected status lookup, read under §6.2's temporal rule — a
+current-status list can only speak for the moment it was read, so what it finds
+is *attestation key revoked after the capture* and the level at the capture
+stands; only a snapshot dated before the capture withdraws it). The device key's
+own standing is a separate question with a separate label, answered by the log's
+signed statement over `"vcap/1.0/status" ‖ key_id ‖ at ‖ tree_size ‖ status`,
+whose `at` is checked against the proven instant so a log cannot be quoted out of
+context. From those the verdict carries `level`:
 claimed, proven and the §7 ceiling, with *inconsistent claim* when the claim
 exceeds the evidence. X.509 and CMS are read with `asn1js` over WebCrypto (RSA
 PKCS#1 v1.5 and ECDSA with SHA-256/384/512). Besides synthetic chains, the tests
