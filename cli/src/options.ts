@@ -16,6 +16,12 @@ export interface Options {
   sidecar?: string | false
   /** §5 recomputation from the container. On by default; `--no-recompute` for a caller that has only a sidecar. */
   recompute: boolean
+  /**
+   * §8's watermark detection, as a file: this tool contacts nothing and runs
+   * no model, so the only honest source of a detection is the caller. Absent,
+   * a declared watermark reads *watermark not evaluated*.
+   */
+  watermark?: string
   /** Transparency-log public keys, `--log <log_id>:<base64 spki>`. */
   logs: { logId: string, spki: string }[]
   /** TSA roots to pin, PEM files. Without one a timestamp is *trusted time not evaluated*. */
@@ -39,6 +45,10 @@ Options
                             by default <file>.vcap next to the file is read when present (§3.1)
   --no-sidecar              ignore any sidecar, verify the file alone
   --no-recompute            do not recompute segment hashes from the container (§5)
+  --watermark <path.json>   a detection of the declared watermark, as JSON (single file only):
+                            layout, decoded, agreement, corrected_bits, frames_sampled,
+                            sampling {frames, strategy}, model_version (§8). This tool runs no
+                            detector: "decoded" is what somebody else's read out of the pixels
   --log <id>:<spki>         a transparency log to trust: log_id and its base64 DER SPKI
   --tsa-root <path.pem>     a TSA root to pin; repeatable
   --require-green           exit 1 unless the ceiling is green
@@ -71,6 +81,7 @@ export const parse = (argv: string[]): Options => {
       case '--require-green': o.requireGreen = true; break
       case '-h': case '--help': o.help = true; break
       case '--sidecar': o.sidecar = next(arg, at); at++; break
+      case '--watermark': o.watermark = next(arg, at); at++; break
       case '--no-sidecar': o.sidecar = false; break
       case '--tsa-root': o.tsaRoots.push(next(arg, at)); at++; break
       case '--at': {
@@ -98,6 +109,9 @@ export const parse = (argv: string[]): Options => {
   if (!o.help) {
     if (o.files.length === 0) throw new UsageError('no file given')
     if (o.sidecar && o.files.length > 1) throw new UsageError('--sidecar takes a single file')
+    // One detection is about one file's pixels. Spreading it over a directory
+    // would report a mark that was never looked for in the other files.
+    if (o.watermark && o.files.length > 1) throw new UsageError('--watermark takes a single file')
   }
   return o
 }
