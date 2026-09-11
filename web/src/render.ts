@@ -132,8 +132,8 @@ const SIGNATURE: Record<Verdict['outcome'], string> = {
   unsupported_format_version: 'not reached: this verifier does not implement the format version'
 }
 
-const firstLabel = (v: Verdict, ...names: string[]): string | null =>
-  names.find((name) => v.labels.includes(name)) ?? null
+/** Named, because the side-by-side treats this one row differently. */
+const WATERMARK_FIELD = 'watermark (§8)'
 
 interface Field {
   name: string
@@ -147,30 +147,53 @@ const FIELDS: Field[] = [
   // same signed claim, and a copy that carries none carries no claim at all.
   { name: 'proof identity', read: (v) => v.core_hash ?? null },
   { name: 'declared capture time', read: (v) => v.device_clock ? new Date(v.device_clock).toISOString() : null },
-  { name: 'trusted time', read: (v) => v.timestamp?.detail ?? firstLabel(v, 'no trusted time') },
-  { name: 'transparency log', read: (v) => v.registry?.detail ?? firstLabel(v, 'key not in transparency log') },
-  { name: 'hardware attestation', read: (v) => v.attestation?.detail ?? firstLabel(v, 'origin not hardware-attested') },
-  { name: 'watermark (§8)', read: (v) => v.watermark ? watermarkLine(v.watermark) : firstLabel(v, 'no watermark', 'watermark not evaluated') },
+  // Evidence only, never the label that says a field is absent. *No trusted
+  // time* on both sides would otherwise print as something the copy lost,
+  // when neither file ever had it; what each file is missing is on its own
+  // card, where it belongs.
+  { name: 'trusted time', read: (v) => v.timestamp?.detail ?? null },
+  { name: 'transparency log', read: (v) => v.registry?.detail ?? null },
+  { name: 'hardware attestation', read: (v) => v.attestation?.detail ?? null },
+  { name: WATERMARK_FIELD, read: (v) => v.watermark ? watermarkLine(v.watermark) : null },
   { name: 'position level', read: (v) => v.location && v.location.level !== 'none' ? `${v.location.level} — ${coordinates(v)}` : null },
   { name: 'proof level (§7)', read: (v) => v.level ? `claimed ${v.level.claimed}, proven ${v.level.proven}, ceiling ${v.level.ceiling}` : null }
 ]
 
-/** What happened to a piece of evidence between the original and the copy. */
-const change = (copy: string | null, original: string | null): { word: string, css: string } => {
+/**
+ * What happened to a piece of evidence between the original and the copy.
+ *
+ * `sameProof` is the distinction that keeps this honest: when both files carry
+ * the same `core_hash` they carry the same signed claim, and a field missing
+ * from the copy's verdict was not lost by the file — the verdict stopped
+ * before reaching it, which is what *tampered* does. Calling that "lost" would
+ * report a second failure where there is one.
+ */
+const change = (copy: string | null, original: string | null, sameProof: boolean): { word: string, css: string } => {
   if (copy !== null && original !== null) return copy === original ? { word: 'unchanged', css: 'kept' } : { word: 'differs', css: 'differs' }
-  if (original !== null) return { word: 'lost', css: 'lost' }
+  if (original !== null) return sameProof ? { word: 'not reported', css: '' } : { word: 'lost', css: 'lost' }
   return { word: 'only in the copy', css: 'differs' }
 }
 
-export const comparison = (copy: { name: string, verdict: Verdict }, original: { name: string, verdict: Verdict }): string => {
+export const comparison = (copy: { name: string, verdict: Verdict }, original: { name: string, verdict: Verdict }, traced: WatermarkOutcome | null = null): string => {
+  // The same signed claim on both sides: what the copy's verdict does not
+  // report was not lost with the bytes.
+  const sameProof = copy.verdict.core_hash !== undefined && copy.verdict.core_hash === original.verdict.core_hash
   const rows = FIELDS.map((field) => {
-    const mine = field.read(copy.verdict)
+    // A copy with no proof of its own declares no watermark, so §8 never runs
+    // inside its verdict. What was read out of its pixels was read against the
+    // *original's* ids, and the row says which — otherwise the table would
+    // report a mark as lost while the block below it reports the same mark as
+    // found.
+    const against = traced !== null && field.name === WATERMARK_FIELD
+    const mine = against ? watermarkLine(traced) : field.read(copy.verdict)
     const theirs = field.read(original.verdict)
     if (mine === null && theirs === null) return ''
-    const { word, css } = change(mine, theirs)
+    const { word, css } = against
+      ? { word: 'read against the original', css: traced.result === 'matched' ? 'kept' : 'differs' }
+      : change(mine, theirs, sameProof)
     return `<tr class="${css}">
       <th scope="row">${escape(field.name)}</th>
-      <td>${mine === null ? '<span class="absent">absent</span>' : `<code>${escape(mine)}</code>`}</td>
+      <td>${mine === null ? `<span class="absent">${sameProof ? 'not evaluated' : 'absent'}</span>` : `<code>${escape(mine)}</code>`}</td>
       <td>${theirs === null ? '<span class="absent">absent</span>' : `<code>${escape(theirs)}</code>`}</td>
       <td class="change">${word}</td>
     </tr>`

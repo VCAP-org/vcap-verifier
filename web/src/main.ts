@@ -103,7 +103,7 @@ const check = async (): Promise<void> => {
 
   out.innerHTML = [
     `<div class="pair">${card(copyName, copyVerdict)}${card(original.name, originalVerdict)}</div>`,
-    comparison({ name: 'the file in question', verdict: copyVerdict }, { name: 'the original', verdict: originalVerdict }),
+    comparison({ name: 'the file in question', verdict: copyVerdict }, { name: 'the original', verdict: originalVerdict }, traced),
     traced ? trace(traced) : ''
   ].join('')
 }

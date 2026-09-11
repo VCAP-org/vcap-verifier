@@ -1,0 +1,7 @@
+{
+  "layout": "photo-bch-v3",
+  "decoded": "00112233445566778899aabbccddeeff",
+  "corrected_bits": 3,
+  "frames_sampled": 1,
+  "model_version": "videoseal-y256b-1-detector_int8"
+}

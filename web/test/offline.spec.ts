@@ -1,46 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import { createServer, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { extname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const dist = fileURLToPath(new URL('../dist/', import.meta.url))
-const vectors = fileURLToPath(new URL('../../core/vectors/', import.meta.url))
-
-// Served under the same sub-path as GitHub Pages, so a scope or base-URL
-// mistake fails here and not on the live page.
-const BASE = '/vcap-verifier/'
-const TYPES: Record<string, string> = {
-  '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.md': 'text/markdown',
-  '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.sha256': 'text/plain'
-}
-
-// A static server over dist/ that the test can take down mid-way: the proof
-// of offline use is a page that keeps working when nothing can answer.
-const serve = (): Promise<{ server: Server, url: string }> => new Promise((resolve) => {
-  const server = createServer(async (req, res) => {
-    const path = new URL(req.url ?? '/', 'http://localhost').pathname
-    if (!path.startsWith(BASE)) { res.writeHead(404); res.end(); return }
-    const name = path.slice(BASE.length) || 'index.html'
-    try {
-      const body = await readFile(join(dist, name))
-      res.writeHead(200, { 'content-type': TYPES[extname(name)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
-      res.end(body)
-    } catch {
-      res.writeHead(404); res.end()
-    }
-  })
-  server.listen(0, '127.0.0.1', () => {
-    const { port } = server.address() as AddressInfo
-    resolve({ server, url: `http://127.0.0.1:${port}${BASE}` })
-  })
-})
-
-const stop = (server: Server): Promise<void> => new Promise((resolve) => {
-  server.closeAllConnections()
-  server.close(() => resolve())
-})
+import { join } from 'node:path'
+import { dist, serve, stop, vectors } from './serve.js'
 
 test('verifies vectors with the server gone and the browser offline', async ({ page, context }) => {
   const { server, url } = await serve()
