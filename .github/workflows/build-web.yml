@@ -2,7 +2,7 @@ name: build-web
 # The one build of the page that everything else consumes. Two jobs build the
 # same commit from two clean checkouts on two runners; a third diffs the two
 # `dist/` trees byte for byte and, only when they are identical, publishes one
-# of them as the `web-dist` artifact. The offline test and the Pages deploy
+# of them as the `web-dist` artifact. The offline test and `bin/push-verifier`
 # both take that artifact — the page that goes live is the page whose hashes
 # were reproduced, not a third build that is hoped to match.
 on:

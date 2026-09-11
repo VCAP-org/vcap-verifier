@@ -8,9 +8,12 @@ export const dist = fileURLToPath(new URL('../dist/', import.meta.url))
 export const vectors = fileURLToPath(new URL('../../core/vectors/', import.meta.url))
 export const fixtures = fileURLToPath(new URL('fixtures/', import.meta.url))
 
-// Served under the same sub-path as GitHub Pages, so a scope or base-URL
-// mistake fails here and not on the live page.
-export const BASE = '/vcap-verifier/'
+// Served at the root, as the page is on its own host. Every URL the page and
+// the worker build is relative, so the whole build is path-agnostic — which is
+// what lets anybody serve these exact files from anywhere, sub-path included.
+// `VCAP_TEST_BASE=/somewhere/` runs the same suite under a sub-path and is the
+// cheapest proof that the claim still holds.
+export const BASE = process.env.VCAP_TEST_BASE ?? '/'
 const TYPES: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript',
   // `.mjs` is not decoration either: a module served as octet-stream is
@@ -20,6 +23,15 @@ const TYPES: Record<string, string> = {
   // The engine's binary and the model. `application/wasm` is not decoration:
   // without it the browser cannot compile the module while it streams.
   '.wasm': 'application/wasm', '.onnx': 'application/octet-stream'
+}
+
+// Cross-origin isolation. Everything the page loads is same-origin, so
+// require-corp costs nothing and buys `SharedArrayBuffer`.
+export const HEADERS: Record<string, string> = {
+  'cross-origin-opener-policy': 'same-origin',
+  'cross-origin-embedder-policy': 'require-corp',
+  'cross-origin-resource-policy': 'same-origin',
+  'x-content-type-options': 'nosniff'
 }
 
 // A static server over dist/ that a test can take down mid-way: the proof of
@@ -38,7 +50,15 @@ export const serve = (options: { corrupt?: RegExp, absent?: RegExp } = {}): Prom
       // run; the digest is. `corrupt` flips one byte on the way out, which is
       // the whole threat in one line.
       if (options.corrupt?.test(name)) body[body.length - 1] = (body.at(-1) ?? 0) ^ 0x01
-      res.writeHead(200, { 'content-type': TYPES[extname(name)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
+      res.writeHead(200, {
+        'content-type': TYPES[extname(name)] ?? 'application/octet-stream',
+        'cache-control': 'no-store',
+        // The headers the real host sends (vcap-platform, infra/verifier/nginx.conf).
+        // They are what gives the page `SharedArrayBuffer`, and therefore
+        // multi-threaded WASM in the detector: a suite that ran without them
+        // would be measuring and testing a different page from the live one.
+        ...HEADERS
+      })
       res.end(body)
     } catch {
       res.writeHead(404); res.end()

@@ -46,6 +46,13 @@ part of correctness:
 - Publish the failures too: the demo set includes the cases where verification
   cannot conclude.
 - Keep the page usable offline and archivable.
+- The page is published on a host of ours (`verify.vcap.gregoriogalante.com`,
+  configured in `vcap-platform`), by hand, from a clean checkout. Nothing in
+  this repository may come to depend on that: every URL the build produces is
+  relative, the e2e suite runs at a root and under a sub-path, and a verdict
+  still needs no request of any kind. The host serves bytes whose hashes are
+  published — it is not in the verification path, and a change that would put
+  it there is the change to refuse.
 - The page build is reproducible and stays so: nothing in `web/dist` may depend
   on the clock, the machine or its paths — only on the commit and the pinned
   toolchain. CI builds twice from clean checkouts and fails if the trees differ.

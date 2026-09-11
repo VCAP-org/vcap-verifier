@@ -77,14 +77,34 @@ npm run dev --workspace web      # serves the page with a watcher (no service wo
 
 ## Public page
 
-The page is served from GitHub Pages at
-**https://vcap-org.github.io/vcap-verifier/**. It deploys from `main` through
-`.github/workflows/pages.yml`: typecheck and the core tests as a gate (a red
-core never deploys), the `web` build through `build-web.yml` — twice, from two
-clean checkouts on two runners, published only if the two `dist/` trees are
-byte-identical — and that same artifact uploaded to Pages. Nothing more. The
-page is static and stays so: no server of ours is in the path, nothing is
-fetched from our infrastructure.
+The page is served at **https://verify.vcap.gregoriogalante.com/**, from a host
+of ours: stock nginx over a directory, configured in `vcap-platform`
+(`infra/verifier/nginx.conf`, a Kamal accessory in `config/deploy.yml`) and
+filled by `bin/push-verifier` with a `web/dist` built here. It was on GitHub
+Pages until September 2026; three things moved it, none of them about trust:
+
+- the **model is same-origin**, so its 34.2 MB download needs no CORS and no
+  second host;
+- the page is **cross-origin isolated** (COOP/COEP), which is what gives
+  onnxruntime-web `SharedArrayBuffer` and therefore more than one WASM thread —
+  measured at 2.3–2.6× on this machine (*What it costs* below);
+- **media types are ours to get right**: a `.mjs` served as `octet-stream` makes
+  the browser refuse the module with an error no user can read, and a `.wasm`
+  without `application/wasm` cannot be compiled while it streams.
+
+What did not change is the part that matters: the page is static, nothing is
+fetched from our infrastructure to reach a verdict, and once the service worker
+has installed there is no request at all. **Our host serves the page; it is not
+in the verification path** — which is why the hashes below, and not the
+hostname, are what the page asks to be trusted on. Anyone who would rather not
+fetch it from us can serve the same `dist/` anywhere, sub-path included: every
+URL the build produces is relative.
+
+CI is unchanged and is still the gate: typecheck, the core against the spec
+vectors, the double clean build with one set of hashes (`build-web.yml`), and
+the offline suite against that same artifact. There is no deploy workflow —
+publishing is `bin/push-verifier` from the platform checkout, which is a
+deliberate hand on a public page rather than a push to `main`.
 
 ### Offline use
 
@@ -99,23 +119,32 @@ them, will be shipped in the build and hashed like the rest).
 
 This is tested, not asserted: `web/test/offline.spec.ts` (Playwright, the
 `offline` job in CI, run against the same `web-dist` artifact the
-reproducibility job hashed) loads the page from a local static server under
-the Pages sub-path, waits for the worker, **stops the server and takes the
+reproducibility job hashed) loads the page from a local static server that
+sends the live host's headers, waits for the worker, **stops the server and takes the
 browser offline**, reloads, and verifies four vectors — authentic, tampered,
 no proof, and a sidecar-only proof handed over through the page's second
 input — from the cache alone, checking that every request stayed on the
-page's origin.
+page's origin. It serves at the root, as the live host does;
+`VCAP_TEST_BASE=/somewhere/ npm run test:e2e --workspace web` runs the same
+suite under a sub-path, which is the cheapest proof that the build stayed
+path-agnostic and that somebody else can host it wherever they like.
 
 ### Published hashes
 
-Every deploy publishes, next to the page:
+Every publish puts, next to the page:
 
-- `https://vcap-org.github.io/vcap-verifier/hashes.json` — the SHA-256 of every
+- `https://verify.vcap.gregoriogalante.com/hashes.json` — the SHA-256 of every
   shipped file, the commit it was built from, and the tool versions
   (`toolchain.esbuild`, `toolchain.node`);
-- `https://vcap-org.github.io/vcap-verifier/HASHES.md` — the same, for a reader;
-- `https://vcap-org.github.io/vcap-verifier/verifier.js.sha256` — the bundle
+- `https://verify.vcap.gregoriogalante.com/HASHES.md` — the same, for a reader;
+- `https://verify.vcap.gregoriogalante.com/verifier.js.sha256` — the bundle
   hash alone, `sha256sum -c` format.
+
+Serving the page ourselves makes these **more** load-bearing, not less: on a
+third party's host the bytes were at least not ours to change quietly. The
+answer is the same one it always was, and it is why the build is reproducible —
+rebuild the commit in the footer and compare. A reader who wants no part of our
+host can take `hashes.json`, rebuild, and serve the result themselves.
 
 The page footer shows its own bundle hash and commit, so a user can compare
 the page in front of them with `hashes.json` and with the CI run for that commit
@@ -193,12 +222,14 @@ anything else are refused with the two digests printed, and the page is left
 exactly as useful as it was — a Playwright test flips one byte of the model in
 flight and asserts both.
 
-The model's url is **relative**, so it is served from wherever the page is.
-Nobody has to fetch it from us: the digest is what makes the file trustworthy,
-not the host, and `vcap-ml`'s `browser-build` prints the same digest from the
-artifact it produces. The verification path is unchanged either way — the
-download is an explicit act of the user's, the page is whole without it, and no
-verdict depends on it.
+The model's url is **relative**, so it is served from wherever the page is —
+today that is `models/` next to the page on our own host, which is what makes
+the download same-origin and spares it CORS entirely. Nobody has to fetch it
+from us all the same: the digest is what makes the file trustworthy, not the
+host, and `vcap-ml`'s `browser-build` prints the same digest from the artifact
+it produces. The verification path is unchanged either way — the download is an
+explicit act of the user's, the page is whole without it, and no verdict
+depends on it.
 
 **Backends.** `execution_providers` in the manifest is tried in order and the
 first session that initialises wins, so a browser with no WebGPU falls back to
@@ -206,13 +237,37 @@ WASM SIMD without the reader noticing. The published int8 build asks for
 `wasm` alone, because it has no WebGPU kernels for this graph and round-trips
 to the CPU inside the session: 1016 ms a frame there against 211–456 ms on
 WASM (`vcap-ml/reports/detector-in-the-browser.md`). Which backend ran is
-printed, because multi-threaded WASM needs cross-origin isolation
-(COOP/COEP) and a timing nobody can place is not a measurement.
+printed, **with its thread count**, because multi-threaded WASM needs
+cross-origin isolation (COOP/COEP) and a timing nobody can place is not a
+measurement. The page asks for threads only when the browser admits them —
+without isolation `SharedArrayBuffer` is absent and onnxruntime-web silently
+uses one, so asking for more would misreport the backend rather than speed it
+up.
 
-**What it costs, measured** (M4, Chromium, page and model on the same local
-host, single-thread WASM): 0.7 s to download 34.2 MB, hash it and open a
-session; ~0.9 s per frame end to end, which is one frame for a photo and eight
-for a clip — so a still is about a second and a clip is about seven. That is
+**What it costs, measured** (M4, Chromium, page and model on the same host).
+Cross-origin isolation is the whole difference; the same build, the same
+files, one server sending COOP/COEP and one not:
+
+| | 1 thread | 10 threads |
+|---|---|---|
+| download 34.2 MB, hash it, open a session | 0.73 s | 0.75 s |
+| photo, one frame, end to end | 1.76 s | 0.69 s |
+| clip, eight frames, end to end | 14.2 s | 6.3 s |
+
+So isolation is worth **2.3–2.6×** and costs nothing here: every file the page
+loads is same-origin, and the whole e2e suite passes identically with the
+headers on. The download is unaffected, as it should be.
+
+Against the published host rather than a loopback, the same photo took **1.32 s**
+and the load **296 s** — because the wire, not the page, is what a first
+detector click pays for, and because that click fetches **more than the model**:
+the engine (`ort-wasm-simd-threaded.jsep.wasm`, 27.8 MB) is deferred with it, so
+the first use moves about **62 MB**, not 34.2. The 296 s is one observer's route
+(88 ms to Helsinki, ~220 kB/s sustained from this machine, against 3.2 MB/s to a
+nearby CDN from the same machine and 167 MB/s out of the server); it is a fact
+about a link, not about the host, and it is why the page streams the download
+with a progress figure instead of blocking on it. A second click costs nothing:
+the engine revalidates to a 304 and the model is served `immutable`. That is
 why detection is **progressive**: every frame reports as it lands and the
 payload is shown as soon as it decodes, which for `video-rep-v1` is usually the
 first frame (`vcap-ml/reports/frames-to-recover.md`).
@@ -239,8 +294,11 @@ npm run test:e2e --workspace web
 ```
 
 A host serving these files must send `application/wasm` for the engine's binary
-and a JavaScript type for its `.mjs` glue; the test server does, and a static
-host that does not will fail to start a session with no error the user can read.
+and a JavaScript type for its `.mjs` glue; the test server does, our own host
+declares both rather than inheriting them (`vcap-platform`,
+`infra/verifier/nginx.conf`), and a static host that does not will fail to
+start a session with no error the user can read. Sending COOP/COEP as well is
+optional and worth 2.3–2.6× (above).
 
 ## What the core verifies
 

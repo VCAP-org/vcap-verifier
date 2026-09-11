@@ -34,9 +34,11 @@
  * ## Threads
  *
  * Multi-threaded WASM needs `SharedArrayBuffer`, which needs the page to be
- * cross-origin isolated (COOP/COEP). GitHub Pages does not send those headers,
- * so the shipped page runs the single-thread numbers; `backend` says which it
- * got, because a timing is not comparable without it.
+ * cross-origin isolated (COOP/COEP). The host the page is published on sends
+ * them, so the shipped page gets threads; a copy served from somewhere that
+ * does not gets one, silently and correctly. `backend` says which it got,
+ * because a timing is not comparable without it — measured on an M4 in
+ * Chromium, threads are worth 2.3-2.6x (README).
  */
 import * as ort from 'onnxruntime-web'
 import type { WatermarkClaim, WatermarkEvidence } from 'vcap-verify-core'
