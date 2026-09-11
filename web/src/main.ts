@@ -197,9 +197,9 @@ loadButton.addEventListener('click', () => {
     ))
     .then((loaded) => {
       detector = loaded
-      // The backend is part of the answer: the same build is three times
-      // slower without cross-origin isolation, and a timing nobody can place
-      // is not a measurement.
+      // The backend is part of the answer: the same build is 2.3-2.6x slower
+      // on one thread, which is what a page served without cross-origin
+      // isolation gets, and a timing nobody can place is not a measurement.
       say(`detector ${loaded.model_version} runs in this page on ${loaded.backend} — downloaded and verified in ${((performance.now() - started) / 1000).toFixed(1)} s`)
       void check()
     })
