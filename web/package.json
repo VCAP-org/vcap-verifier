@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "onnxruntime-web": "1.29.0",
     "vcap-verify-core": "*"
   },
   "devDependencies": {

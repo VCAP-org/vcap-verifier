@@ -23,7 +23,7 @@ const logits = (message: string): Float32Array => {
   const soft = new Float32Array(vectors.message_bits)
   for (let i = 0; i < soft.length; i++) {
     const byte = parseInt(message.slice((i >> 3) * 2, (i >> 3) * 2 + 2), 16)
-    soft[i] = (byte >> (7 - (i % 8))) & 1 ? 4 : -4
+    soft[i] = ((byte >> (7 - (i % 8))) & 1) === 1 ? 4 : -4
   }
   return soft
 }
@@ -31,7 +31,7 @@ const logits = (message: string): Float32Array => {
 /** Deterministic bit flips: which bits break is a property of the code, not of luck. */
 const flip = (soft: Float32Array, count: number, step: number): Float32Array => {
   const out = soft.slice()
-  for (let i = 0, at = 0; i < count; i++, at = (at + step) % out.length) out[at] *= -1
+  for (let i = 0, at = 0; i < count; i++, at = (at + step) % out.length) out[at] = -out[at]!
   return out
 }
 

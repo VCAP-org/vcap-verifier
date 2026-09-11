@@ -23,7 +23,9 @@
  * are refused. That is the same bargain the page's own `hashes.json` offers —
  * unsigned, reproducible — applied to a file too big to ship inside it.
  */
-import type { WatermarkClaim, WatermarkEvidence } from 'vcap-verify-core'
+import type { Detector, DetectProgress } from './detector-runtime.js'
+
+export type { Detector, DetectProgress }
 
 /** The published build, when there is one. `runtime` is the module that runs it. */
 export interface DetectorBuild {
@@ -37,6 +39,12 @@ export interface DetectorBuild {
   model_version: string
   /** ES module exporting `createDetector`; fetched only after the model verifies. */
   runtime: string
+  /**
+   * Execution providers to try, in order. A property of the build and not of
+   * the browser: the int8 model asks for `wasm` alone because it has no GPU
+   * kernels and WebGPU runs it five times slower (see `detector-runtime.ts`).
+   */
+  execution_providers?: string[]
 }
 
 export interface DetectorManifest {
@@ -45,19 +53,8 @@ export interface DetectorManifest {
   reason?: string
 }
 
-/**
- * What a runtime hands back. `detect` reports **what came out of the pixels**
- * and nothing else: the comparison against the ids the device signed belongs
- * to the core, which does it against the signed bytes rather than against
- * anything a detector chose to say (see `core/src/watermark.ts`).
- */
-export interface Detector {
-  model_version: string
-  detect (media: Uint8Array, claim: WatermarkClaim): Promise<WatermarkEvidence>
-}
-
 interface Runtime {
-  createDetector (model: Uint8Array, modelVersion: string): Promise<Detector>
+  createDetector (model: Uint8Array, modelVersion: string, providers?: string[]): Promise<Detector>
 }
 
 const toHex = (digest: ArrayBuffer): string =>
@@ -94,7 +91,7 @@ export const loadDetector = async (onProgress: (loaded: number, total: number) =
   const manifest = await response.json() as DetectorManifest
   if (!manifest.build) throw new Error(manifest.reason ?? 'no detector build is published with this page')
 
-  const { url, sha256, bytes, model_version: modelVersion, runtime } = manifest.build
+  const { url, sha256, bytes, model_version: modelVersion, runtime, execution_providers: providers } = manifest.build
   const model = await download(url, bytes, onProgress)
   const digest = toHex(await crypto.subtle.digest('SHA-256', model as BufferSource))
   // A model that hashes to something else is not the model this page vouches
@@ -102,5 +99,5 @@ export const loadDetector = async (onProgress: (loaded: number, total: number) =
   if (digest !== sha256) throw new Error(`the downloaded model hashes ${digest} and the manifest pins ${sha256}`)
 
   const module = await import(new URL(runtime, location.href).href) as Runtime
-  return await module.createDetector(model, modelVersion)
+  return await module.createDetector(model, modelVersion, providers)
 }

@@ -46,11 +46,11 @@ for (let i = 0, x = 1; i < 255; i++) {
   x = x << 1
   if (x & 0x100) x ^= 0x11d
 }
-for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255]
+for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255]!
 
-const mul = (a: number, b: number): number => (a === 0 || b === 0 ? 0 : EXP[LOG[a] + LOG[b]])
-const div = (a: number, b: number): number => (a === 0 ? 0 : EXP[LOG[a] + 255 - LOG[b]])
-const pow = (a: number, n: number): number => (a === 0 ? 0 : EXP[(LOG[a] * n) % 255])
+const mul = (a: number, b: number): number => (a === 0 || b === 0 ? 0 : EXP[LOG[a]! + LOG[b]!]!)
+const div = (a: number, b: number): number => (a === 0 ? 0 : EXP[LOG[a]! + 255 - LOG[b]!]!)
+const pow = (a: number, n: number): number => (a === 0 ? 0 : EXP[(LOG[a]! * n) % 255]!)
 
 // --- photo-bch-v3 ----------------------------------------------------------
 const DATA_BITS = 128
@@ -70,8 +70,8 @@ const errorLocator = (syndromes: number[]): number[] => {
   let shift = 1
   let lastDiscrepancy = 1
   for (let n = 0; n < syndromes.length; n++) {
-    let discrepancy = syndromes[n]
-    for (let i = 1; i < sigma.length; i++) discrepancy ^= mul(sigma[i], syndromes[n - i])
+    let discrepancy = syndromes[n]!
+    for (let i = 1; i < sigma.length; i++) discrepancy ^= mul(sigma[i]!, syndromes[n - i]!)
     if (discrepancy === 0) {
       shift++
       continue
@@ -80,7 +80,7 @@ const errorLocator = (syndromes: number[]): number[] => {
     const updated = sigma.slice()
     for (let i = 0; i < previous.length; i++) {
       const at = i + shift
-      updated[at] = (updated[at] ?? 0) ^ mul(scale, previous[i])
+      updated[at] = (updated[at] ?? 0) ^ mul(scale, previous[i]!)
     }
     if (sigma.length - 1 <= n - (shift - 1)) {
       previous = sigma
@@ -102,7 +102,7 @@ const errorPositions = (sigma: number[]): number[] | null => {
   // shortened by three bits, so only exponents inside CODE_BITS are real.
   for (let exponent = 0; exponent < 255; exponent++) {
     let sum = 0
-    for (let i = 0; i < sigma.length; i++) sum ^= mul(sigma[i], pow(EXP[exponent], i))
+    for (let i = 0; i < sigma.length; i++) sum ^= mul(sigma[i]!, pow(EXP[exponent]!, i))
     if (sum !== 0) continue
     const position = (255 - exponent) % 255
     if (position >= CODE_BITS) return null
@@ -120,7 +120,7 @@ const errorPositions = (sigma: number[]): number[] | null => {
  */
 export const decodePhoto = (soft: Float32Array | number[]): PhotoPayload | null => {
   const bits = new Uint8Array(CODE_BITS)
-  for (let i = 0; i < CODE_BITS; i++) bits[i] = soft[i] > 0 ? 1 : 0
+  for (let i = 0; i < CODE_BITS; i++) bits[i] = soft[i]! > 0 ? 1 : 0
 
   // Syndromes S_j = c(α^j). Bit i of the shortened word is the coefficient of
   // x^(CODE_BITS-1-i) in the full length-255 codeword.
@@ -129,7 +129,7 @@ export const decodePhoto = (soft: Float32Array | number[]): PhotoPayload | null 
   for (let j = 1; j <= 2 * T; j++) {
     let s = 0
     for (let i = 0; i < CODE_BITS; i++) {
-      if (bits[i]) s ^= EXP[(j * (CODE_BITS - 1 - i)) % 255]
+      if (bits[i]) s ^= EXP[(j * (CODE_BITS - 1 - i)) % 255]!
     }
     syndromes.push(s)
     if (s !== 0) failed = true
@@ -139,14 +139,14 @@ export const decodePhoto = (soft: Float32Array | number[]): PhotoPayload | null 
   if (failed) {
     const positions = errorPositions(errorLocator(syndromes))
     if (positions === null || positions.length > T) return null
-    for (const position of positions) bits[CODE_BITS - 1 - position] ^= 1
+    for (const position of positions) bits[CODE_BITS - 1 - position] = bits[CODE_BITS - 1 - position]! ^ 1
     corrected = positions.length
     // The corrected word must satisfy every syndrome, or the locator found a
     // consistent lie: a miscorrection is worse than a refusal.
     for (let j = 1; j <= 2 * T; j++) {
       let s = 0
       for (let i = 0; i < CODE_BITS; i++) {
-        if (bits[i]) s ^= EXP[(j * (CODE_BITS - 1 - i)) % 255]
+        if (bits[i]) s ^= EXP[(j * (CODE_BITS - 1 - i)) % 255]!
       }
       if (s !== 0) return null
     }
@@ -156,7 +156,7 @@ export const decodePhoto = (soft: Float32Array | number[]): PhotoPayload | null 
   let any = 0
   for (let i = 0; i < DATA_BITS; i += 8) {
     let byte = 0
-    for (let b = 0; b < 8; b++) byte = (byte << 1) | bits[i + b]
+    for (let b = 0; b < 8; b++) byte = (byte << 1) | bits[i + b]!
     any |= byte
     captureId += byte.toString(16).padStart(2, '0')
   }
@@ -187,18 +187,18 @@ export const crc8 = (value: number): number => {
 export const decodeVideo = (soft: Float32Array | number[]): VideoPayload => {
   const combined = new Float64Array(BLOCK_BITS)
   for (let rep = 0; rep < REPS; rep++) {
-    for (let i = 0; i < BLOCK_BITS; i++) combined[i] += soft[rep * BLOCK_BITS + i]
+    for (let i = 0; i < BLOCK_BITS; i++) combined[i]! += soft[rep * BLOCK_BITS + i]!
   }
   let agreed = 0
   for (let rep = 0; rep < REPS; rep++) {
     for (let i = 0; i < BLOCK_BITS; i++) {
-      if ((soft[rep * BLOCK_BITS + i] > 0) === (combined[i] > 0)) agreed++
+      if ((soft[rep * BLOCK_BITS + i]! > 0) === (combined[i]! > 0)) agreed++
     }
   }
   const agreement = agreed / (REPS * BLOCK_BITS)
 
   let block = 0
-  for (let i = 0; i < BLOCK_BITS; i++) block = block * 2 + (combined[i] > 0 ? 1 : 0)
+  for (let i = 0; i < BLOCK_BITS; i++) block = block * 2 + (combined[i]! > 0 ? 1 : 0)
   const markId = Math.floor(block / 256)
   const crc = block % 256
   if (markId === 0 || crc8(markId) !== crc) return { markId: null, agreement }
