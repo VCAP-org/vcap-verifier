@@ -22,6 +22,7 @@
   .grey { background: #eee; border-color: #888; color: #222; }
   @media (prefers-color-scheme: dark) { .green{background:#0f3d22;color:#e6f6ea} .amber{background:#4a3400;color:#fff4d6} .red{background:#4a0f0f;color:#fde8e8} .grey{background:#222;color:#eee} }
   .verdict h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
+  .position { margin: .5rem 0 0; }
   ul { margin: .5rem 0 0; padding-left: 1.2rem; }
   code { font-family: ui-monospace, monospace; font-size: .85em; word-break: break-all; }
   details { margin-top: .75rem; }
@@ -41,7 +42,7 @@
 </div>
 <div id="out"></div>
 <footer>
-  What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated by this page yet.
+  What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated by this page yet. A position is never "guaranteed": the page names the level it reaches — declared by the device, or corroborated by a registry this page trusts, of which it ships none yet.
   <p>This build: bundle <code id="bundle-hash">{{bundle_sha256}}</code>, from commit <a href="https://github.com/VCAP-org/vcap-verifier/commit/{{commit}}"><code id="commit">{{commit_short}}</code></a>, esbuild {{esbuild}} — <a href="hashes.json">every shipped file, hashed</a>. Offline: <span id="offline">needs a browser with service workers</span>. Rebuild that commit yourself to check them: the <a href="https://github.com/VCAP-org/vcap-verifier#reproducing-the-published-build">README</a> says how.</p>
 </footer>
 <script type="module" src="verifier.js"></script>

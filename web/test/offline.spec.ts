@@ -72,6 +72,15 @@ test('verifies vectors with the server gone and the browser offline', async ({ p
   await page.setInputFiles('#sidecar', join(vectors, '17-jpeg-sidecar-only/input.jpg.vcap'))
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await expect(page.locator('.verdict li', { hasText: 'sidecar' })).toHaveCount(0)
+  // §7.1: the position level is named whenever a position is declared, and a
+  // corroboration this page holds no registry key for is evidence it cannot
+  // read — never "verified", never "guaranteed".
+  await page.setInputFiles('#file', join(vectors, '75-jpeg-location-corroborated/input.jpg'))
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await expect(page.locator('.position')).toContainText('Position declared only')
+  await expect(page.locator('.position')).toContainText('45.464664, 9.188540')
+  await expect(page.locator('.verdict li', { hasText: 'location corroboration not evaluated' })).toHaveCount(1)
+  await expect(page.locator('.verdict')).not.toContainText(/guaranteed|verified by the operator/)
 
   // Every request the page made stayed on its own origin.
   expect(requested.filter((u) => !u.startsWith(origin))).toEqual([])
