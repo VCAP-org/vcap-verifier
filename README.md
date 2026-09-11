@@ -32,8 +32,6 @@ Not yet: App Attest (the iOS proven level comes from the registry leaf, which is
 where enrolment puts it), a page that actually reaches a log or a status list
 (the static build ships no network), a detector build that runs in a browser.
 
-The PoC verifier stays online for its own samples and is not a code source.
-
 ## Design constraints
 
 - **One verification core, four consumers** (this page, the platform API, the
