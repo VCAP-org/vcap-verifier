@@ -114,7 +114,9 @@ test('an unreadable detection changes nothing and says so', async ({ page }) => 
 })
 
 test('the detector is fetched on a click and never on load, and its absence is an answer', async ({ page }) => {
-  const { server, url } = await serve()
+  // A host with no model on it: the one file this page ever fetches is the one
+  // that is missing, and the page has to keep working and say why.
+  const { server, url } = await serve({ absent: /\.onnx$/ })
   const requested: string[] = []
   page.on('request', (request) => requested.push(new URL(request.url()).pathname))
   await page.goto(url)
@@ -127,9 +129,9 @@ test('the detector is fetched on a click and never on load, and its absence is a
   await expect(page.locator('#detector-state')).toHaveText('no detector loaded — watermarks are not evaluated')
 
   await page.click('#load-detector')
-  // No build is published, so the manifest's own sentence is what the reader
-  // gets — and the verdict on screen is untouched.
-  await expect(page.locator('#detector-state')).toContainText('no detector: no detector build is published with this page yet')
+  // The reader gets the reason, and the verdict on screen is untouched: a
+  // detector that cannot be had is *watermark not evaluated*, not a failure.
+  await expect(page.locator('#detector-state')).toContainText('no detector: the model could not be fetched: 404')
   expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(true)
   expect(requested.some((p) => p.endsWith('/detector.json'))).toBe(true)
   await expect(page.locator('.verdict h2')).toContainText('Authentic')

@@ -1,5 +1,15 @@
 {
-  "build": null,
-  "reason": "no detector build is published with this page yet: which build a browser should run is undecided (decision D17 — the full int8 model is 34.2 MB and is the slowest of the three builds in a browser). Until one is, a detection has to come from a detector you ran yourself.",
-  "size_note": "the published build will be the full model, around 34 MB: a download this page never starts on its own."
+  "build": {
+    "url": "models/detector-videoseal-y256b-1-int8.onnx",
+    "sha256": "a482af784d1a9d56b7079ca4bf92468df2d67222f529ff71b28bc5df6eedfdfc",
+    "bytes": 34176430,
+    "model_version": "videoseal-y256b-1",
+    "runtime": "detector-runtime.js",
+    "execution_providers": [
+      "wasm"
+    ]
+  },
+  "source": "vcap-ml, `python -m vcap_ml quantize` then `python -m vcap_ml browser-build`: the full detector quantized to int8 (decision D17). The same command on the same pins produces the same bytes, so this digest is checkable without trusting whoever served the file.",
+  "hosting": "the url is relative, so the model is served from wherever the page is. Nothing pins a host of ours into a public repository, and anyone who does not want to fetch it from us can serve these exact bytes themselves: the digest is what makes the file trustworthy, not where it came from.",
+  "runtime_note": "`execution_providers` asks for WASM alone: this build's quantized nodes have no WebGPU kernels and round-trip to the CPU inside the session, which measured 1016 ms per frame against 211-456 ms on WASM (vcap-ml reports/detector-in-the-browser.md). The runtime tries the listed providers in order and falls back, so a build with GPU kernels only has to say so here."
 }

@@ -11,3 +11,9 @@ coverage/
 # Playwright
 test-results/
 playwright-report/
+
+# Marked media for the detector end-to-end tests. Produced by vcap-ml's
+# embedder from media pinned by its upstream commit, like the model itself:
+# generated, not vendored, and the suite skips when it is absent.
+web/test/fixtures/marked-*
+web/test/fixtures/unmarked-*

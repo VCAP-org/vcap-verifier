@@ -1,7 +1,7 @@
 import { evaluateWatermark, verify, type Verdict, type WatermarkClaim, type WatermarkEvidence, type WatermarkOutcome } from 'vcap-verify-core'
 import { card, comparison, trace } from './render.js'
 import { readEvidence } from './evidence.js'
-import type { Detector } from './detector.js'
+import type { Detector, DetectProgress } from './detector.js'
 
 /**
  * The page: read the file in question (and, when the user has them, the
@@ -57,19 +57,34 @@ let detector: Detector | null = null
  * the original only when a detector is loaded (a detection file is about one
  * file, and the file it is about is the one in question).
  */
-const lookup = (bytes: Uint8Array, own: WatermarkEvidence | undefined, seen: { claim?: WatermarkClaim }) =>
+const lookup = (bytes: Uint8Array, own: WatermarkEvidence | undefined, seen: { claim?: WatermarkClaim }, label: string) =>
   async (claim: WatermarkClaim): Promise<WatermarkEvidence | null> => {
     seen.claim = claim
     if (own) return own
-    return detector ? await detector.detect(bytes, claim) : null
+    if (!detector) return null
+    return await detector.detect(bytes, claim, progress(label))
   }
+
+/**
+ * Progressive, because it has to be: a clip is eight model runs of a few
+ * hundred milliseconds each, and a page that says nothing for six seconds is a
+ * page the reader believes has hung. Every frame reports, and what the payload
+ * decodes to so far is shown as soon as it decodes.
+ */
+const progress = (label: string) => ({ done, total, partial, frameMs }: DetectProgress): void => {
+  const rate = frameMs === undefined ? '' : ` · ${(frameMs / 1000).toFixed(1)} s per frame`
+  const found = partial ? ` · payload ${partial}` : ''
+  say(total > 1 ? `reading ${label}: frame ${done} of ${total}${found}${rate}` : `reading ${label}${rate}`)
+}
 
 const verdictOf = async (file: File, seen: { claim?: WatermarkClaim }, extra: { sidecar?: Uint8Array, detection?: WatermarkEvidence }): Promise<Verdict> => {
   const bytes = new Uint8Array(await file.arrayBuffer())
-  return await verify(bytes, {
+  const verdict = await verify(bytes, {
     sidecar: extra.sidecar,
-    watermark: lookup(bytes, extra.detection, seen)
+    watermark: lookup(bytes, extra.detection, seen, file.name)
   })
+  if (detector) say(`detector ${detector.model_version} on ${detector.backend}`)
+  return verdict
 }
 
 /** A signature that stands: the verdicts where the file speaks for itself. */
@@ -92,13 +107,23 @@ const check = async (): Promise<void> => {
   const originalSeen: { claim?: WatermarkClaim } = {}
   const originalVerdict = await verdictOf(original, originalSeen, {})
 
-  // The trace: the detection about the copy, compared by the core against the
+  // The trace: a detection about the copy, compared by the core against the
   // ids the **original's** signed core declares. Only worth showing when the
   // copy's own signature says nothing — when it does, §8 already ran inside
   // its verdict and saying it twice would invite reading the second as more.
+  //
+  // The detection comes from the user's file when they brought one, and
+  // otherwise from the detector this page loaded — which is the only way a
+  // copy with no proof of its own ever gets read: nothing in its own verdict
+  // asks a question about a watermark, because it declares none. The claim
+  // asked is the original's, so the detector is never told what to find.
   let traced: WatermarkOutcome | null = null
-  if (detection && originalSeen.claim && !signed(copyVerdict)) {
-    traced = evaluateWatermark(detection, originalSeen.claim)
+  if (originalSeen.claim && !signed(copyVerdict)) {
+    const evidence = detection ?? (detector
+      ? await detector.detect(new Uint8Array(await copy.arrayBuffer()), originalSeen.claim, progress(copy.name))
+      : null)
+    if (evidence) traced = evaluateWatermark(evidence, originalSeen.claim)
+    if (detector) say(`detector ${detector.model_version} on ${detector.backend}`)
   }
 
   out.innerHTML = [
@@ -161,13 +186,21 @@ loadButton.addEventListener('click', () => {
   loadButton.disabled = true
   say('loading the detector…')
   const url = new URL('detector.js', location.href).href
+  const started = performance.now()
   void import(url)
     .then((module: { loadDetector: typeof import('./detector.js').loadDetector }) => module.loadDetector(
-      (loaded, total) => say(`downloading the detector: ${(loaded / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB`)
+      (loaded, total) => {
+        const seconds = (performance.now() - started) / 1000
+        const speed = seconds > 0 ? ` · ${(loaded / 1e6 / seconds).toFixed(1)} MB/s` : ''
+        say(`downloading the detector: ${(loaded / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB${speed}`)
+      }
     ))
     .then((loaded) => {
       detector = loaded
-      say(`detector ${loaded.model_version} is loaded and runs in this page`)
+      // The backend is part of the answer: the same build is three times
+      // slower without cross-origin isolation, and a timing nobody can place
+      // is not a measurement.
+      say(`detector ${loaded.model_version} runs in this page on ${loaded.backend} — downloaded and verified in ${((performance.now() - started) / 1000).toFixed(1)} s`)
       void check()
     })
     .catch((error: Error) => {

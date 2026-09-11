@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 
 // One bundle, one HTML file, no external requests: the page must be archivable
 // and its hash publishable, so an expert can say which verifier produced a
@@ -69,6 +70,35 @@ const detectorOptions = {
   legalComments: 'none'
 }
 
+/**
+ * A third artifact, behind the second: `detector.js` is the manifest and the
+ * digest check, and only once the downloaded bytes hash to what the manifest
+ * pins does it import this one, which carries onnxruntime-web. The split is
+ * not cosmetic — an engine is code, and code that runs before the model has
+ * been checked is code the manifest does not cover.
+ */
+const runtimeOptions = {
+  entryPoints: ['src/detector-runtime.ts'],
+  bundle: true,
+  format: 'esm',
+  target: ['es2022'],
+  minify: !serve,
+  sourcemap: serve,
+  outfile: 'dist/detector-runtime.js',
+  legalComments: 'none'
+}
+
+// onnxruntime-web loads its WebAssembly binary at run time, by name, from
+// wherever the runtime module tells it to — here, next to the page. Copied
+// rather than fetched from a CDN: the page must be archivable, and a verifier
+// that pulls an engine from someone else's host is a verifier with a third
+// party in it. The `.jsep` binary is the one that carries both execution
+// providers, WASM SIMD and WebGPU.
+// The glue module is loaded by `import()` at run time and it in turn fetches
+// the binary, so both names have to sit next to the page.
+const ORT_ASSETS = ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm']
+const ortDist = dirname(createRequire(import.meta.url).resolve('onnxruntime-web'))
+
 // Shipped as they are: the web app manifest, its icon, and the detector
 // manifest — which today says that no detector build is published, and is read
 // only when somebody clicks.
@@ -77,11 +107,13 @@ const STATIC = ['manifest.webmanifest', 'icon.svg', 'detector.json']
 rmSync('dist', { recursive: true, force: true })
 mkdirSync('dist')
 for (const name of STATIC) copyFileSync(`src/${name}`, `dist/${name}`)
+for (const name of ORT_ASSETS) copyFileSync(join(ortDist, name), `dist/${name}`)
 
 if (serve) {
   const ctx = await context(options)
   await ctx.watch()
   await build(detectorOptions)
+  await build(runtimeOptions)
   writeFileSync('dist/index.html', html({ bundle_sha256: 'dev build', commit, commit_short: commit.slice(0, 7), esbuild: esbuildVersion }))
   const { host, port } = await ctx.serve({ servedir: 'dist' })
   console.log(`[vcap] verifier at http://${host}:${port}`)
@@ -95,6 +127,7 @@ if (serve) {
   writeFileSync('dist/metafile.json', JSON.stringify(metafile, null, 1) + '\n')
 
   await build(detectorOptions)
+  await build(runtimeOptions)
 
   const bundle = readFileSync('dist/verifier.js')
   const bundleHash = sha256(bundle)
@@ -106,13 +139,13 @@ if (serve) {
   // the old one goes; the worker itself is not in its own list (the browser
   // fetches it), nor is what is written after it — but the hash records are,
   // as URLs, so they are readable offline too.
-  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', ...STATIC]
+  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', ...ORT_ASSETS, ...STATIC]
   // Everything shipped is cached except the detector module: it is an explicit
   // choice of the user's, it pulls a model far larger than this page, and an
   // offline page that silently held a stale detector would be worse than one
   // that says it has none. `detector.json` stays cached — it is a few hundred
   // bytes and it is what tells the reader why there is no detector.
-  const deferred = new Set(['detector.js'])
+  const deferred = new Set(['detector.js', 'detector-runtime.js', ...ORT_ASSETS])
   const hashOf = (name) => sha256(readFileSync(`dist/${name}`))
   const buildId = sha256(shipped.map((name) => `${name}:${hashOf(name)}`).join('\n')).slice(0, 16)
   await build({

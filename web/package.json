@@ -8,15 +8,18 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "node build.mjs",
     "dev": "node build.mjs --serve",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test": "vitest run"
   },
   "dependencies": {
+    "onnxruntime-web": "1.29.0",
     "vcap-verify-core": "*"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "esbuild": "0.25.12",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.9"
   },
   "license": "MIT"
 }
