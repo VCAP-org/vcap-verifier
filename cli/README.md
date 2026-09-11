@@ -65,10 +65,25 @@ produces it, plus the file it is about — so a directory can be piped through
 vcap-verify --json shots/*.jpg | jq -r 'select(.level.ceiling != "green") | .file'
 ```
 
+## The sidecar
+
+A proof may sit beside the file instead of inside it (spec §3.1). The tool
+reads `<file>.vcap` — the full filename plus `.vcap`, in the same directory —
+when it exists, and looks nowhere else: no other name, no parent folder, no
+URL from inside the proof. What it does with it is the spec's precedence, not
+a preference: an intact trailer is the proof and a sidecar that differs from
+it byte for byte is the label *sidecar differs*; a trailer found and broken is
+*corrupted proof* whatever the sidecar says; no trailer and a sidecar is the
+full verdict over the whole file, with no label for where the proof came from.
+
+```
+--sidecar <path>     name the sidecar yourself (single file only)
+--no-sidecar         ignore any sidecar, verify the file alone
+```
+
 ## Other options
 
 ```
---sidecar <path>     read the proof from a .vcap sidecar (single file only)
 --no-recompute       do not recompute segment hashes from the container (§5)
 --at <iso8601>       verify at a stated instant instead of now
 ```

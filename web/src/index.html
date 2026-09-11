@@ -14,6 +14,7 @@
   .muted { opacity: .7; font-size: .9rem; }
   .drop { margin-top: 1.5rem; border: 2px dashed currentColor; border-radius: .75rem; padding: 2rem; text-align: center; opacity: .8; }
   .drop.over { opacity: 1; background: rgba(127,127,127,.08); }
+  .drop.sidecar { margin-top: .75rem; padding: 1rem; border-style: dotted; font-size: .9rem; }
   .verdict { margin-top: 1.5rem; border-radius: .75rem; padding: 1rem 1.25rem; border: 1px solid transparent; }
   .green { background: #e6f6ea; border-color: #2e8b57; color: #0f3d22; }
   .amber { background: #fff4d6; border-color: #b8860b; color: #4a3400; }
@@ -29,10 +30,14 @@
 </head>
 <body>
 <h1>vcap verifier</h1>
-<p class="muted">Drop a sealed photo or video. Everything happens in this page: no upload, no account, no server of ours. If the file has a <code>.vcap</code> sidecar, drop it too.</p>
+<p class="muted">Drop a sealed photo or video. Everything happens in this page: no upload, no account, no server of ours.</p>
 <div class="drop" id="drop">
   <p><label><input type="file" id="file" multiple> </label></p>
-  <p class="muted">or drag files here</p>
+  <p class="muted">or drag the file here</p>
+</div>
+<div class="drop sidecar" id="sidecar-drop">
+  <p><label>Sidecar, if the proof travels beside the file (<code>&lt;filename&gt;.vcap</code>) <input type="file" id="sidecar" accept=".vcap,application/json"> </label></p>
+  <p class="muted">optional — or drag it here, or with the file above. It is read here, not looked for anywhere.</p>
 </div>
 <div id="out"></div>
 <footer>

@@ -63,7 +63,7 @@ differ, and CI runs both.
 ```
 git submodule update --init      # the spec and its vectors
 npm ci
-npm run typecheck && npm test    # core: 67 vectors + attachment and evidence tests
+npm run typecheck && npm test    # core: 73 vectors + attachment and evidence tests
 npm run build --workspace web    # web/dist: index.html, verifier.js, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon
 npm run test:e2e --workspace web # Playwright against web/dist: offline use (needs `npx playwright install chromium` once)
 npm run dev --workspace web      # serves the page with a watcher (no service worker: dev builds are not cached)
@@ -95,8 +95,9 @@ This is tested, not asserted: `web/test/offline.spec.ts` (Playwright, the
 `offline` job in CI, run against the same `web-dist` artifact the
 reproducibility job hashed) loads the page from a local static server under
 the Pages sub-path, waits for the worker, **stops the server and takes the
-browser offline**, reloads, and verifies three vectors — authentic, tampered,
-no proof — from the cache alone, checking that every request stayed on the
+browser offline**, reloads, and verifies four vectors — authentic, tampered,
+no proof, and a sidecar-only proof handed over through the page's second
+input — from the cache alone, checking that every request stayed on the
 page's origin.
 
 ### Published hashes
@@ -145,8 +146,14 @@ as `dirty: true` and will not match a CI build.
 
 ## What the core verifies
 
-Trailer and footer (structure first, CRC second), nested trailers, sidecar
-precedence, canonical bytes (JPEG APP11 JUMBF stripped, BMFF untouched), the
+Trailer and footer (structure first, CRC second), nested trailers, the §3.1
+sidecar in the spec's precedence (an intact trailer wins and a sidecar that
+differs byte for byte is *sidecar differs*; a broken trailer is *corrupted
+proof* whatever sits beside it; a sidecar alone is the full verdict over the
+whole file, with no label for where the proof came from — the core takes it
+as `verify(file, { sidecar })`, the CLI reads `<file>.vcap` next to the file
+and the page takes it from a second input, never from a search or a fetch),
+canonical bytes (JPEG APP11 JUMBF stripped, BMFF untouched), the
 signed core (`ES256` over `JCS(core)`, P1363, `key_id` derived), video segment
 chains over messages, the version policy (unknown minor: *not evaluated*;
 unknown major: unsupported), the §8 labels for absent attachments, and — when
