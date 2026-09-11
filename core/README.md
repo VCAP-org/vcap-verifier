@@ -11,6 +11,7 @@ const verdict = await verify(new Uint8Array(bytes))
 verdict.outcome   // 'authentic' | 'verified_clip' | 'tampered' | …
 verdict.labels    // what is missing, sorted (§8)
 verdict.level     // { claimed, proven, ceiling } (§7)
+verdict.location  // { claimed, level, declared? } (§7.1): none | declared | corroborated | authenticated — never a ceiling
 ```
 
 ## It contacts nothing, and that is the design
