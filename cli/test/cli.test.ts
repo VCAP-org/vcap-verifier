@@ -56,12 +56,10 @@ describe('vcap-verify', () => {
   for (const { name, expected } of fileVectors) {
     it(`${name}: exit code and JSON outcome`, async () => {
       const { io, out } = capture()
+      // No `--sidecar`: the vectors that ship one name it `input.<ext>.vcap`,
+      // which is §3.1's discovery rule, so the corpus also proves the tool
+      // finds a sidecar where the spec says it is — and nowhere else.
       const args = [...trustArgs(), '--json', inputOf(name)]
-      // A vector that ships a sidecar is one where the proof lives beside the
-      // file, and a caller who did not pass it would be verifying a different
-      // thing — vector 17's file has no trailer at all.
-      const sidecar = readdirSync(join(VECTORS, name)).find((f) => f.endsWith('.vcap'))
-      if (sidecar) args.push('--sidecar', join(VECTORS, name, sidecar))
       if (typeof expected.verifier_clock === 'number') args.push('--at', new Date(expected.verifier_clock).toISOString())
       if (expected.kind !== 'container') args.push('--no-recompute')
       const code = await run(args, io)
@@ -95,7 +93,7 @@ describe('vcap-verify', () => {
     expect(code).toBe(2)
   })
 
-  it('reads a proof from a sidecar', async () => {
+  it('reads a proof from a named sidecar', async () => {
     const { io, out } = capture()
     const dir = join(VECTORS, '17-jpeg-sidecar-only')
     const sidecar = readdirSync(dir).find((f) => f.endsWith('.vcap')) as string
@@ -103,6 +101,35 @@ describe('vcap-verify', () => {
 
     expect(JSON.parse(out().trim()).outcome).toBe('authentic')
     expect(code).toBe(0)
+  })
+
+  it('--no-sidecar verifies the file alone', async () => {
+    // Vector 17's file has no trailer: without its sidecar the honest answer
+    // is that no proof was found, and a caller may want exactly that answer.
+    const { io, out } = capture()
+    const code = await run(['--json', '--no-recompute', '--no-sidecar', inputOf('17-jpeg-sidecar-only')], io)
+
+    expect(JSON.parse(out().trim()).outcome).toBe('no_proof_found')
+    expect(code).toBe(1)
+  })
+
+  it('fails loudly on a named sidecar that is not there', async () => {
+    // Discovery may find nothing; a name given by the caller may not.
+    const { io } = capture()
+    await expect(run(['--json', '--sidecar', join(VECTORS, 'nope.vcap'), inputOf('01-jpeg-sealed')], io)).rejects.toThrow()
+  })
+
+  it('applies §3.1 precedence to a discovered sidecar', async () => {
+    // Trailer intact and a sidecar that differs: the trailer is the proof,
+    // the difference is a label. Trailer found and broken: corrupted, and the
+    // intact sidecar beside it changes nothing.
+    const differs = capture()
+    expect(await run(['--json', '--no-recompute', inputOf('18-jpeg-sidecar-differs')], differs.io)).toBe(0)
+    expect(JSON.parse(differs.out().trim()).labels).toContain('sidecar differs')
+
+    const corrupted = capture()
+    expect(await run(['--json', '--no-recompute', inputOf('72-jpeg-footer-crc-mismatch-sidecar')], corrupted.io)).toBe(1)
+    expect(JSON.parse(corrupted.out().trim()).outcome).toBe('corrupted_proof')
   })
 
   it('says what it cannot check rather than passing over it', async () => {

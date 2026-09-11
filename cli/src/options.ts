@@ -9,7 +9,11 @@
 export interface Options {
   files: string[]
   json: boolean
-  sidecar?: string
+  /**
+   * The §3.1 sidecar: a path names one, `false` refuses to look, undefined
+   * means `<file>.vcap` next to the file if it exists.
+   */
+  sidecar?: string | false
   /** §5 recomputation from the container. On by default; `--no-recompute` for a caller that has only a sidecar. */
   recompute: boolean
   /** Transparency-log public keys, `--log <log_id>:<base64 spki>`. */
@@ -31,7 +35,9 @@ export const USAGE = `vcap-verify — check a vcap proof
 
 Options
   --json                    machine-readable verdict on stdout, one object per file
-  --sidecar <path>          read the proof from a .vcap sidecar (single file only)
+  --sidecar <path>          read the proof from this .vcap sidecar (single file only);
+                            by default <file>.vcap next to the file is read when present (§3.1)
+  --no-sidecar              ignore any sidecar, verify the file alone
   --no-recompute            do not recompute segment hashes from the container (§5)
   --log <id>:<spki>         a transparency log to trust: log_id and its base64 DER SPKI
   --tsa-root <path.pem>     a TSA root to pin; repeatable
@@ -65,6 +71,7 @@ export const parse = (argv: string[]): Options => {
       case '--require-green': o.requireGreen = true; break
       case '-h': case '--help': o.help = true; break
       case '--sidecar': o.sidecar = next(arg, at); at++; break
+      case '--no-sidecar': o.sidecar = false; break
       case '--tsa-root': o.tsaRoots.push(next(arg, at)); at++; break
       case '--at': {
         const value = next(arg, at); at++

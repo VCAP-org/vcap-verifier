@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 import { readFile } from 'node:fs/promises'
 import { verify, pemToDer, type Verdict } from 'vcap-verify-core'
-import { USAGE, UsageError, parse } from './options.js'
+import { type Options, USAGE, UsageError, parse } from './options.js'
 import { render } from './render.js'
 
 /**
@@ -63,7 +63,7 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
   const verdicts: { path: string, verdict: Verdict }[] = []
   for (const path of options.files) {
     const file = new Uint8Array(await readFile(path))
-    const sidecar = options.sidecar ? new Uint8Array(await readFile(options.sidecar)) : undefined
+    const sidecar = await readSidecar(path, options)
     verdicts.push({
       path,
       verdict: await verify(file, {
@@ -94,3 +94,24 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
 }
 
 const base64 = (text: string): Uint8Array => Uint8Array.from(Buffer.from(text, 'base64'))
+
+/**
+ * §3.1 discovery: the sidecar of `F` is `<full filename of F>.vcap` in the
+ * same directory, or the one the caller names — and nothing else. No other
+ * name, no parent folder, no URL from inside the proof: a proof that had to
+ * be looked for is a proof whose absence could not be reported with
+ * confidence. A missing file is the normal case, not an error.
+ */
+const readSidecar = async (path: string, options: Options): Promise<Uint8Array | undefined> => {
+  if (options.sidecar === false) return undefined
+  const sidecarPath = options.sidecar ?? `${path}.vcap`
+  try {
+    return new Uint8Array(await readFile(sidecarPath))
+  } catch (error) {
+    // Only a file that is not there may be skipped, and only when nobody
+    // asked for it by name: a named sidecar that cannot be read is an error
+    // the caller wants to hear about.
+    if (options.sidecar === undefined && (error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
