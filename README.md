@@ -63,7 +63,7 @@ differ, and CI runs both.
 ```
 git submodule update --init      # the spec and its vectors
 npm ci
-npm run typecheck && npm test    # core: 67 vectors + attachment and evidence tests
+npm run typecheck && npm test    # core: 73 vectors + attachment and evidence tests
 npm run build --workspace web    # web/dist: index.html, verifier.js, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon
 npm run test:e2e --workspace web # Playwright against web/dist: offline use (needs `npx playwright install chromium` once)
 npm run dev --workspace web      # serves the page with a watcher (no service worker: dev builds are not cached)
