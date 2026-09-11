@@ -65,6 +65,13 @@ test('verifies vectors with the server gone and the browser offline', async ({ p
   await expect(page.locator('.verdict h2')).toContainText('Tampered')
   await page.setInputFiles('#file', join(vectors, '05-jpeg-no-trailer/input.jpg'))
   await expect(page.locator('.verdict h2')).toContainText('No proof found')
+  // §3.1: the file alone has no trailer; the sidecar handed over through its
+  // own input restores the full verdict, with no label for where the proof sat.
+  await page.setInputFiles('#file', join(vectors, '17-jpeg-sidecar-only/input.jpg'))
+  await expect(page.locator('.verdict h2')).toContainText('No proof found')
+  await page.setInputFiles('#sidecar', join(vectors, '17-jpeg-sidecar-only/input.jpg.vcap'))
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await expect(page.locator('.verdict li', { hasText: 'sidecar' })).toHaveCount(0)
 
   // Every request the page made stayed on its own origin.
   expect(requested.filter((u) => !u.startsWith(origin))).toEqual([])
