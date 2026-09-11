@@ -14,6 +14,7 @@ import { validateTimestamp } from './rfc3161.js'
 import { type Certificate, parseCertificate } from './x509.js'
 import { type RevocationLookup, validateAndroidAttestation } from './attestation/android.js'
 import { type KeyStatusLookup, verifyKeyStatus } from './key-status.js'
+import { type WatermarkClaim, type WatermarkLookup, type WatermarkOutcome, captureIdHex, evaluateWatermark } from './watermark.js'
 import { type CorroborationOutcome, type DeclaredPosition, type PositionLevel, positionLevel } from './location.js'
 
 /**
@@ -52,6 +53,11 @@ export interface Verdict {
   // log at the proven instant. The one check that needs network, and the one
   // green cannot be reached without.
   key_status?: { ok: boolean, detail: string }
+  // §8 "A declared watermark that does not come back": what a detector the
+  // caller ran reported about the pixels, compared here against the ids the
+  // device signed. Present only when a `watermark` lookup was supplied — the
+  // core runs no model.
+  watermark?: WatermarkOutcome
   // §7: claimed by the device, proven by the evidence, and the ceiling the two allow.
   level?: { claimed: string, proven: string, ceiling: 'green' | 'amber' | 'red' }
   // §7.1: the position level, on its own axis — what the core claims, what the
@@ -88,6 +94,13 @@ export interface VerifyOptions {
   // absent → *revocation not checked*, amber (§7). The core contacts nothing:
   // the caller owns the network.
   keyStatus?: KeyStatusLookup
+  // What a detector saw in the pixels, for a proof that declares a `watermark`;
+  // absent → *watermark not evaluated*, which is what every verdict said before
+  // any implementation could supply this. The core runs no model and never
+  // will: this is the same bargain as `keyStatus`, with one difference stated
+  // in watermark.ts — nothing signs a detection, so the evidence is trusted
+  // exactly as far as the caller that also hands over the media bytes.
+  watermark?: WatermarkLookup
   now?: Date
 }
 
@@ -190,10 +203,6 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   const mediaObj = proof.media as { hash: string, segment_count?: number }
   const mediaMatches = toBase64url(await sha256(canonicalBytes(media))) === mediaObj.hash
   for (const [k, label] of ABSENT) if (!(k in proof)) labels.push(label)
-  // §7: a declared watermark is the writer saying a mark was embedded, not a
-  // promise a reader finds it. This core carries no detector, so the honest
-  // outcome is *watermark not evaluated* — silence would read as a match.
-  if ('watermark' in proof) labels.push('watermark not evaluated')
   if (flags !== null) {
     const expected = ('segments' in proof ? 2 : 0) | ((isObj(proof.policy) && proof.policy.pseudonymous === true) ? 4 : 0)
     if ((flags & 6) !== expected) labels.push('flags disagree')
@@ -224,6 +233,50 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
     if (!mediaMatches || chain.status === 'clip') { verdict.outcome = 'verified_clip'; verdict.reason = mediaMatches ? 'segments missing' : 'media.hash does not match the received file' }
   } else if (!mediaMatches) {
     return tampered('media.hash does not match the canonical bytes')
+  }
+
+  // 5b. The declared watermark (§8, "A declared watermark that does not come
+  // back"). A declared `watermark` is the writer saying a mark was embedded,
+  // not a promise a reader finds it — and a reader that does not find one
+  // never guesses, so silence is not an option: it would read as a match.
+  //
+  // With no lookup this core has no detector, and the only §8 outcome
+  // available is *watermark not evaluated* — which is what it has always said,
+  // unconditionally. With one, the caller reports what came out of the pixels
+  // and the comparison is made here, against the ids the device signed.
+  //
+  // It sits **after** the signature: a watermark can never be the reason a
+  // verdict is positive, because a proof whose `sig` does not verify has
+  // already returned *tampered* and this code was never reached. That is the
+  // invariant "a watermark alone is never a green verdict" enforced by
+  // construction rather than by a rule — and *watermark matched* is a label,
+  // never an input to the §7 ceiling below.
+  if ('watermark' in proof) {
+    if (!o.watermark) labels.push('watermark not evaluated')
+    else {
+      const w = isObj(proof.watermark) ? proof.watermark : {}
+      const claim: WatermarkClaim = {
+        layout: typeof w.layout === 'string' ? w.layout : '',
+        captureId: captureIdHex(proof.capture_id as string),
+        ...(Number.isInteger(w.mark_id) ? { markId: w.mark_id as number } : {}),
+        mime: (proof.media as Obj).mime as string,
+        coreHash: hash
+      }
+      let evidence = null
+      try { evidence = await o.watermark(claim) } catch { evidence = null }
+      const result = evidence === null
+        ? { result: 'not_evaluated' as const, detail: 'no detection was available' }
+        : evaluateWatermark(evidence, claim)
+      verdict.watermark = result
+      // §8's red row. It is returned as *tampered* with a reason and no
+      // labels, the same shape as a segment whose content hash contradicts the
+      // signature: both are the received bytes disagreeing with what the
+      // device signed over them.
+      if (result.result === 'contradicted') {
+        return { ...tampered(`watermark payload contradicts the proof: ${result.detail}`), segments: verdict.segments, content: verdict.content, watermark: result }
+      }
+      labels.push(result.result === 'matched' ? 'watermark matched' : result.result === 'not_recovered' ? 'watermark not recovered' : 'watermark not evaluated')
+    }
   }
 
   // 6. Attachments that can be checked offline (§6.2).
