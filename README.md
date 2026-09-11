@@ -25,9 +25,12 @@ position level is computed on its own axis — `declared` from the signed
 coordinates, `corroborated` from a `location_corroboration` under an injected
 log key — and never moves the ceiling.
 
+The page also puts a copy next to the original when the user has both, and
+names what the copy still carries: see *Side by side* below.
+
 Not yet: App Attest (the iOS proven level comes from the registry leaf, which is
 where enrolment puts it), a page that actually reaches a log or a status list
-(the static build ships no network), the watermark detector.
+(the static build ships no network), a detector build that runs in a browser.
 
 The PoC verifier stays online for its own samples and is not a code source.
 
@@ -40,9 +43,11 @@ The PoC verifier stays online for its own samples and is not a code source.
 - **No network in the verification path.** Registry proofs, anchors and QTSP
   chains are checked from data carried in the file or fetched from public
   endpoints; if there is no network the verdict degrades and says so.
-- **Detector under 10 MB** (WebGPU with a WASM SIMD fallback), distilled from the
-  large model, with a documented robustness curve. The verifier states which
-  model it used.
+- **The detector is an explicit download, and the page is whole without it.**
+  Distillation under 10 MB was dropped (decision D17): what exists is the full
+  model at 34.2 MB, so it is never fetched on load, never precached, and its
+  absence is *watermark not evaluated* — a weaker verdict, not an error. The
+  verifier states which model looked.
 - **Reproducible build**, every shipped file hashed and published, so an expert
   can prove which verifier produced a given verdict — by rebuilding it.
 
@@ -67,8 +72,8 @@ differ, and CI runs both.
 git submodule update --init      # the spec and its vectors
 npm ci
 npm run typecheck && npm test    # core: 73 vectors + attachment and evidence tests
-npm run build --workspace web    # web/dist: index.html, verifier.js, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon
-npm run test:e2e --workspace web # Playwright against web/dist: offline use (needs `npx playwright install chromium` once)
+npm run build --workspace web    # web/dist: index.html, verifier.js, detector.js, detector.json, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon
+npm run test:e2e --workspace web # Playwright against web/dist: offline use and the side-by-side (needs `npx playwright install chromium` once)
 npm run dev --workspace web      # serves the page with a watcher (no service worker: dev builds are not cached)
 ```
 
@@ -146,6 +151,48 @@ they reproduce byte for byte only with the Node in `.nvmrc`; a mismatch there
 with matching bundle hashes means a different Node, not a different verifier.
 A working tree with uncommitted changes under `web/` or `core/src` is recorded
 as `dirty: true` and will not match a CI build.
+
+## Side by side: a copy next to its original
+
+A verdict on a copy is not self-explanatory. A file that came back from a
+messaging app has lost its trailer and with it its signature, and *no proof
+found* on its own does not say whether the picture is a forgery or a
+re-compressed copy of something that was sealed. So the page takes the original
+too, when the user has it, and prints one row per piece of evidence: what each
+file carries, and which of the two the copy lost.
+
+The watermark is the piece that survives that trip, and the piece an interface
+can most easily let someone read backwards. Three rules hold it in place:
+
+- **A mark is never a verdict.** The verdict card keeps whatever the signature
+  layer said. A mark found in a copy with no valid signature is rendered in its
+  own block as **origin traced**, with the sentence that says no signature
+  covers those bytes — never *authentic*, never green.
+- **The comparison is the core's.** The page calls `evaluateWatermark` with the
+  claim the **original's** signed core produced, so the id compared against
+  comes from bytes a device signed and never from anything a detection called
+  itself. A payload that does not decode is *not recovered*, which is the
+  normal outcome of heavy re-compression and not an accusation.
+- **What is missing is labelled, not failed.** A row neither file carries is not
+  printed; a copy carrying the same `core_hash` lost nothing, so what its
+  verdict stopped short of reading is *not reported* rather than *lost*.
+
+### The detector
+
+Reading a mark out of pixels needs the model, and the model is ~34 MB (D17).
+`detector.js` is therefore a separate artifact, reached through a dynamic
+`import()` of a URL the bundler cannot resolve: nothing about it is fetched
+until the user clicks, and `sw.js` precaches every shipped file **except** it.
+`detector.json` pins the build's URL, size and SHA-256 — bytes that hash to
+anything else are refused before any runtime sees them — and today it says no
+build is published, which the page prints as the reason a watermark reads *not
+evaluated*.
+
+Until there is one, a detection comes from a file the user already holds: the
+`watermark` block of a `/v1/verify` response, or what `vcap-verify --watermark`
+takes. Nothing signs a detection (D18), so it is worth exactly what the hand
+that dropped it is worth — which is what it was worth anyway, since the same
+hand dropped the media bytes.
 
 ## What the core verifies
 

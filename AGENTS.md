@@ -32,6 +32,17 @@ part of correctness:
   expectation edit.
 - No analytics, no telemetry, no uploads. Nothing leaves the browser, and that
   must stay auditable in a single read of the source.
+- The **detector** is the one thing the page fetches, and only on a click:
+  `web/src/detector.ts` is a separate artifact, excluded from the service
+  worker's precache, and `detector.json` pins the build's SHA-256 so nothing
+  unverified runs. Never import it from the bundle, and never make a verdict
+  depend on it — a page without a detector says *watermark not evaluated* and
+  is otherwise whole.
+- In the side-by-side, a watermark is never a verdict: a mark found in a copy
+  with no valid signature is **origin traced**, in its own block, and the
+  verdict card keeps the colour the signature layer gave it. The comparison
+  against the original's ids is the core's `evaluateWatermark`, never the
+  page's own.
 - Publish the failures too: the demo set includes the cases where verification
   cannot conclude.
 - Keep the page usable offline and archivable.
