@@ -20,7 +20,10 @@ Both revocation questions §7 asks are implemented as *injected* lookups, becaus
 this core contacts nothing: the chain's status list and the log's signed answer
 about the device key. Given neither, a verdict says *chain revocation not
 checked* and *revocation not checked* and stops at amber — green is the one
-verdict that cannot be reached from the file alone, by design.
+verdict that cannot be reached from the file alone, by design. The §7.1
+position level is computed on its own axis — `declared` from the signed
+coordinates, `corroborated` from a `location_corroboration` under an injected
+log key — and never moves the ceiling.
 
 Not yet: App Attest (the iOS proven level comes from the registry leaf, which is
 where enrolment puts it), a page that actually reaches a log or a status list

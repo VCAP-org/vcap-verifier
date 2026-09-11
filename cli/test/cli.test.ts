@@ -168,6 +168,29 @@ describe('vcap-verify', () => {
     expect(text).toContain('this device as failing its integrity checks')
   })
 
+  it('names the position level in the registry\'s terms, never the operator\'s', async () => {
+    // §7.1: a corroborated position is the registry attesting what an operator
+    // answered about the SIM's cell, to a radius; a contradicted one is shown
+    // on an authentic file, because the position level is not the verdict.
+    const corroborated = capture()
+    await run([...trustArgs(), '--no-recompute', '--at', '2025-09-09T12:00:00.000Z', inputOf('75-jpeg-location-corroborated')], corroborated.io)
+    expect(corroborated.out()).toContain('position  corroborated — the registry attests that the operator confirmed the zone, radius 2000 m')
+    expect(corroborated.out()).toContain('45.464664, 9.188540')
+    expect(corroborated.out()).not.toMatch(/verified by the operator|guaranteed/)
+
+    const contradicted = capture()
+    await run([...trustArgs(), '--no-recompute', '--at', '2025-09-09T12:00:00.000Z', inputOf('79-jpeg-location-contradicted')], contradicted.io)
+    expect(contradicted.out()).toContain('outcome   authentic')
+    expect(contradicted.out()).toContain('position  declared — ')
+    expect(contradicted.out()).toContain('location contradicted: the operator')
+
+    // Every §7.1 label the corpus emits is explained, like every other label.
+    const text = capture()
+    await run([...trustArgs(), '--no-recompute', inputOf('81-jpeg-location-claimed-authenticated')], text.io)
+    expect(text.out()).toContain('location claimed above evidence: the device claims')
+    expect(text.out()).toContain('location evidence not evaluated: the core carries')
+  })
+
   it('refuses nonsense with a usage code and the usage text', async () => {
     for (const args of [['--nope', 'x'], [], ['--log', 'no-colon', 'x'], ['--at', 'not-a-date', 'x']]) {
       const { io, err } = capture()

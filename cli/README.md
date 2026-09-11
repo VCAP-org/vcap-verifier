@@ -38,6 +38,13 @@ named set of them:
 
 Google's attestation roots are pinned in the library.
 
+`--log` also decides the §7.1 position level: a `location_corroboration` is
+the registry's countersignature of an operator's answer, so without the log's
+key it reads *location corroboration not evaluated* and the position stays
+*declared*. A position is never "guaranteed": the `position` line names the
+level reached — `declared` or `corroborated` — and says what the registry
+attests, never "verified by the operator".
+
 ## Exit codes
 
 | | |

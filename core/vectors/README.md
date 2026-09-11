@@ -27,7 +27,10 @@ must reproduce: `outcome` (`authentic`, `verified_clip`, `tampered`,
 sorted), `core_hash` (hex, when a core was read) and `segments.verified` (the
 indexes that verified). `level` (§7: `claimed`, `proven`, `ceiling`) and `validated_at` (the instant
 every certificate path was validated at, and what proved it) appear on the
-vectors that carry attestation evidence. `debug`, where present, is for humans:
+vectors that carry attestation evidence. `location` (§7.1: `claimed`, the
+level the core asks for, and `level`, the one the evidence reaches — `none`,
+`declared`, `corroborated`, `authenticated`) appears on the position vectors
+(74–84) and on 36 and 47, which declare no position and pin `none`. `debug`, where present, is for humans:
 intermediate bytes to compare before touching signatures.
 
 `key_status`, where present, is also an **input**: §6.2's online revocation
@@ -56,7 +59,9 @@ make an implementation pass.** Either the implementation is wrong or the spec
 is; fix that.
 
 The test key in `tools/src/testkey.ts` is public by design: anyone can
-regenerate the vectors. Base media in `_media/` (a 16×16 JPEG, its HEIC, a two-frame
+regenerate the vectors. Next to it, `TEST_OTHER_KEY_PKCS8_BASE64` is a key
+that is **nobody's** — not the signing key, not a trusted log — for the vectors
+that need somebody else's key (51, a registry leaf about another device). Base media in `_media/` (a 16×16 JPEG, its HEIC, a two-frame
 H.264 MP4) are the unsealed inputs.
 
 **Regeneration is byte-stable.** `npm run generate` signs with RFC 6979
@@ -112,14 +117,24 @@ container, and the update-manifest case that fits neither
 (`spec/c2pa-interop-1.0.md` §3).
 
 An implementation passes conformance when, for every directory, it produces
-the same `outcome`, `labels`, `not_evaluated`, `core_hash` and `segments.verified`
-as `expected.json`, and the same `core_bytes_hex` for `jcs` vectors.
+the same `outcome`, `labels`, `not_evaluated`, `core_hash`, `segments.verified`
+and, where present, `level`, `validated_at` and `location` as `expected.json`,
+and the same `core_bytes_hex` for `jcs` vectors.
 
 ## Not here yet, and why
 
 Every attachment §6.2 defines now has vectors: `attestation`,
 `attestation_status`, `registry` with the online key status, `anchor`,
-`timestamp` and `integrity`.
+`timestamp`, `integrity` and `location_corroboration` (74–84, the position
+level of §7.1: the full declared claim, a corroboration under the test log
+key, one under nobody's key, one lifted from another proof, an unknown
+method, a `no-match`, a result outside the enumeration, a claim of
+`authenticated` with an evidence kind nobody implements, a claim of
+`corroborated` with nothing behind it, an unknown claimed level, and a
+corroboration of a `location` with no coordinates).
+
+- **A position that reaches `authenticated`**: no evidence kind exists yet
+  (§7.1, §11); the vector arrives with the first one.
 
 - **Watermark-only match, cropped photo beyond the correction budget**:
   detector vectors, ML review.

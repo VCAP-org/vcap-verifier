@@ -232,6 +232,29 @@ describe('verdict with evidence attachments', async () => {
     })
   })
 
+  it('reaches a corroborated position without moving the ceiling, and says so in the registry\'s terms', async () => {
+    // §7.1: two levels on two axes. Vector 01 declares a position; a
+    // corroboration signed by a trusted log key raises the position level
+    // and nothing else — the same amber as without it.
+    const { corroborationMessage } = await import('../src/location.js')
+    const { sign, trusted } = await import('./log.js')
+    const body = { method: 'camara-location-verification', result: 'match', radius_m: 2000, at: 1757332842000 }
+    const attachment = { ...body, sig: toBase64url(await sign(corroborationMessage(hash, body))) }
+    const plain = await verify(trailer.media, { sidecar: withProof({}), trustedLogs: trusted })
+    const v = await verify(trailer.media, { sidecar: withProof({ location_corroboration: attachment }), trustedLogs: trusted })
+
+    expect(plain.location).toMatchObject({ claimed: 'declared', level: 'declared' })
+    expect(v.location).toMatchObject({ claimed: 'declared', level: 'corroborated', declared: { lat_udeg: expect.any(Number), lon_udeg: expect.any(Number) } })
+    expect(v.location_corroboration).toMatchObject({ ok: true, result: 'match', radius_m: 2000, detail: 'the registry attests that the operator confirmed the zone, radius 2000 m (camara-location-verification)' })
+    expect(v.labels).toContain('location corroborated')
+    expect(v.labels).not.toContain('location declared only')
+    expect(v.level).toEqual(plain.level)
+    // Without the log key the same bytes are evidence this verifier cannot read.
+    const blind = await verify(trailer.media, { sidecar: withProof({ location_corroboration: attachment }) })
+    expect(blind.location?.level).toBe('declared')
+    expect(blind.labels).toContain('location corroboration not evaluated')
+  })
+
   it('flags an attestation chain whose key is not the signer, and the claim above it', async () => {
     const a = await androidChain()
     const v = await verify(trailer.media, { sidecar: withProof({ attestation: a.chain.map(toBase64url) }), googleRoots: [parseCertificate(a.root.der)] })

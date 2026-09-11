@@ -42,6 +42,32 @@ const SOURCE: Record<string, string> = {
   verifier_clock: 'this browser\'s clock; the proof declares no time'
 }
 
+/**
+ * §7.1 in one sentence, on its own line because it is on its own axis: the
+ * position level never colours the verdict. The words are the spec's — the
+ * device's word is *declared*, the registry's word about an operator's
+ * cell-level answer is *corroborated*, shown as *the registry attests* and
+ * never as "verified by the operator", always with the radius. "Guaranteed"
+ * is not a level and does not appear.
+ */
+const POSITION: Record<string, string> = {
+  declared: 'Position declared only',
+  corroborated: 'Position corroborated',
+  authenticated: 'Position authenticated'
+}
+const position = (v: Verdict): string => {
+  if (!v.location || v.location.level === 'none') return ''
+  const { level, declared } = v.location
+  const where = declared
+    ? `${(declared.lat_udeg / 1e6).toFixed(6)}, ${(declared.lon_udeg / 1e6).toFixed(6)}${declared.acc_cm !== undefined ? ` ±${(declared.acc_cm / 100).toFixed(1)} m` : ''}${declared.source ? ` (${escape(declared.source)})` : ''}`
+    : 'no coordinates'
+  const said = v.location_corroboration?.ok ? `${escape(v.location_corroboration.detail)}; ` : ''
+  // Only the device's word, and no registry statement read: say so, because a
+  // reader shown coordinates on a green verdict assumes somebody checked them.
+  const alone = level === 'declared' && !v.location_corroboration?.ok ? '; nothing else vouches for it' : ''
+  return `<p class="position"><strong>${POSITION[level] ?? escape(level)}</strong> — ${said}the device signed ${where}${alone}.</p>`
+}
+
 const escape = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
 
 const render = (name: string, v: Verdict): void => {
@@ -74,6 +100,7 @@ const render = (name: string, v: Verdict): void => {
   out.innerHTML = `<div class="verdict ${COLOR[v.outcome]}">
     <h2>${escape(TITLE[v.outcome])}</h2>
     <div class="muted">${escape(name)}</div>
+    ${position(v)}
     ${lines.length ? `<ul>${lines.join('')}</ul>` : ''}
     ${details.length ? `<details><summary>details</summary><ul>${details.join('')}</ul></details>` : ''}
   </div>`
