@@ -38,7 +38,12 @@ const MEANING: Record<string, string> = {
   'integrity basic': 'the platform reported a device that passes only basic checks',
   'integrity failed': 'the platform reported this device as failing its integrity checks',
   'no watermark': 'no watermark was looked for',
-  'watermark not evaluated': 'a watermark is declared and this verifier ships no detector',
+  'watermark not evaluated': 'a watermark is declared and no detection of it could be read (--watermark)',
+  // §8's three non-red outcomes for a declared watermark. *Matched* is a
+  // label and never a verdict: the verdict still comes from `sig`, and a mark
+  // with no valid signature is *origin traced*, never authentic.
+  'watermark matched': 'a detector read the declared id out of the pixels; the verdict still comes from the signature',
+  'watermark not recovered': 'the payload did not decode — the normal outcome of heavy re-compression, and it weakens nothing',
   'segment content not recomputed': 'the segment hashes were taken from the proof, not recomputed from the file',
   'inconsistent claim': 'the device claims a stronger level than its evidence proves',
   'registered after the declared capture': 'the key was registered after the time this capture claims',
@@ -79,6 +84,7 @@ export const render = (path: string, verdict: Verdict): string => {
     const recomputed = verdict.content?.recomputed === true
     lines.push(`  segments  ${verified.length} verified${recomputed ? ', hashes recomputed from the file' : ''}`)
   }
+  if (verdict.watermark) lines.push(`  watermark ${verdict.watermark.result.replace('_', ' ')} — ${verdict.watermark.detail}${figures(verdict)}`)
   if (verdict.labels.length > 0) {
     lines.push('  missing or worth knowing')
     for (const label of verdict.labels) {
@@ -89,6 +95,23 @@ export const render = (path: string, verdict: Verdict): string => {
     lines.push(`  ignored   ${verdict.not_evaluated.join(', ')} (fields this verifier does not know)`)
   }
   return lines.join('\n')
+}
+
+/**
+ * What the layout defines to show next to a decode: the agreement between the
+ * eight copies for `video-rep-v1`, the bits the block code corrected for
+ * `photo-bch-v3`, and always the model that looked — a detection from an
+ * unnamed build is not reproducible.
+ */
+const figures = (verdict: Verdict): string => {
+  const w = verdict.watermark as NonNullable<Verdict['watermark']>
+  const parts = [
+    w.agreement !== undefined ? `agreement ${(w.agreement * 100).toFixed(0)}%` : null,
+    w.corrected_bits !== undefined ? `${w.corrected_bits} bits corrected` : null,
+    w.frames_sampled !== undefined ? `${w.frames_sampled} frame${w.frames_sampled === 1 ? '' : 's'}${w.sampling ? ` (${w.sampling.strategy})` : ''}` : null,
+    w.model_version ?? null
+  ].filter((p) => p !== null)
+  return parts.length > 0 ? ` [${parts.join(', ')}]` : ''
 }
 
 /**

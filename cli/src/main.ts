@@ -1,6 +1,6 @@
 #!/usr/bin/env -S npx tsx
 import { readFile } from 'node:fs/promises'
-import { verify, pemToDer, type Verdict } from 'vcap-verify-core'
+import { verify, pemToDer, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
 import { type Options, USAGE, UsageError, parse } from './options.js'
 import { render } from './render.js'
 
@@ -60,6 +60,22 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
   }
   const trustedLogs = options.logs.map(({ logId, spki }) => ({ logId, spki: base64(spki) }))
 
+  // §8's watermark detection. This tool runs no detector and contacts nothing,
+  // so the evidence is a file the caller produced — the `watermark` block of a
+  // `/v1/verify` response, or any other detector's output in that shape. What
+  // it says is *what came out of the pixels*; the comparison against the ids
+  // the device signed is the core's, and a payload it cannot read is
+  // *watermark not evaluated* rather than an accusation.
+  let watermark: WatermarkEvidence | undefined
+  if (options.watermark !== undefined) {
+    try {
+      watermark = JSON.parse(await readFile(options.watermark, 'utf8')) as WatermarkEvidence
+    } catch {
+      io.err(`vcap-verify: ${options.watermark} is not readable JSON\n`)
+      return EXIT.usage
+    }
+  }
+
   const verdicts: { path: string, verdict: Verdict }[] = []
   for (const path of options.files) {
     const file = new Uint8Array(await readFile(path))
@@ -71,6 +87,7 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
         recomputeSegments: options.recompute,
         trustedLogs,
         tsaRoots,
+        ...(watermark ? { watermark: async () => watermark } : {}),
         now: options.now
       })
     })

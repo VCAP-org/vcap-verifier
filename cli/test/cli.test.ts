@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { run, type Streams } from '../src/main.js'
@@ -203,5 +204,65 @@ describe('vcap-verify', () => {
     const { io, out } = capture()
     expect(await run(['--help'], io)).toBe(0)
     expect(out()).toContain('Exit codes')
+  })
+})
+
+/**
+ * Spec §8, "A declared watermark that does not come back". This tool contacts
+ * nothing and runs no model, so the only source of a detection is the caller
+ * and `--watermark` is a file. Without it the answer is the one this CLI has
+ * always given for a declared watermark: *watermark not evaluated*.
+ */
+describe('--watermark', () => {
+  const evidenceFile = (body: unknown): string => {
+    const path = join(mkdtempSync(join(tmpdir(), 'vcap-cli-')), 'watermark.json')
+    writeFileSync(path, JSON.stringify(body))
+    return path
+  }
+  const captureIdOf = (name: string): string => {
+    const proof = JSON.parse(readFileSync(join(VECTORS, name, 'proof.json'), 'utf8')) as { capture_id: string }
+    return Buffer.from(proof.capture_id, 'base64url').toString('hex')
+  }
+
+  it('without it, a declared watermark is *watermark not evaluated* — unchanged', async () => {
+    const { io, out } = capture()
+    expect(await run(['--json', '--no-recompute', inputOf('01-jpeg-sealed')], io)).toBe(0)
+    const verdict = JSON.parse(out().trim())
+
+    expect(verdict.labels).toContain('watermark not evaluated')
+    expect(verdict.watermark).toBeUndefined()
+  })
+
+  it('*watermark matched* when the file names the declared capture id (§8)', async () => {
+    const { io, out } = capture()
+    const path = evidenceFile({ layout: 'photo-bch-v3', decoded: captureIdOf('01-jpeg-sealed'), corrected_bits: 2, model_version: 'videoseal-y256b-3' })
+    expect(await run(['--json', '--no-recompute', '--watermark', path, inputOf('01-jpeg-sealed')], io)).toBe(0)
+    const verdict = JSON.parse(out().trim())
+
+    expect(verdict.labels).toContain('watermark matched')
+    expect(verdict.watermark.result).toBe('matched')
+  })
+
+  it('a payload that decodes to another id is red, and the exit code says the file does not verify (§8)', async () => {
+    const { io, out } = capture()
+    const path = evidenceFile({ layout: 'photo-bch-v3', decoded: '0f1e2d3c4b5a69788796a5b4c3d2e1f0' })
+    expect(await run(['--json', '--no-recompute', '--watermark', path, inputOf('01-jpeg-sealed')], io)).toBe(1)
+
+    expect(JSON.parse(out().trim()).outcome).toBe('tampered')
+  })
+
+  it('refuses to spread one detection over several files', async () => {
+    const { io, err } = capture()
+    const path = evidenceFile({ decoded: null })
+    expect(await run(['--watermark', path, inputOf('01-jpeg-sealed'), inputOf('02-jpeg-c2pa-added-after-sealing')], io)).toBe(64)
+
+    expect(err()).toContain('--watermark takes a single file')
+  })
+
+  it('says so when the evidence file is not readable JSON', async () => {
+    const { io, err } = capture()
+    expect(await run(['--watermark', join(VECTORS, 'nope.json'), inputOf('01-jpeg-sealed')], io)).toBe(64)
+
+    expect(err()).toContain('not readable JSON')
   })
 })
