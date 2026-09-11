@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#2e8b57">
 <style>
   :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-  body { margin: 0; padding: 2rem 1rem; max-width: 46rem; margin-inline: auto; line-height: 1.45; }
+  body { margin: 0; padding: 2rem 1rem; max-width: 60rem; margin-inline: auto; line-height: 1.45; }
   h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
   .muted { opacity: .7; font-size: .9rem; }
   .drop { margin-top: 1.5rem; border: 2px dashed currentColor; border-radius: .75rem; padding: 2rem; text-align: center; opacity: .8; }
@@ -21,11 +21,29 @@
   .red { background: #fde8e8; border-color: #b22222; color: #4a0f0f; }
   .grey { background: #eee; border-color: #888; color: #222; }
   @media (prefers-color-scheme: dark) { .green{background:#0f3d22;color:#e6f6ea} .amber{background:#4a3400;color:#fff4d6} .red{background:#4a0f0f;color:#fde8e8} .grey{background:#222;color:#eee} }
+  .traced { background: #fff4d6; border-color: #b8860b; color: #4a3400; }
+  @media (prefers-color-scheme: dark) { .traced{background:#4a3400;color:#fff4d6} }
   .verdict h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
   .position { margin: .5rem 0 0; }
   ul { margin: .5rem 0 0; padding-left: 1.2rem; }
   code { font-family: ui-monospace, monospace; font-size: .85em; word-break: break-all; }
   details { margin-top: .75rem; }
+  /* The two verdicts sit next to each other where there is room, and stack
+     where there is not: the copy is always first, because it is the file the
+     reader came to ask about. */
+  .pair { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
+  .compare { margin-top: 1.5rem; border-collapse: collapse; width: 100%; font-size: .9rem; }
+  .compare caption { text-align: left; font-weight: 600; padding-bottom: .5rem; }
+  .compare th, .compare td { border: 1px solid rgba(127,127,127,.4); padding: .35rem .5rem; text-align: left; vertical-align: top; }
+  .compare thead th { font-size: .85rem; opacity: .8; }
+  .compare tbody th { font-weight: 500; white-space: nowrap; }
+  .compare .change { white-space: nowrap; font-size: .85em; }
+  .compare tr.lost { background: rgba(178,34,34,.12); }
+  .compare tr.differs { background: rgba(184,134,11,.12); }
+  .absent { opacity: .6; font-style: italic; }
+  .panel { margin-top: 1.5rem; border: 1px solid rgba(127,127,127,.4); border-radius: .75rem; padding: .75rem 1rem; font-size: .9rem; }
+  .panel p { margin: .5rem 0 0; }
   footer { margin-top: 3rem; font-size: .8rem; opacity: .6; }
 </style>
 </head>
@@ -33,14 +51,24 @@
 <h1>vcap verifier</h1>
 <p class="muted">Drop a sealed photo or video. Everything happens in this page: no upload, no account, no server of ours.</p>
 <div class="drop" id="drop">
-  <p><label><input type="file" id="file" multiple> </label></p>
+  <p><label>The file in question <input type="file" id="file" multiple> </label></p>
   <p class="muted">or drag the file here</p>
+</div>
+<div class="drop sidecar" id="original-drop">
+  <p><label>The original, if you have it <input type="file" id="original"> </label></p>
+  <p class="muted">optional — a copy that came back re-compressed, cropped or through a social network has usually lost its proof. Next to the original, the page can show what it lost and what it kept.</p>
 </div>
 <div class="drop sidecar" id="sidecar-drop">
   <p><label>Sidecar, if the proof travels beside the file (<code>&lt;filename&gt;.vcap</code>) <input type="file" id="sidecar" accept=".vcap,application/json"> </label></p>
   <p class="muted">optional — or drag it here, or with the file above. It is read here, not looked for anywhere.</p>
 </div>
 <div id="out"></div>
+<div class="panel">
+  <strong>Watermark detector</strong>
+  <p class="muted">Reading a mark out of pixels needs the detector model — around 34 MB. This page never downloads it on its own and never caches it for offline use: without it a watermark reads <em>not evaluated</em>, which is a weaker verdict and not a failure.</p>
+  <p><button type="button" id="load-detector">Load the detector</button> <label class="muted">or use a detection you already have <input type="file" id="evidence" accept=".json,application/json"></label></p>
+  <p class="muted" id="detector-state">no detector loaded — watermarks are not evaluated</p>
+</div>
 <footer>
   What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated by this page yet. A position is never "guaranteed": the page names the level it reaches — declared by the device, or corroborated by a registry this page trusts, of which it ships none yet.
   <p>This build: bundle <code id="bundle-hash">{{bundle_sha256}}</code>, from commit <a href="https://github.com/VCAP-org/vcap-verifier/commit/{{commit}}"><code id="commit">{{commit_short}}</code></a>, esbuild {{esbuild}} — <a href="hashes.json">every shipped file, hashed</a>. Offline: <span id="offline">needs a browser with service workers</span>. Rebuild that commit yourself to check them: the <a href="https://github.com/VCAP-org/vcap-verifier#reproducing-the-published-build">README</a> says how.</p>
