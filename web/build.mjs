@@ -51,8 +51,28 @@ const html = (fields) => Object.entries(fields).reduce(
   readFileSync('src/index.html', 'utf8')
 )
 
-// Shipped as they are: the web app manifest and its icon.
-const STATIC = ['manifest.webmanifest', 'icon.svg']
+/**
+ * The detector is a second artifact, not part of the bundle. It is reached
+ * from a dynamic `import()` of a URL the bundler cannot resolve, so the
+ * browser fetches it only when the user asks for a detector — and it is left
+ * out of the service worker's precache below, together with the ~34 MB model
+ * it would pull. Both are deliberate: the page must be whole without either.
+ */
+const detectorOptions = {
+  entryPoints: ['src/detector.ts'],
+  bundle: true,
+  format: 'esm',
+  target: ['es2022'],
+  minify: !serve,
+  sourcemap: serve,
+  outfile: 'dist/detector.js',
+  legalComments: 'none'
+}
+
+// Shipped as they are: the web app manifest, its icon, and the detector
+// manifest — which today says that no detector build is published, and is read
+// only when somebody clicks.
+const STATIC = ['manifest.webmanifest', 'icon.svg', 'detector.json']
 
 rmSync('dist', { recursive: true, force: true })
 mkdirSync('dist')
@@ -61,6 +81,7 @@ for (const name of STATIC) copyFileSync(`src/${name}`, `dist/${name}`)
 if (serve) {
   const ctx = await context(options)
   await ctx.watch()
+  await build(detectorOptions)
   writeFileSync('dist/index.html', html({ bundle_sha256: 'dev build', commit, commit_short: commit.slice(0, 7), esbuild: esbuildVersion }))
   const { host, port } = await ctx.serve({ servedir: 'dist' })
   console.log(`[vcap] verifier at http://${host}:${port}`)
@@ -73,6 +94,8 @@ if (serve) {
   if (absolute.length) throw new Error(`[vcap] absolute paths in the bundle metafile: ${absolute.join(', ')}`)
   writeFileSync('dist/metafile.json', JSON.stringify(metafile, null, 1) + '\n')
 
+  await build(detectorOptions)
+
   const bundle = readFileSync('dist/verifier.js')
   const bundleHash = sha256(bundle)
   writeFileSync('dist/verifier.js.sha256', `${bundleHash}  verifier.js\n`)
@@ -83,7 +106,13 @@ if (serve) {
   // the old one goes; the worker itself is not in its own list (the browser
   // fetches it), nor is what is written after it — but the hash records are,
   // as URLs, so they are readable offline too.
-  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', ...STATIC]
+  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', ...STATIC]
+  // Everything shipped is cached except the detector module: it is an explicit
+  // choice of the user's, it pulls a model far larger than this page, and an
+  // offline page that silently held a stale detector would be worse than one
+  // that says it has none. `detector.json` stays cached — it is a few hundred
+  // bytes and it is what tells the reader why there is no detector.
+  const deferred = new Set(['detector.js'])
   const hashOf = (name) => sha256(readFileSync(`dist/${name}`))
   const buildId = sha256(shipped.map((name) => `${name}:${hashOf(name)}`).join('\n')).slice(0, 16)
   await build({
@@ -96,7 +125,7 @@ if (serve) {
     legalComments: 'none',
     define: {
       __VCAP_BUILD__: JSON.stringify(buildId),
-      __VCAP_PRECACHE__: JSON.stringify([...shipped, 'hashes.json', 'HASHES.md'])
+      __VCAP_PRECACHE__: JSON.stringify([...shipped.filter((name) => !deferred.has(name)), 'hashes.json', 'HASHES.md'])
     }
   })
 

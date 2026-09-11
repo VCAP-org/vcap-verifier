@@ -1,146 +1,180 @@
-import { verify, type Verdict } from 'vcap-verify-core'
+import { evaluateWatermark, verify, type Verdict, type WatermarkClaim, type WatermarkEvidence, type WatermarkOutcome } from 'vcap-verify-core'
+import { card, comparison, trace } from './render.js'
+import { readEvidence } from './evidence.js'
+import type { Detector } from './detector.js'
 
 /**
- * The page: read the dropped file (and a sidecar if one is dropped with it or
- * into its own zone), run the shared core, say what it found in the spec's
- * words. No network. Trusted transparency logs would be listed in a
- * `logs.json` next to the page; none are, yet — so `registry` attachments
- * read "log not trusted" for now.
+ * The page: read the file in question (and, when the user has them, the
+ * original it is supposed to be a copy of, a sidecar, a detection), run the
+ * shared core over each, and say what it found in the specification's words.
+ * No network is in the verification path, and nothing is uploaded.
  *
- * The sidecar (§3.1) comes from the user's hands only: a second file input
- * or a `.vcap` dropped anywhere on the page. Nothing is looked for and
- * nothing is fetched — a page has no directory to read `<filename>.vcap` from,
- * so the caller-provided form is the only one it can offer. What the core
- * does with it is the spec's precedence: the trailer wins and a differing
- * sidecar is a label; a broken trailer stays corrupted; a sidecar alone is the
- * full verdict over the whole file, and where the proof sat is never a label.
+ * The side-by-side exists because a verdict on a copy is not self-explanatory.
+ * A file that came back from a messaging app has lost its trailer and with it
+ * its signature, and *no proof found* on its own does not tell a reader
+ * whether the picture is a forgery or simply a re-compressed copy of something
+ * that was sealed. Put the two files next to each other and the answer is
+ * readable: the table names each piece of evidence, what the original carries,
+ * what the copy still carries, and which of the two it lost.
+ *
+ * The watermark is the piece that can survive that trip, and it is the piece
+ * the interface must not let anyone read backwards. It is never a verdict
+ * here: the card keeps whatever the signature layer said, and a mark found in
+ * an unsigned copy is *origin traced* — see `render.ts`.
+ *
+ * The detector that reads a mark out of pixels is a separate, explicit
+ * download (`detector.ts`), never fetched on load and never precached. Without
+ * it every verdict is the verdict this page gave before one existed, with
+ * *watermark not evaluated* on it: a weaker answer, not a failure.
  */
-const drop = document.getElementById('drop') as HTMLDivElement
-const input = document.getElementById('file') as HTMLInputElement
-const sidecarDrop = document.getElementById('sidecar-drop') as HTMLDivElement
-const sidecarInput = document.getElementById('sidecar') as HTMLInputElement
+const zones = {
+  copy: document.getElementById('drop') as HTMLDivElement,
+  original: document.getElementById('original-drop') as HTMLDivElement,
+  sidecar: document.getElementById('sidecar-drop') as HTMLDivElement
+}
+const inputs = {
+  copy: document.getElementById('file') as HTMLInputElement,
+  original: document.getElementById('original') as HTMLInputElement,
+  sidecar: document.getElementById('sidecar') as HTMLInputElement,
+  evidence: document.getElementById('evidence') as HTMLInputElement
+}
 const out = document.getElementById('out') as HTMLDivElement
+const detectorState = document.getElementById('detector-state') as HTMLParagraphElement
+const loadButton = document.getElementById('load-detector') as HTMLButtonElement
 
-const COLOR: Record<Verdict['outcome'], string> = {
-  authentic: 'green', verified_clip: 'amber', tampered: 'red', nested_proof: 'amber',
-  corrupted_proof: 'red', no_proof_found: 'grey', unsupported_format_version: 'grey'
-}
-const TITLE: Record<Verdict['outcome'], string> = {
-  authentic: 'Authentic — signed at capture, file complete',
-  verified_clip: 'Verified clip — signed frames of a longer original',
-  tampered: 'Tampered — the file or its proof was altered after sealing',
-  nested_proof: 'Nested proof — a sealed file was sealed again; the outer proof is not authoritative',
-  corrupted_proof: 'Corrupted proof — the trailer is damaged',
-  no_proof_found: 'No proof found',
-  unsupported_format_version: 'Unsupported format version'
-}
-
-const SOURCE: Record<string, string> = {
-  timestamp: 'proven by the timestamp token',
-  anchor: 'proven by the anchored block',
-  device_clock: 'the device\'s own clock, not proven',
-  verifier_clock: 'this browser\'s clock; the proof declares no time'
-}
+// What the user has handed over so far. Each arrives on its own and the
+// verdict is recomputed whenever any of them changes, so the order does not
+// matter. `detection` is a detector's report about the file in question.
+const held: { copy?: File, original?: File, sidecar?: File, detection?: WatermarkEvidence } = {}
+let detector: Detector | null = null
 
 /**
- * §7.1 in one sentence, on its own line because it is on its own axis: the
- * position level never colours the verdict. The words are the spec's — the
- * device's word is *declared*, the registry's word about an operator's
- * cell-level answer is *corroborated*, shown as *the registry attests* and
- * never as "verified by the operator", always with the radius. "Guaranteed"
- * is not a level and does not appear.
+ * One lookup per file. It records the claim the signed core produced — which
+ * layout, which id, which proof — because the comparison against the
+ * **original's** claim is how an unsigned copy gets traced, and that claim is
+ * only available from here. What it returns is what a detector said about
+ * *that* file: the user's detection for the copy, and a fresh detection for
+ * the original only when a detector is loaded (a detection file is about one
+ * file, and the file it is about is the one in question).
  */
-const POSITION: Record<string, string> = {
-  declared: 'Position declared only',
-  corroborated: 'Position corroborated',
-  authenticated: 'Position authenticated'
-}
-const position = (v: Verdict): string => {
-  if (!v.location || v.location.level === 'none') return ''
-  const { level, declared } = v.location
-  const where = declared
-    ? `${(declared.lat_udeg / 1e6).toFixed(6)}, ${(declared.lon_udeg / 1e6).toFixed(6)}${declared.acc_cm !== undefined ? ` ±${(declared.acc_cm / 100).toFixed(1)} m` : ''}${declared.source ? ` (${escape(declared.source)})` : ''}`
-    : 'no coordinates'
-  const said = v.location_corroboration?.ok ? `${escape(v.location_corroboration.detail)}; ` : ''
-  // Only the device's word, and no registry statement read: say so, because a
-  // reader shown coordinates on a green verdict assumes somebody checked them.
-  const alone = level === 'declared' && !v.location_corroboration?.ok ? '; nothing else vouches for it' : ''
-  return `<p class="position"><strong>${POSITION[level] ?? escape(level)}</strong> — ${said}the device signed ${where}${alone}.</p>`
+const lookup = (bytes: Uint8Array, own: WatermarkEvidence | undefined, seen: { claim?: WatermarkClaim }) =>
+  async (claim: WatermarkClaim): Promise<WatermarkEvidence | null> => {
+    seen.claim = claim
+    if (own) return own
+    return detector ? await detector.detect(bytes, claim) : null
+  }
+
+const verdictOf = async (file: File, seen: { claim?: WatermarkClaim }, extra: { sidecar?: Uint8Array, detection?: WatermarkEvidence }): Promise<Verdict> => {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  return await verify(bytes, {
+    sidecar: extra.sidecar,
+    watermark: lookup(bytes, extra.detection, seen)
+  })
 }
 
-const escape = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
-
-const render = (name: string, v: Verdict): void => {
-  const lines = [
-    ...v.labels.map((l) => `<li>${escape(l)}</li>`),
-    ...v.not_evaluated.map((k) => `<li>not evaluated: <code>${escape(k)}</code></li>`)
-  ]
-  const details = [
-    v.claimed_secure_hw ? `<li>claimed level: <code>${escape(v.claimed_secure_hw)}</code> (attestation not evaluated by this page)</li>` : '',
-    v.device_clock ? `<li>declared capture time: ${new Date(v.device_clock).toISOString()} (device clock, not trusted time)</li>` : '',
-    // §7: which clock the certificate paths were validated at. A reader who is
-    // not told cannot tell a capture time proven by a token from one the device
-    // asserted about itself.
-    v.validated_at ? `<li>validated at: ${escape(v.validated_at.instant)} (${escape(SOURCE[v.validated_at.source] ?? v.validated_at.source)})</li>` : '',
-    v.segments ? `<li>segments verified: ${v.segments.verified.length ? v.segments.verified.join(', ') : 'none'}</li>` : '',
-    v.segments?.contradicted?.length ? `<li>segments whose frames are not the signed frames: ${v.segments.contradicted.join(', ')}</li>` : '',
-    // §5 recomputation either happened or did not, and the page says which:
-    // "every segment verifies" means much less when nothing read the frames.
-    v.content ? `<li>segment content: ${v.content.recomputed ? 'recomputed from the container' : 'not recomputed'} (${escape(v.content.detail)})</li>` : '',
-    v.registry ? `<li>transparency log: ${escape(v.registry.detail)}</li>` : '',
-    v.attestation_status ? `<li>chain revocation: ${escape(v.attestation_status.detail)}</li>` : '',
-    // The device key's own standing, which is the one thing this page cannot
-    // establish from the file: it ships with no log to ask, so it says so
-    // rather than leaving the reader to assume it was checked.
-    v.key_status ? `<li>key revocation: ${escape(v.key_status.detail)}</li>` : '',
-    v.anchor ? `<li>anchor: ${escape(v.anchor.detail)}</li>` : '',
-    v.core_hash ? `<li>proof identity: <code>${v.core_hash}</code></li>` : '',
-    v.reason ? `<li>${escape(v.reason)}</li>` : ''
-  ].filter(Boolean)
-  out.innerHTML = `<div class="verdict ${COLOR[v.outcome]}">
-    <h2>${escape(TITLE[v.outcome])}</h2>
-    <div class="muted">${escape(name)}</div>
-    ${position(v)}
-    ${lines.length ? `<ul>${lines.join('')}</ul>` : ''}
-    ${details.length ? `<details><summary>details</summary><ul>${details.join('')}</ul></details>` : ''}
-  </div>`
-}
-
-// What the user has handed over so far. The two arrive separately or
-// together, and the verdict is recomputed whenever either changes, so the
-// order they are dropped in does not matter.
-const held: { media?: File, sidecar?: File } = {}
-
-const isSidecar = (f: File): boolean => f.name.endsWith('.vcap')
+/** A signature that stands: the verdicts where the file speaks for itself. */
+const signed = (v: Verdict): boolean => v.outcome === 'authentic' || v.outcome === 'verified_clip'
 
 const check = async (): Promise<void> => {
-  const { media, sidecar } = held
-  if (!media) { out.innerHTML = '<div class="verdict grey"><h2>Drop the media file</h2></div>'; return }
-  const verdict = await verify(new Uint8Array(await media.arrayBuffer()), {
-    sidecar: sidecar ? new Uint8Array(await sidecar.arrayBuffer()) : undefined
-  })
-  render(sidecar ? `${media.name} + ${sidecar.name}` : media.name, verdict)
+  const { copy, original, sidecar, detection } = held
+  if (!copy) { out.innerHTML = '<div class="verdict grey"><h2>Drop the file in question</h2></div>'; return }
+
+  const sidecarBytes = sidecar ? new Uint8Array(await sidecar.arrayBuffer()) : undefined
+  const copySeen: { claim?: WatermarkClaim } = {}
+  const copyName = sidecar ? `${copy.name} + ${sidecar.name}` : copy.name
+  const copyVerdict = await verdictOf(copy, copySeen, { sidecar: sidecarBytes, detection })
+
+  if (!original) {
+    out.innerHTML = card(copyName, copyVerdict)
+    return
+  }
+
+  const originalSeen: { claim?: WatermarkClaim } = {}
+  const originalVerdict = await verdictOf(original, originalSeen, {})
+
+  // The trace: the detection about the copy, compared by the core against the
+  // ids the **original's** signed core declares. Only worth showing when the
+  // copy's own signature says nothing — when it does, §8 already ran inside
+  // its verdict and saying it twice would invite reading the second as more.
+  let traced: WatermarkOutcome | null = null
+  if (detection && originalSeen.claim && !signed(copyVerdict)) {
+    traced = evaluateWatermark(detection, originalSeen.claim)
+  }
+
+  out.innerHTML = [
+    `<div class="pair">${card(copyName, copyVerdict)}${card(original.name, originalVerdict)}</div>`,
+    comparison({ name: 'the file in question', verdict: copyVerdict }, { name: 'the original', verdict: originalVerdict }),
+    traced ? trace(traced) : ''
+  ].join('')
 }
 
-// Either zone takes either kind: a `.vcap` is the sidecar, anything else the
-// media, whichever box it landed in — so two files dropped together in the
-// first zone still work, and a sidecar dropped into the wrong box is not lost.
-const take = (files: FileList | File[]): void => {
+const isSidecar = (f: File): boolean => f.name.endsWith('.vcap')
+const isDetection = (f: File): boolean => f.name.endsWith('.json')
+
+/**
+ * Any zone takes any kind: the extension decides what a file is, and the zone
+ * only decides which of the two media slots an ordinary file lands in. So
+ * dropping a file and its sidecar together works, and a detection dropped on
+ * the wrong box is not lost.
+ */
+const take = async (files: FileList | File[], zone: 'copy' | 'original'): Promise<void> => {
   const list = Array.from(files)
-  const media = list.find((f) => !isSidecar(f))
+  const media = list.find((f) => !isSidecar(f) && !isDetection(f))
   const sidecar = list.find(isSidecar)
-  if (media) held.media = media
+  const detection = list.find(isDetection)
+  if (media) held[zone] = media
   if (sidecar) held.sidecar = sidecar
-  if (media || sidecar) void check()
+  if (detection) {
+    try {
+      held.detection = readEvidence(await detection.text())
+      say(`a detection from ${detection.name} is loaded; no detector ran in this page`)
+    } catch {
+      // A file that is not a detection changes nothing: the page keeps the
+      // verdict it had and says why, rather than failing over a side input.
+      say(`${detection.name} is not a readable detection; nothing was loaded`)
+    }
+  }
+  if (media || sidecar || detection) void check()
 }
 
-input.addEventListener('change', () => { if (input.files) take(input.files) })
-sidecarInput.addEventListener('change', () => { if (sidecarInput.files) take(sidecarInput.files) })
-for (const zone of [drop, sidecarDrop]) {
-  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('over') })
-  zone.addEventListener('dragleave', () => zone.classList.remove('over'))
-  zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('over'); if (e.dataTransfer?.files) take(e.dataTransfer.files) })
+const say = (text: string): void => { detectorState.textContent = text }
+
+for (const zone of ['copy', 'original'] as const) {
+  inputs[zone].addEventListener('change', () => { if (inputs[zone].files) void take(inputs[zone].files as FileList, zone) })
+  zones[zone].addEventListener('dragover', (e) => { e.preventDefault(); zones[zone].classList.add('over') })
+  zones[zone].addEventListener('dragleave', () => zones[zone].classList.remove('over'))
+  zones[zone].addEventListener('drop', (e) => { e.preventDefault(); zones[zone].classList.remove('over'); if (e.dataTransfer?.files) void take(e.dataTransfer.files, zone) })
 }
+inputs.sidecar.addEventListener('change', () => { if (inputs.sidecar.files) void take(inputs.sidecar.files, 'copy') })
+inputs.evidence.addEventListener('change', () => { if (inputs.evidence.files) void take(inputs.evidence.files, 'copy') })
+zones.sidecar.addEventListener('dragover', (e) => { e.preventDefault(); zones.sidecar.classList.add('over') })
+zones.sidecar.addEventListener('dragleave', () => zones.sidecar.classList.remove('over'))
+zones.sidecar.addEventListener('drop', (e) => { e.preventDefault(); zones.sidecar.classList.remove('over'); if (e.dataTransfer?.files) void take(e.dataTransfer.files, 'copy') })
+
+/**
+ * The detector, on a click and never before it. The module is reached through
+ * a URL the bundler cannot resolve, so `detector.js` is a request this page
+ * makes only here — and a failure leaves the page exactly as useful as it was,
+ * with the reason printed.
+ */
+loadButton.addEventListener('click', () => {
+  loadButton.disabled = true
+  say('loading the detector…')
+  const url = new URL('detector.js', location.href).href
+  void import(url)
+    .then((module: { loadDetector: typeof import('./detector.js').loadDetector }) => module.loadDetector(
+      (loaded, total) => say(`downloading the detector: ${(loaded / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB`)
+    ))
+    .then((loaded) => {
+      detector = loaded
+      say(`detector ${loaded.model_version} is loaded and runs in this page`)
+      void check()
+    })
+    .catch((error: Error) => {
+      loadButton.disabled = false
+      say(`no detector: ${error.message}`)
+    })
+})
 
 // Offline: the worker precaches this exact build (`sw.js` is generated by the
 // build with the list of shipped files). `ready` resolves once the worker is
