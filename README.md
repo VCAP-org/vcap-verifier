@@ -256,7 +256,18 @@ files, one server sending COOP/COEP and one not:
 
 So isolation is worth **2.3–2.6×** and costs nothing here: every file the page
 loads is same-origin, and the whole e2e suite passes identically with the
-headers on. The download is unaffected, as it should be. That is
+headers on. The download is unaffected, as it should be.
+
+Against the published host rather than a loopback, the same photo took **1.32 s**
+and the load **296 s** — because the wire, not the page, is what a first
+detector click pays for, and because that click fetches **more than the model**:
+the engine (`ort-wasm-simd-threaded.jsep.wasm`, 27.8 MB) is deferred with it, so
+the first use moves about **62 MB**, not 34.2. The 296 s is one observer's route
+(88 ms to Helsinki, ~220 kB/s sustained from this machine, against 3.2 MB/s to a
+nearby CDN from the same machine and 167 MB/s out of the server); it is a fact
+about a link, not about the host, and it is why the page streams the download
+with a progress figure instead of blocking on it. A second click costs nothing:
+the engine revalidates to a 304 and the model is served `immutable`. That is
 why detection is **progressive**: every frame reports as it lands and the
 payload is shown as soon as it decodes, which for `video-rep-v1` is usually the
 first frame (`vcap-ml/reports/frames-to-recover.md`).
