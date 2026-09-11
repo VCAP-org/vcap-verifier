@@ -88,6 +88,49 @@ full verdict over the whole file, with no label for where the proof came from.
 --no-sidecar         ignore any sidecar, verify the file alone
 ```
 
+## The watermark
+
+A proof may declare a `watermark` (§6.1): the writer saying a mark was embedded
+in the pixels. Reading it back needs a detector — a model, a demux, frames —
+and this tool has none and contacts nothing, so the detection comes from the
+caller as a file:
+
+```
+--watermark <path.json>   a detection of the declared watermark (single file only)
+```
+
+The file is what a detector saw, not a verdict. The members it reads are the
+ones the platform's `/v1/verify` already returns, so its `watermark` block goes
+in unchanged:
+
+```json
+{
+  "layout": "photo-bch-v3",
+  "decoded": "00112233445566778899aabbccddeeff",
+  "corrected_bits": 4,
+  "frames_sampled": 1,
+  "sampling": { "frames": 24, "strategy": "uniform" },
+  "agreement": 0.94,
+  "model_version": "videoseal-y256b-3"
+}
+```
+
+`decoded` is the id that came out of the payload — hex for `photo-bch-v3`, the
+decimal `mark_id` for `video-rep-v1` — or `null` when nothing decoded. The
+**comparison is not the caller's**: the core makes it against the ids the
+device signed, so §8's four rows are reached from the file's own bytes and a
+detection that carries its own verdict word is not read.
+
+| What the file says | What comes out |
+|---|---|
+| the declared id | *watermark matched* — a label, never a green verdict |
+| `null` | *watermark not recovered*, with whatever figure the layout defines |
+| an unreadable payload, an unknown layout, no file at all | *watermark not evaluated* |
+| a different id, decoded | **red**: *tampered*, with the reason and no labels (§8) |
+
+Without `--watermark` a declared watermark is *watermark not evaluated*, which
+is what this tool has always said and is a weaker verdict, never an error.
+
 ## Other options
 
 ```
