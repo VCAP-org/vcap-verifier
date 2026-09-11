@@ -14,6 +14,7 @@ import { validateTimestamp } from './rfc3161.js'
 import { type Certificate, parseCertificate } from './x509.js'
 import { type RevocationLookup, validateAndroidAttestation } from './attestation/android.js'
 import { type KeyStatusLookup, verifyKeyStatus } from './key-status.js'
+import { type CorroborationOutcome, type DeclaredPosition, type PositionLevel, positionLevel } from './location.js'
 
 /**
  * The verdict of the signature layer of vcap/1.0, from bytes to words. This
@@ -53,6 +54,12 @@ export interface Verdict {
   key_status?: { ok: boolean, detail: string }
   // §7: claimed by the device, proven by the evidence, and the ceiling the two allow.
   level?: { claimed: string, proven: string, ceiling: 'green' | 'amber' | 'red' }
+  // §7.1: the position level, on its own axis — what the core claims, what the
+  // evidence reaches, and the coordinates the device signed. Never a ceiling.
+  location?: { claimed: PositionLevel, level: PositionLevel, declared?: DeclaredPosition }
+  // §6.2 location_corroboration: the registry's word about an operator's
+  // answer, when the attachment is present and could be read.
+  location_corroboration?: { ok: boolean, detail: string, method?: string, result?: string, radius_m?: number, at?: number }
   // §7: the instant every certificate path was validated at, and what proved
   // it. A verifier must be able to say this: the same file reads differently
   // depending on whether the capture time came from a token or from the
@@ -85,7 +92,7 @@ export interface VerifyOptions {
 }
 
 const CORE_KEYS = ['v', 'capture_id', 'media', 'device', 'watermark', 'time', 'location', 'policy'] as const
-const KNOWN = new Set([...CORE_KEYS, 'sig', 'segments', 'attestation', 'attestation_status', 'registry', 'timestamp', 'anchor', 'integrity'])
+const KNOWN = new Set([...CORE_KEYS, 'sig', 'segments', 'attestation', 'attestation_status', 'registry', 'timestamp', 'anchor', 'integrity', 'location_corroboration'])
 const ABSENT: [string, string][] = [
   ['timestamp', 'no trusted time'], ['anchor', 'not anchored'], ['registry', 'key not in transparency log'],
   ['attestation', 'origin not hardware-attested'], ['integrity', 'integrity unevaluated'], ['watermark', 'no watermark']
@@ -258,6 +265,13 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
       labels.push('integrity unevaluated')
     } else labels.push(`integrity ${i.verdict}`)
   }
+  // §7.1: the position level, computed here with the attachments because the
+  // corroboration is one, and kept out of §7's ceiling below by construction —
+  // nothing it produces is read again.
+  const position = await positionLevel(proof.location, proof.location_corroboration, coreHash, o.trustedLogs ?? [])
+  labels.push(...position.labels)
+  verdict.location = { claimed: position.claimed, level: position.level, ...(position.declared ? { declared: position.declared } : {}) }
+  if (position.corroboration) verdict.location_corroboration = corroborationDetail(position.corroboration)
   if (isObj(proof.timestamp) && typeof proof.timestamp.tsr === 'string') {
     if (!o.tsaRoots?.length) labels.push('trusted time not evaluated')
     else {
@@ -400,6 +414,21 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
 
   verdict.labels = labels.sort()
   return verdict
+}
+
+/**
+ * §6.2's wording rule: what travels is the registry's countersignature of
+ * what the registry saw, so the detail says *the registry attests* and never
+ * "verified by the operator". The radius is shown because a `match` means the
+ * same area — kilometres — and never the same point.
+ */
+const corroborationDetail = (c: CorroborationOutcome): NonNullable<Verdict['location_corroboration']> => {
+  if (!c.ok) return { ok: false, detail: c.reason }
+  const zone = c.radiusM !== undefined ? `, radius ${c.radiusM} m` : ''
+  const said = c.result === 'match' ? `the registry attests that the operator confirmed the zone${zone}`
+    : c.result === 'no-match' ? `the registry attests that the operator placed the line outside the zone${zone}`
+      : `the registry attests that the operator could not say${zone}`
+  return { ok: true, detail: `${said} (${c.method})`, method: c.method, result: c.result, at: c.at, ...(c.radiusM !== undefined ? { radius_m: c.radiusM } : {}) }
 }
 
 // device.key_id is base64url of SHA-256(SPKI) in the proof; the log's leaf spells the same hash in hex.
