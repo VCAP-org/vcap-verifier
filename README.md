@@ -30,7 +30,7 @@ names what the copy still carries: see *Side by side* below.
 
 Not yet: App Attest (the iOS proven level comes from the registry leaf, which is
 where enrolment puts it), a page that actually reaches a log or a status list
-(the static build ships no network), a detector build that runs in a browser.
+(the static build ships no network).
 
 ## Design constraints
 
@@ -69,8 +69,8 @@ differ, and CI runs both.
 ```
 git submodule update --init      # the spec and its vectors
 npm ci
-npm run typecheck && npm test    # core: 73 vectors + attachment and evidence tests
-npm run build --workspace web    # web/dist: index.html, verifier.js, detector.js, detector.json, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon
+npm run typecheck && npm test    # core: the spec vectors, attachments, evidence; web: the layout ports
+npm run build --workspace web    # web/dist: index.html, verifier.js, detector.js, detector-runtime.js, the engine's wasm, detector.json, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon
 npm run test:e2e --workspace web # Playwright against web/dist: offline use and the side-by-side (needs `npx playwright install chromium` once)
 npm run dev --workspace web      # serves the page with a watcher (no service worker: dev builds are not cached)
 ```
@@ -177,20 +177,70 @@ can most easily let someone read backwards. Three rules hold it in place:
 
 ### The detector
 
-Reading a mark out of pixels needs the model, and the model is ~34 MB (D17).
-`detector.js` is therefore a separate artifact, reached through a dynamic
-`import()` of a URL the bundler cannot resolve: nothing about it is fetched
-until the user clicks, and `sw.js` precaches every shipped file **except** it.
-`detector.json` pins the build's URL, size and SHA-256 — bytes that hash to
-anything else are refused before any runtime sees them — and today it says no
-build is published, which the page prints as the reason a watermark reads *not
-evaluated*.
+Reading a mark out of pixels needs the model, and the model is 34.2 MB (D17).
+It is therefore **three artifacts and not one**, none of them in the bundle and
+none of them precached:
 
-Until there is one, a detection comes from a file the user already holds: the
+| file | what it is | when it is fetched |
+|---|---|---|
+| `detector.json` | the manifest: url, bytes, SHA-256, `model_version`, providers | with the page (a few hundred bytes, cached offline) |
+| `detector.js` | the download and the digest check | on the click |
+| `detector-runtime.js` + `ort-wasm-simd-threaded.jsep.*` | onnxruntime-web and the layout decoders | after the model's bytes hash to the manifest |
+
+The order is the point: an engine is code, and code that runs before the model
+has been checked is code the manifest does not cover. Bytes that hash to
+anything else are refused with the two digests printed, and the page is left
+exactly as useful as it was — a Playwright test flips one byte of the model in
+flight and asserts both.
+
+The model's url is **relative**, so it is served from wherever the page is.
+Nobody has to fetch it from us: the digest is what makes the file trustworthy,
+not the host, and `vcap-ml`'s `browser-build` prints the same digest from the
+artifact it produces. The verification path is unchanged either way — the
+download is an explicit act of the user's, the page is whole without it, and no
+verdict depends on it.
+
+**Backends.** `execution_providers` in the manifest is tried in order and the
+first session that initialises wins, so a browser with no WebGPU falls back to
+WASM SIMD without the reader noticing. The published int8 build asks for
+`wasm` alone, because it has no WebGPU kernels for this graph and round-trips
+to the CPU inside the session: 1016 ms a frame there against 211–456 ms on
+WASM (`vcap-ml/reports/detector-in-the-browser.md`). Which backend ran is
+printed, because multi-threaded WASM needs cross-origin isolation
+(COOP/COEP) and a timing nobody can place is not a measurement.
+
+**What it costs, measured** (M4, Chromium, page and model on the same local
+host, single-thread WASM): 0.7 s to download 34.2 MB, hash it and open a
+session; ~0.9 s per frame end to end, which is one frame for a photo and eight
+for a clip — so a still is about a second and a clip is about seven. That is
+why detection is **progressive**: every frame reports as it lands and the
+payload is shown as soon as it decodes, which for `video-rep-v1` is usually the
+first frame (`vcap-ml/reports/frames-to-recover.md`).
+
+A detection can still come from a file the user already holds instead: the
 `watermark` block of a `/v1/verify` response, or what `vcap-verify --watermark`
 takes. Nothing signs a detection (D18), so it is worth exactly what the hand
 that dropped it is worth — which is what it was worth anyway, since the same
 hand dropped the media bytes.
+
+#### Running the end-to-end detector tests
+
+They skip unless the model and the marked media are in place, because neither
+is in git — the model is a release asset (`vcap-ml`, P11) and the media is
+generated by the embedder there:
+
+```
+# in vcap-ml
+python -m vcap_ml quantize && python -m vcap_ml browser-build
+# here
+mkdir -p web/dist/models
+cp ../vcap-ml/models/detector_int8.onnx web/dist/models/detector-videoseal-y256b-1-int8.onnx
+npm run test:e2e --workspace web
+```
+
+A host serving these files must send `application/wasm` for the engine's binary
+and a JavaScript type for its `.mjs` glue; the test server does, and a static
+host that does not will fail to start a session with no error the user can read.
 
 ## What the core verifies
 
