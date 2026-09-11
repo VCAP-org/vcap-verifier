@@ -37,7 +37,7 @@ export const serve = (options: { corrupt?: RegExp, absent?: RegExp } = {}): Prom
       // A host that serves the right bytes is not what makes a model safe to
       // run; the digest is. `corrupt` flips one byte on the way out, which is
       // the whole threat in one line.
-      if (options.corrupt?.test(name)) body[body.length - 1] = body[body.length - 1] ^ 0x01
+      if (options.corrupt?.test(name)) body[body.length - 1] = (body.at(-1) ?? 0) ^ 0x01
       res.writeHead(200, { 'content-type': TYPES[extname(name)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
       res.end(body)
     } catch {
