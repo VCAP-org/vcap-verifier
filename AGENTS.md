@@ -30,6 +30,11 @@ part of correctness:
 - `spec/` is the `vcap-spec` submodule; `core/test/conformance.test.ts` runs
   every vector in it. A vector that fails is a spec conversation, never a local
   expectation edit.
+- **A run of zero vectors is a failure, never a pass.** Every conformance
+  runner here pins its count against the corpus `MANIFEST.json` and names the
+  corpus version; `core/test/corpus.ts` throws rather than hand back an empty
+  list. A floor (`>= 84`) is not that assertion: it passes while the corpus
+  shrinks under it, and it passes loudest when nothing ran at all.
 - No analytics, no telemetry, no uploads. Nothing leaves the browser, and that
   must stay auditable in a single read of the source.
 - The **detector** is the one thing the page fetches, and only on a click:

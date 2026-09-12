@@ -278,6 +278,34 @@ takes. Nothing signs a detection (D18), so it is worth exactly what the hand
 that dropped it is worth — which is what it was worth anyway, since the same
 hand dropped the media bytes.
 
+#### Where the watermark stops working
+
+A verifier that only publishes what its detector can read is advertising. The
+measured curve of the published model — both break points, what quantization
+costs, and the list of what was not measured — is public in
+`vcap-spec/spec/watermark-robustness-1.0.md`. The two numbers a reader of this
+page needs:
+
+- **A photo reduced to a thumbnail carries no readable mark.** Recovery is
+  total through a double re-encode at JPEG quality 40, and **zero** from a
+  480 px / quality 30 thumbnail onward. There is no partial answer in between:
+  BCH either corrects the block or it does not exist.
+- **A clip past crf 36 / 640 px does not decode.** It holds to crf 36 with
+  agreement 0.87–0.90; at crf 40 it is at 0.65–0.67, well past the layout's
+  correction floor.
+
+Both were measured on three images and one synthetic clip, on re-encode recipes
+named after sharing services but not produced by them. And the one number an
+evaluator asks for that nobody has: **the detector's false-positive rate on
+unmarked content has not been measured**, so nothing here says what a recovered
+`mark_id` implies on its own.
+
+None of which changes a verdict, because it cannot: a mark that is read is
+*origin traced* and a mark that is not is *watermark not recovered*, and the
+verdict card keeps the colour the signature layer gave it either way. The
+failure of a detector is a weaker answer, never an error and never a red
+verdict.
+
 #### Running the end-to-end detector tests
 
 They skip unless the model and the marked media are in place, because neither
@@ -343,6 +371,32 @@ down to the pinned 2025 Google root, clock pinned to capture time.
 
 Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
 `nested_proof`, `corrupted_proof`, `no_proof_found`, `unsupported_format_version`.
+
+## Conformance: which corpus, and how many vectors
+
+This repository's verdicts are checked against the `vcap-spec` vector corpus,
+and the claim is only worth what it names:
+
+| Runner | Vectors | Corpus |
+|---|---|---|
+| `core/test/conformance.test.ts` | all of them, every `kind` | `vectors/VERSION` of the `spec` submodule, count pinned to `vectors/MANIFEST.json` |
+| `cli/test/cli.test.ts` | the `file` and `container` vectors — the CLI takes a file, so `segments` and `jcs` have nothing to hand it | same corpus, count pinned to the manifest's count of those two kinds |
+| `web/test/offline.spec.ts` | a hand-picked few, in a real browser with the network gone | the same snapshot |
+
+Two rules, and they are the point of the table:
+
+- **The count is pinned, not floored.** A floor (`>= 84`) passes while the
+  corpus shrinks under it. Both suites compare against `MANIFEST.json` and fail
+  on inequality, which also fails when the submodule is left behind a newer
+  corpus — adopting new vectors is then a deliberate bump.
+- **A run of zero vectors is a failure, never a pass.** `core/test/corpus.ts`
+  throws on a missing or empty corpus instead of handing back an empty list, so
+  no loop here can be green for having no body. `vcap-spec/vectors/CONFORMANCE.md`
+  is the same rule written for implementations that are not ours.
+
+The snapshot in `core/vectors` is kept byte-equal to the submodule by
+`vectors-sync.mjs` (`npm run vectors:check`, run in CI), so a checkout without
+the submodule still runs the vectors — but never *no* vectors.
 
 ## Project documentation
 
