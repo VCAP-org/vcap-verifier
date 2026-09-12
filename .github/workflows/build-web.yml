@@ -55,3 +55,41 @@ jobs:
           name: web-dist
           path: first
           if-no-files-found: error
+
+  # The signature over the manifest, exercised end to end — with a key made in
+  # the runner and thrown away, never the real one, which lives in Ops/ on one
+  # machine and has no business on a CI runner. What this gates is that the
+  # scripts that publish still work and that the published log still verifies
+  # against the published key; the real signature is produced by hand, at
+  # publish time, from a clean checkout (signing/README.md).
+  signature:
+    name: sign and verify a manifest, with a throwaway key
+    needs: reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      # Every file the manifest names, rehashed from the tree CI reproduced.
+      - run: node bin/verify-build.mjs web/dist
+      - name: round trip
+        run: |
+          openssl genpkey -algorithm ed25519 -out "$RUNNER_TEMP/key.pem"
+          openssl pkey -in "$RUNNER_TEMP/key.pem" -pubout -out "$RUNNER_TEMP/key.pub"
+          node bin/sign-build.mjs --dist web/dist --key "$RUNNER_TEMP/key.pem" \
+            --public-key "$RUNNER_TEMP/key.pub" --log-file "$RUNNER_TEMP/log.jsonl"
+          node bin/verify-build.mjs web/dist --public-key "$RUNNER_TEMP/key.pub" --log-file "$RUNNER_TEMP/log.jsonl"
+          node bin/verify-build.mjs --log --public-key "$RUNNER_TEMP/key.pub" --log-file "$RUNNER_TEMP/log.jsonl"
+      # A tampered manifest must fail, or the check above proves nothing.
+      - name: a changed manifest must not verify
+        run: |
+          printf '\n' >> web/dist/hashes.json
+          ! node bin/verify-build.mjs web/dist --public-key "$RUNNER_TEMP/key.pub" --log-file "$RUNNER_TEMP/log.jsonl"
+      # The signatures this repository actually publishes, against the key it
+      # publishes. Empty until the first hand-publish, and it says so.
+      - run: node bin/verify-build.mjs --log

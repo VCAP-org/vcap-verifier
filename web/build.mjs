@@ -163,8 +163,12 @@ if (serve) {
   })
 
   // Every shipped file, hashed. `hashes.json` cannot list itself; HASHES.md is
-  // the same record for a reader. Unsigned: no signing key exists yet (D1),
-  // so the way to trust these is to reproduce the build (README).
+  // the same record for a reader. The signature over this manifest is
+  // **detached** and produced afterwards by the key holder (`bin/sign-build`):
+  // it is published as `hashes.json.sig` next to the page and recorded in
+  // `signing/manifests.jsonl`, and it is never a file of `dist/` — a signature
+  // inside the tree would change the tree it certifies and the build would
+  // stop reproducing the moment it was signed.
   const files = Object.fromEntries([...shipped, 'sw.js'].sort().map((name) => [name, hashOf(name)]))
   const record = {
     commit,
@@ -172,14 +176,21 @@ if (serve) {
     build_id: buildId,
     toolchain: { esbuild: esbuildVersion, node: process.version },
     files,
-    signature: 'none: no signing key exists yet; reproduce the build to trust these hashes'
+    signature: {
+      detached: 'hashes.json.sig',
+      algorithm: 'ed25519',
+      message: 'vcap/1.0/verifier-build\\n<sha256 of this file>\\n<commit>\\n',
+      key: 'signing/public-key.pem in the vcap-verifier repository',
+      proves: 'continuity: the same key signed the earlier manifests in signing/manifests.jsonl',
+      does_not_prove: 'identity: no legal entity, no certificate, no eIDAS signature of any kind. Reproduce the build (README) — that, not this signature, is what makes the hashes worth something.'
+    }
   }
   writeFileSync('dist/hashes.json', JSON.stringify(record, null, 2) + '\n')
   writeFileSync('dist/HASHES.md', [
     '# vcap verifier — build hashes',
     '',
     `Built from commit \`${commit}\`${dirty ? ' (working tree dirty)' : ''} with esbuild ${esbuildVersion} on Node ${process.version}.`,
-    'Not signed: no signing key exists yet. To trust these hashes, rebuild the same commit with the pinned toolchain (see the README) and compare.',
+    'A detached Ed25519 signature over this manifest is published as `hashes.json.sig`, next to it. It proves **continuity** — the same key signed the earlier manifests — and **not identity**: there is no legal entity behind that key and no certificate. What makes these hashes worth something is that anyone can rebuild the same commit with the pinned toolchain and get them (see the README, and `signing/README.md` for the by-hand checks).',
     '',
     '| file | sha256 |',
     '|---|---|',

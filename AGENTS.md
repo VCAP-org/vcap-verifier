@@ -61,8 +61,14 @@ part of correctness:
 - The page build is reproducible and stays so: nothing in `web/dist` may depend
   on the clock, the machine or its paths — only on the commit and the pinned
   toolchain. CI builds twice from clean checkouts and fails if the trees differ.
-  Every shipped file is listed in `hashes.json`; there is nothing to sign it
-  with yet, so say so rather than pretend.
+  Every shipped file is listed in `hashes.json`, and that manifest is signed
+  with a **detached** Ed25519 signature (`bin/sign-build.mjs`, key in `Ops/`,
+  never in a repo). The signature never enters `dist/` — it would change the
+  tree it certifies — and it claims **continuity, not identity**: no legal
+  entity, no certificate, no KMS. Write that limit wherever the signature is
+  mentioned, the way the evidence report prints its own (D40), and never let a
+  verdict come to depend on it: this is the provenance of the page, not of a
+  proof.
 
 ## Product invariants
 
