@@ -61,7 +61,7 @@ describe('§8 — a declared watermark with no lookup', () => {
   it('reproduces today\'s verdict exactly: *watermark not evaluated*, and nothing else moves', async () => {
     const before = await verify(photo.file, { now: new Date(1757332800000) })
     // The same call with the option left out is the same object, member for
-    // member. This is the property the 84 conformance vectors rest on.
+    // member. This is the property the 85 conformance vectors rest on.
     const after = await verify(photo.file, { now: new Date(1757332800000), watermark: undefined })
 
     expect(after).toEqual(before)

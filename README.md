@@ -402,7 +402,9 @@ Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names:
+and the claim is only worth what it names. Today that is **corpus 1.1.0, 85
+vectors** (manifest `a1e9715514df7be2…`), the last of them an iOS video sealed
+on a device, whose segment chain a Secure Enclave signed:
 
 | Runner | Vectors | Corpus |
 |---|---|---|
