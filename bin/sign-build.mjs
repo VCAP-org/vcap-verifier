@@ -31,8 +31,11 @@ const arg = (name, fallback) => {
 
 const dist = resolve(root, arg('--dist', 'web/dist'))
 const keyPath = resolve(arg('--key', process.env.VCAP_SIGNING_KEY || join(root, '..', 'Ops/verifier-signing/ed25519-private.pem')))
-const publicKeyPath = join(root, 'signing/public-key.pem')
-const logPath = join(root, 'signing/manifests.jsonl')
+// Overridable so CI can run the whole sign-then-verify round trip with a
+// throwaway key and a throwaway log: the code path that publishes is then the
+// code path that is tested, without the real key going anywhere near a runner.
+const publicKeyPath = resolve(arg('--public-key', join(root, 'signing/public-key.pem')))
+const logPath = resolve(arg('--log-file', join(root, 'signing/manifests.jsonl')))
 
 const die = (message) => { console.error(`[vcap] ${message}`); process.exit(1) }
 
@@ -94,5 +97,5 @@ if (!existing.includes(line)) {
 const head = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 console.log(`[vcap] signed the manifest of commit ${manifest.commit} (build ${manifest.build_id})`)
 console.log(`[vcap] ${dist}/hashes.json.sig — publish it next to hashes.json`)
-console.log(`[vcap] signing/manifests.jsonl updated; commit it (repo is at ${head.slice(0, 7)})`)
+console.log(`[vcap] ${logPath} updated; commit it (repo is at ${head.slice(0, 7)})`)
 console.log('[vcap] this proves continuity of the signing key, not who we are. See signing/README.md.')

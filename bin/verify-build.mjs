@@ -17,8 +17,15 @@ import { fileURLToPath } from 'node:url'
 import { keyFingerprint, sha256, signedMessage } from './manifest-signature.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const publicKeyPath = join(root, 'signing/public-key.pem')
-const logPath = join(root, 'signing/manifests.jsonl')
+const arg = (name, fallback) => {
+  const i = process.argv.indexOf(name)
+  return i === -1 ? fallback : process.argv[i + 1]
+}
+// Same overrides as `sign-build`, for the same reason: CI exercises the real
+// scripts against a throwaway key. A reader checking a published build passes
+// neither and gets the key and the log this repository publishes.
+const publicKeyPath = resolve(arg('--public-key', join(root, 'signing/public-key.pem')))
+const logPath = resolve(arg('--log-file', join(root, 'signing/manifests.jsonl')))
 
 const die = (message) => { console.error(`[vcap] ${message}`); process.exit(1) }
 const ok = (message) => console.log(`[vcap] ok — ${message}`)
@@ -40,7 +47,12 @@ if (process.argv.includes('--log')) {
   // The continuity claim, checked: every manifest ever published was signed by
   // the key published here. One bad line and the claim is gone — which is
   // what makes it worth stating at all.
-  if (!entries.length) die('signing/manifests.jsonl is empty: no manifest has been signed yet')
+  // An empty log is a true statement, not a failure: no manifest has been
+  // published yet. It becomes a real gate the day the first line lands.
+  if (!entries.length) {
+    ok('no manifest has been signed yet — the log is empty, which is what it says')
+    process.exit(0)
+  }
   for (const entry of entries) {
     if (entry.key_sha256 !== fingerprint) die(`${entry.commit}: signed by key ${entry.key_sha256}, published key is ${fingerprint} (a rotation must be documented in signing/README.md)`)
     if (!verifyEntry(entry)) die(`${entry.commit}: signature does not verify against signing/public-key.pem`)
@@ -50,7 +62,8 @@ if (process.argv.includes('--log')) {
   process.exit(0)
 }
 
-const dist = resolve(root, process.argv[2] || 'web/dist')
+const positional = process.argv.slice(2).filter((value, i, all) => !value.startsWith('--') && !all[i - 1]?.startsWith('--'))
+const dist = resolve(root, positional[0] || 'web/dist')
 if (!existsSync(`${dist}/hashes.json`)) die(`${dist}/hashes.json missing`)
 
 const manifestBytes = readFileSync(`${dist}/hashes.json`)
@@ -72,7 +85,7 @@ if (!existsSync(sigPath)) {
   console.log('[vcap] unsigned is not invalid — rebuild the commit and compare (README).')
 } else {
   if (!verify(null, signedMessage(manifestBytes, manifest.commit), publicKey, readFileSync(sigPath))) {
-    die('hashes.json.sig does not verify against signing/public-key.pem')
+    die(`hashes.json.sig does not verify against ${publicKeyPath}`)
   }
   ok(`hashes.json.sig verifies against the published key (${fingerprint.slice(0, 16)}…)`)
 }

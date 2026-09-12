@@ -10,7 +10,7 @@
 // messages, the registry's signed answers): a signature over a bare digest
 // could be replayed as a signature over something else that hashes the same
 // way in another protocol.
-import { createHash, createPublicKey } from 'node:crypto'
+import { createHash } from 'node:crypto'
 
 export const DOMAIN = 'vcap/1.0/verifier-build'
 
@@ -28,7 +28,7 @@ export const signedMessage = (manifestBytes, commit) =>
 // than silent: the digest of the public key's SPKI DER, the same bytes the
 // PEM in signing/public-key.pem carries.
 export const keyFingerprint = (publicKey) =>
-  sha256(createPublicKey(publicKey).export({ type: 'spki', format: 'der' }))
+  sha256(publicKey.export({ type: 'spki', format: 'der' }))
 
 // One line of the continuity log, with a fixed key order so the file stays a
 // stable, append-only text record.

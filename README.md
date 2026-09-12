@@ -150,10 +150,27 @@ The page footer shows its own bundle hash and commit, so a user can compare
 the page in front of them with `hashes.json` and with the CI run for that commit
 (the `reproducible` job of `build-web.yml` prints `HASHES.md` in its log).
 
-**These hashes are not signed.** No signing key exists yet — the legal entity
-that would hold one is decision D1, still open — and an unsigned hash file next
-to the file it hashes proves only that the two were published together. What
-makes them worth something is that anyone can reproduce them:
+- `https://verify.vcap.gregoriogalante.com/hashes.json.sig` — a detached
+  Ed25519 signature over that manifest.
+
+**What the signature proves is continuity, not identity.** It says the manifest
+was signed by the key in [`signing/public-key.pem`](signing/public-key.pem),
+the same key that signed every earlier manifest in
+[`signing/manifests.jsonl`](signing/manifests.jsonl). It does **not** say who
+holds that key: there is no legal entity behind it (R4), no certificate (D2)
+and no key-management service (D16), so it is not eIDAS, not an advanced
+electronic signature, and not a claim about a person or a company. The key
+lives on one machine, in the workspace's `Ops/` folder outside every
+repository, and whoever has that disk can sign — which is exactly why the claim
+is kept this small. [`signing/README.md`](signing/README.md) spells out both
+halves, the by-hand checks with `openssl`, and what a rotation looks like.
+
+The signature is **detached and outside `dist/`** on purpose: a signature
+shipped inside the tree would change the tree it certifies, so the build would
+stop reproducing the moment it was signed.
+
+What still makes the hashes worth something is not the signature — it is that
+anyone can reproduce them:
 
 ### Reproducing the published build
 
@@ -169,7 +186,12 @@ nvm use                        # exact Node version from .nvmrc
 npm ci                         # exact dependency tree from package-lock.json
 npm run build --workspace web
 sha256sum web/dist/*           # compare with the published hashes.json
+node bin/verify-build.mjs web/dist   # or have the script do it, signature included
 ```
+
+The script is a convenience, not the procedure: every check it runs is written
+out as a shell command in [`signing/README.md`](signing/README.md), because
+somebody auditing this page should not have to run code of ours to check it.
 
 `verifier.js` and `index.html` depend only on the sources and on the pinned
 esbuild version (`web/package.json`, exact), so they reproduce on any OS and
