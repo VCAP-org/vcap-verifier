@@ -47,7 +47,10 @@ where enrolment puts it), a page that actually reaches a log or a status list
   absence is *watermark not evaluated* — a weaker verdict, not an error. The
   verifier states which model looked.
 - **Reproducible build**, every shipped file hashed and published, so an expert
-  can prove which verifier produced a given verdict — by rebuilding it.
+  can prove which verifier produced a given verdict — by rebuilding it. The
+  manifest carries a detached signature that proves **continuity of the signing
+  key, not identity** (`signing/README.md`); rebuilding, not the signature, is
+  what the trust rests on.
 
 ## Layout
 
@@ -57,6 +60,8 @@ core/    isomorphic verification core (TypeScript, WebCrypto only — no Buffer,
 cli/     `vcap-verify`, a verdict from a shell (see cli/README.md)
 web/     the static verifier page (esbuild, one bundle with its SHA-256 published)
 spec/    vcap-spec as a git submodule: the conformance vectors the core runs in CI
+bin/     sign and verify a build manifest (the key itself lives outside every repo)
+signing/ the published key, the log of signed manifests, and what the signature is worth
 ```
 
 ## Working on it
