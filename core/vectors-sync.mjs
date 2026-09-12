@@ -1,5 +1,5 @@
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 
 // The conformance vectors live in vcap-spec, a private repository until D4.
 // A snapshot is committed here so CI needs no cross-repository token; the
@@ -10,10 +10,17 @@ const source = join(import.meta.dirname, '..', 'spec', 'vectors')
 const snapshot = join(import.meta.dirname, 'vectors')
 const check = process.argv.includes('--check')
 
+// `edge-cases/` is not part of the versioned corpus: vcap-spec regenerates it
+// on demand from a sweep, it is not in MANIFEST.json, and nothing here reads
+// it. Copying it would put a few hundred generated files into a public
+// repository that has no runner for them.
+const EXCLUDED = new Set(['edge-cases'])
+
 const listing = (dir) => {
   const out = []
   const walk = (d, prefix) => {
     for (const name of readdirSync(d).sort()) {
+      if (!prefix && EXCLUDED.has(name)) continue
       const p = join(d, name); const rel = prefix ? `${prefix}/${name}` : name
       if (statSync(p).isDirectory()) walk(p, rel)
       else if (name !== '.DS_Store') out.push([rel, readFileSync(p)])
@@ -41,6 +48,7 @@ if (check) {
   console.log('[vcap] snapshot equals the submodule')
 } else {
   rmSync(snapshot, { recursive: true, force: true })
-  cpSync(source, snapshot, { recursive: true, filter: (p) => !p.endsWith('.DS_Store') })
-  console.log(`[vcap] snapshot refreshed from spec/vectors (${listing(snapshot).length} files)`)
+  cpSync(source, snapshot, { recursive: true, filter: (p) => !p.endsWith('.DS_Store') && !EXCLUDED.has(relative(source, p)) })
+  const version = existsSync(join(snapshot, 'VERSION')) ? readFileSync(join(snapshot, 'VERSION'), 'utf8').trim() : 'unversioned'
+  console.log(`[vcap] snapshot refreshed from spec/vectors (corpus ${version}, ${listing(snapshot).length} files)`)
 }

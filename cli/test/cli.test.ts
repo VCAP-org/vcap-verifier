@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { run, type Streams } from '../src/main.js'
+// The corpus locator the core's own suite uses: same source of truth, same
+// refusal to run against an empty directory.
+import { corpus } from '../../core/test/corpus.js'
 
 /**
  * The CLI's contract, which is narrower than the library's and more load
@@ -14,7 +17,8 @@ import { run, type Streams } from '../src/main.js'
  * once per vector turns this into a minute of waiting and then into something
  * nobody runs.
  */
-const VECTORS = join(import.meta.dirname, '..', '..', 'core', 'vectors')
+const CORPUS = corpus()
+const VECTORS = CORPUS.dir
 const TRUST = join(VECTORS, '_trust')
 
 const capture = (): { io: Streams, out: () => string, err: () => string } => {
@@ -36,11 +40,16 @@ const trustArgs = (): string[] => {
   return args
 }
 
-const fileVectors = readdirSync(VECTORS)
-  .filter((name) => /^\d\d-/.test(name))
-  .sort()
+// The CLI takes a file, so it exercises the `file` and `container` vectors and
+// cannot exercise `segments` (a message, no container) or `jcs` (canonical
+// bytes, no file). Those are declared, not dropped: the count below is pinned
+// against what MANIFEST.json says the corpus holds of the two kinds this
+// runner covers, so a corpus that grew — or a filter that stopped matching —
+// fails here instead of quietly shrinking the suite.
+const RUNS = ['file', 'container']
+const fileVectors = CORPUS.names
+  .filter((name) => RUNS.includes(CORPUS.kinds[name] ?? ''))
   .map((name) => ({ name, expected: JSON.parse(readFileSync(join(VECTORS, name, 'expected.json'), 'utf8')) }))
-  .filter((v) => v.expected.kind === 'file' || v.expected.kind === 'container')
 
 const inputOf = (name: string): string => {
   const file = readdirSync(join(VECTORS, name)).find((f) => f.startsWith('input.') && !f.endsWith('.vcap'))
@@ -50,8 +59,8 @@ const inputOf = (name: string): string => {
 const VERIFIES = new Set(['authentic', 'verified_clip'])
 
 describe('vcap-verify', () => {
-  it('has vectors to check against', () => {
-    expect(fileVectors.length).toBeGreaterThan(30)
+  it(`runs the ${CORPUS.countOfKinds(RUNS)} file-shaped vectors of corpus ${CORPUS.version}`, () => {
+    expect(fileVectors.length).toBe(CORPUS.countOfKinds(RUNS))
   })
 
   for (const { name, expected } of fileVectors) {

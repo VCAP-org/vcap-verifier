@@ -5,6 +5,7 @@ import { verify, verifyChain, jcs, toHex, extractCore, fromBase64, parseCertific
 import { importP256Spki } from '../src/es256.js'
 import { sha256 } from '../src/sha.js'
 import type { Json } from '../src/jcs.js'
+import { corpus } from './corpus.js'
 
 /**
  * The conformance vectors of vcap-spec. Source of truth: the `spec` submodule;
@@ -13,10 +14,9 @@ import type { Json } from '../src/jcs.js'
  * the spec, not from the reference verifier; the vectors are where the two
  * must agree byte for byte.
  */
-const SUBMODULE = join(import.meta.dirname, '..', '..', 'spec', 'vectors')
-const SNAPSHOT = join(import.meta.dirname, '..', 'vectors')
-const VECTORS = existsSync(SUBMODULE) && readdirSync(SUBMODULE).length > 0 ? SUBMODULE : SNAPSHOT
-const dirs = existsSync(VECTORS) ? readdirSync(VECTORS).filter((d) => /^\d\d-/.test(d)).sort() : []
+const CORPUS = corpus()
+const VECTORS = CORPUS.dir
+const dirs = CORPUS.names
 
 // `_trust/` holds the anchors the corpus assumes a verifier already has: the
 // root its attestation chains end in — a test root standing in for a pinned
@@ -54,11 +54,16 @@ const pick = (actual: unknown, expected: Record<string, unknown>): Record<string
     return [k, isPlain(want) && isPlain(got) ? pick(got, want) : got]
   }))
 
-describe('vcap-spec conformance vectors', () => {
-  // A floor, not a count: it catches a missing submodule and an accidental
-  // downgrade. It cannot catch a submodule left behind a newer spec — raising
-  // it is the deliberate act of adopting new vectors, and that is the point.
-  it('are present (git submodule update --init)', () => { expect(dirs.length).toBeGreaterThanOrEqual(84) })
+describe(`vcap-spec conformance vectors (corpus ${CORPUS.version}, manifest ${CORPUS.manifestSha256.slice(0, 12)})`, () => {
+  // A count, not a floor. The floor this replaces (`>= 84`) passed while the
+  // corpus shrank under it, and `corpus()` above already refuses to hand back
+  // an empty list — the two together are what stop this suite from going green
+  // on nothing. Pinning to MANIFEST.json also fails when the submodule is left
+  // behind a newer spec, which is the useful half: adopting new vectors becomes
+  // a deliberate submodule bump rather than a silent omission.
+  it(`run the ${CORPUS.declaredCount} vectors of corpus ${CORPUS.version}`, () => {
+    expect(dirs.length).toBe(CORPUS.declaredCount)
+  })
 
   for (const dir of dirs) {
     it(dir, async () => {
