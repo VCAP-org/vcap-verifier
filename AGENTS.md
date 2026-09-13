@@ -58,6 +58,17 @@ part of correctness:
   still needs no request of any kind. The host serves bytes whose hashes are
   published — it is not in the verification path, and a change that would put
   it there is the change to refuse.
+- The page is also mirrored on GitHub Pages
+  (`.github/workflows/pages-mirror.yml`, by hand, `workflow_dispatch` only).
+  The mirror is **not** the primary and must never become one: it republishes
+  the `web-dist` artifact `build-web.yml` reproduced — no build of its own — and
+  restores the signature the key holder already recorded in
+  `signing/manifests.jsonl` rather than making one, so the signing key never
+  touches a runner. It refuses a manifest with no log line. What the mirror
+  lacks (the detector model, COOP/COEP) is written in the README and in the
+  `MIRROR.md` served beside it: a mirror that hides what it cannot do is worse
+  than no mirror. Keep the page itself byte-identical on both hosts — a
+  host-specific string in the bundle would cost a second set of hashes.
 - The page build is reproducible and stays so: nothing in `web/dist` may depend
   on the clock, the machine or its paths — only on the commit and the pinned
   toolchain. CI builds twice from clean checkouts and fails if the trees differ.

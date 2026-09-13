@@ -86,7 +86,8 @@ The page is served at **https://verify.vcap.gregoriogalante.com/**, from a host
 of ours: stock nginx over a directory, configured in `vcap-platform`
 (`infra/verifier/nginx.conf`, a Kamal accessory in `config/deploy.yml`) and
 filled by `bin/push-verifier` with a `web/dist` built here. It was on GitHub
-Pages until September 2026; three things moved it, none of them about trust:
+Pages until September 2026; three things moved it, none of them about trust —
+and all three are still why Pages is the *mirror* below and not the primary:
 
 - the **model is same-origin**, so its 34.2 MB download needs no CORS and no
   second host;
@@ -107,9 +108,59 @@ URL the build produces is relative.
 
 CI is unchanged and is still the gate: typecheck, the core against the spec
 vectors, the double clean build with one set of hashes (`build-web.yml`), and
-the offline suite against that same artifact. There is no deploy workflow —
-publishing is `bin/push-verifier` from the platform checkout, which is a
-deliberate hand on a public page rather than a push to `main`.
+the offline suite against that same artifact, run twice — once shaped like the
+primary and once like the mirror below. Neither host is published by a push to
+`main`: `bin/push-verifier` from the platform checkout, and `pages-mirror.yml`
+by hand, are both a deliberate hand on a public page.
+
+### Mirror on GitHub Pages
+
+The same bytes are also published at
+**https://vcap-org.github.io/vcap-verifier/**, a **mirror**. The primary is the
+address above; this one exists because the primary is a single CX23 in
+Helsinki, and a page whose whole argument is *you do not need us to verify*
+should not go down with us.
+
+A second host does not ask for more trust — it asks for less. The two can be
+diffed against each other, and both against a build the reader made themselves:
+
+```sh
+diff <(curl -s https://verify.vcap.gregoriogalante.com/hashes.json) \
+     <(curl -s https://vcap-org.github.io/vcap-verifier/hashes.json)
+```
+
+One manifest means one set of file hashes on both hosts. It holds by
+construction, and the construction is checkable: `.github/workflows/pages-mirror.yml`
+publishes the `web-dist` artifact of `build-web.yml` — the tree two clean
+checkouts reproduced, the same artifact that goes to the primary — and never
+builds its own. The build is path-agnostic, so the sub-path costs nothing: no
+URL it emits is absolute, and CI runs the whole end-to-end suite under
+`/vcap-verifier/` with no COOP/COEP to keep that proved rather than asserted.
+
+`hashes.json.sig` is served there too, and it is the **same** signature, not a
+second one. The private key never reaches a runner (D59): `bin/mirror-signature.mjs`
+restores the 64 bytes from [`signing/manifests.jsonl`](signing/manifests.jsonl),
+where the key holder recorded them when they published by hand, and **refuses**
+when this manifest has no entry — so the mirror can never run ahead of the
+primary, and never serves an unsigned copy of a signed page.
+
+Two things the mirror does not have, said rather than discovered — it serves
+`MIRROR.md` next to the page saying the same:
+
+- **no detector**: the 34.2 MB model lives next to the primary, outside git and
+  outside the manifest (P11). The engine is mirrored, the model is not, so a
+  click on the detector there finds nothing. The page stays whole — *watermark
+  not evaluated*, every other verdict unchanged.
+- **no cross-origin isolation**: GitHub Pages does not send COOP/COEP, so no
+  `SharedArrayBuffer` and one WASM thread instead of several — the 2.3–2.6×
+  measured below, in reverse. Slower, not wrong.
+
+The page itself is byte-identical on both hosts and therefore says nothing
+about which one it is on. That is deliberate: telling the reader would mean
+either a build flag (two builds, two sets of hashes — the one thing this must
+not cost) or a hostname compiled into the bundle, and a hostname in a public
+repository is there for good. The host-specific claims live in host-specific
+files instead: this section, and the `MIRROR.md` served beside the mirror.
 
 ### Offline use
 
@@ -129,10 +180,12 @@ sends the live host's headers, waits for the worker, **stops the server and take
 browser offline**, reloads, and verifies four vectors — authentic, tampered,
 no proof, and a sidecar-only proof handed over through the page's second
 input — from the cache alone, checking that every request stayed on the
-page's origin. It serves at the root, as the live host does;
-`VCAP_TEST_BASE=/somewhere/ npm run test:e2e --workspace web` runs the same
-suite under a sub-path, which is the cheapest proof that the build stayed
-path-agnostic and that somebody else can host it wherever they like.
+page's origin. It serves at the root with the live host's headers;
+`VCAP_TEST_BASE=/somewhere/ VCAP_TEST_ISOLATION=off npm run test:e2e --workspace web`
+runs the same suite under a sub-path with no COOP/COEP — the mirror's shape, and
+anybody else's — which is the cheapest proof that the build stayed path-agnostic
+and that a host whose headers are not ours costs threads and nothing else. CI
+runs both shapes.
 
 ### Published hashes
 
