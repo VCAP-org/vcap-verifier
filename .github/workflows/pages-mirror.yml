@@ -1,0 +1,104 @@
+name: pages-mirror
+# A **mirror** of the public verifier page, not the primary.
+#
+#   primary  https://verify.vcap.gregoriogalante.com/   (vcap-platform, by hand)
+#   mirror   https://vcap-org.github.io/vcap-verifier/  (this workflow)
+#
+# Two hosts serving the same bytes ask a reader to trust *less*, not more: they
+# can be diffed against each other, and both against a build they made
+# themselves. The mirror exists because the primary is one CX23 in Helsinki, and
+# the page that demonstrates we are not needed to verify should not disappear
+# with us.
+#
+# Three rules hold this together:
+#
+#  1. **The same bytes.** The artifact published here is the one `build-web.yml`
+#     reproduced — two clean checkouts of this commit, byte-identical or red —
+#     which is the same artifact `bin/push-verifier` puts on the primary. No
+#     build of this workflow's own enters `dist/`.
+#  2. **The same signature.** The private key never reaches a runner (D59). The
+#     detached signature published here is the one the key holder already made
+#     by hand and recorded in `signing/manifests.jsonl`; `bin/mirror-signature`
+#     only decodes it, and fails when this commit has no entry — so the mirror
+#     can never run ahead of the primary.
+#  3. **By hand.** `workflow_dispatch` only, never a push to `main`. Publishing a
+#     public verification page stays a deliberate gesture (D30), on both hosts.
+on:
+  workflow_dispatch:
+
+# Publish the artifact, nothing else: no write to the repository, and no secret
+# of any kind is read here.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and let a running one finish: a half-published page is
+# worse than an old one.
+concurrency:
+  group: pages-mirror
+  cancel-in-progress: false
+
+jobs:
+  # The gate is the same one everything else uses: two clean builds, one set of
+  # hashes, or nothing is published.
+  build:
+    uses: ./.github/workflows/build-web.yml
+
+  deploy:
+    name: mirror the published build on github pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      # The checkout is for the log, the published key and the scripts — never
+      # for a second build of the page.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      # Every file the manifest names, rehashed from the reproduced tree.
+      - run: node bin/verify-build.mjs web/dist
+
+      # The signature the key holder published, put back next to the manifest.
+      # Refuses when this manifest is not in signing/manifests.jsonl.
+      - run: node bin/mirror-signature.mjs --dist web/dist
+
+      # And checked against the key this repository publishes, before it is
+      # served anywhere: a mirror serving a signature that does not verify would
+      # be worse than a mirror serving none.
+      - run: node bin/verify-build.mjs web/dist
+
+      # Sibling files, outside the manifest by construction — the manifest lists
+      # what the build produces, and what is served *next to* a build is a
+      # property of the host. The primary's siblings are the signature and the
+      # detector model; the mirror's are the signature and this note, which says
+      # which host is the primary and what the mirror cannot serve.
+      - run: cp .github/pages-mirror/MIRROR.md web/dist/MIRROR.md
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      # What a reader can repeat: the manifest served by the mirror is the
+      # manifest served by the primary. Printed rather than asserted, and it is
+      # the only place this workflow touches the primary at all — one GET.
+      - name: the two hosts must carry one manifest
+        run: |
+          curl -fsS --max-time 30 https://verify.vcap.gregoriogalante.com/hashes.json -o primary.json || {
+            echo "the primary did not answer — mirrored anyway, which is the point of a mirror"
+            exit 0
+          }
+          diff primary.json web/dist/hashes.json \
+            && echo "one manifest on both hosts" \
+            || echo "the hosts differ: the primary is ahead or behind this commit, publish it there too"
