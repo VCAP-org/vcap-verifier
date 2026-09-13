@@ -27,10 +27,21 @@ const TYPES: Record<string, string> = {
 
 // Cross-origin isolation. Everything the page loads is same-origin, so
 // require-corp costs nothing and buys `SharedArrayBuffer`.
+// `VCAP_TEST_ISOLATION=off` drops COOP/COEP and is the shape of a host that
+// cannot send them — the GitHub Pages mirror, and anybody else serving these
+// files from a host they do not configure. The page degrades there (one WASM
+// thread instead of several) and must otherwise be whole: running the suite
+// this way is what turns that from a claim into a check. Combined with
+// `VCAP_TEST_BASE`, it is the mirror's shape exactly.
+const isolated = process.env.VCAP_TEST_ISOLATION !== 'off'
 export const HEADERS: Record<string, string> = {
-  'cross-origin-opener-policy': 'same-origin',
-  'cross-origin-embedder-policy': 'require-corp',
-  'cross-origin-resource-policy': 'same-origin',
+  ...(isolated
+    ? {
+        'cross-origin-opener-policy': 'same-origin',
+        'cross-origin-embedder-policy': 'require-corp',
+        'cross-origin-resource-policy': 'same-origin'
+      }
+    : {}),
   'x-content-type-options': 'nosniff'
 }
 

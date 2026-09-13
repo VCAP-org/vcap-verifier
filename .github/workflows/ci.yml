@@ -39,9 +39,28 @@ jobs:
   # its static server is stopped and the browser taken offline, and the
   # vectors still verify from the service worker's cache.
   offline:
-    name: offline use against the built page
+    name: offline use against the built page (${{ matrix.shape }})
     needs: web
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The primary: served at the root, cross-origin isolated, as
+          # vcap-platform's nginx serves it.
+          - shape: primary host
+            base: /
+            isolation: 'on'
+          # The GitHub Pages mirror: a sub-path, and no COOP/COEP — a host whose
+          # headers are not ours to set. The page loses WASM threads there and
+          # nothing else, and that is checked here rather than asserted in a
+          # README (D30: "anybody can host it" stays proved).
+          - shape: mirror shape, sub-path and no COOP/COEP
+            base: /vcap-verifier/
+            isolation: 'off'
+    env:
+      VCAP_TEST_BASE: ${{ matrix.base }}
+      VCAP_TEST_ISOLATION: ${{ matrix.isolation }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
