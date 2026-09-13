@@ -47,6 +47,19 @@ test('verifies vectors with the server gone and the browser offline', async ({ p
   expect(requested.filter((u) => !u.startsWith(origin))).toEqual([])
 })
 
+// The mirror's shape: a host that sends no COOP/COEP, under a sub-path. Both
+// are env-driven (`VCAP_TEST_ISOLATION=off`, `VCAP_TEST_BASE=/x/`) and CI runs
+// the whole suite above a second time that way, so the degradation is measured
+// against the same verdicts rather than assumed. This test only checks that the
+// harness really varies: a suite that quietly stayed isolated would prove the
+// opposite of what it claims.
+test('the page is cross-origin isolated only when the host says so', async ({ page }) => {
+  const { server, url } = await serve()
+  await page.goto(url)
+  expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(process.env.VCAP_TEST_ISOLATION !== 'off')
+  await stop(server)
+})
+
 test('the page names the bundle and commit that hashes.json records', async ({ page }) => {
   const { server, url } = await serve()
   const hashes = JSON.parse(await readFile(join(dist, 'hashes.json'), 'utf8'))

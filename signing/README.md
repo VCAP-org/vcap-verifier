@@ -175,3 +175,16 @@ cd ../Platform && bin/push-verifier --dist ../Verifier/web/dist \
 Then commit the new line in `manifests.jsonl`. The log is the public half of
 the record; a signature published on the host and never recorded here would be
 a signature nobody can compare with the previous ones.
+
+## Mirroring (for whoever holds no key)
+
+The GitHub Pages mirror serves the **same** signature, never a new one — the
+key does not go near a runner. `.github/workflows/pages-mirror.yml` runs
+`bin/mirror-signature.mjs`, which looks this manifest up in `manifests.jsonl`
+and writes the recorded bytes back out as `hashes.json.sig`; a manifest with no
+line there gets no signature and no deploy.
+
+The order therefore is: build, sign, publish on the primary, **commit the log
+line**, and only then run the mirror workflow. A mirror cannot run ahead of the
+key holder, which is the property that lets a reader diff the two hosts and
+learn something from the answer.

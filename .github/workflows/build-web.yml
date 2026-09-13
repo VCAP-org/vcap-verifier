@@ -85,6 +85,18 @@ jobs:
             --public-key "$RUNNER_TEMP/key.pub" --log-file "$RUNNER_TEMP/log.jsonl"
           node bin/verify-build.mjs web/dist --public-key "$RUNNER_TEMP/key.pub" --log-file "$RUNNER_TEMP/log.jsonl"
           node bin/verify-build.mjs --log --public-key "$RUNNER_TEMP/key.pub" --log-file "$RUNNER_TEMP/log.jsonl"
+      # The mirror's half of the same path: the signature is not made again, it
+      # is restored from the log the key holder published. Gated here because
+      # `pages-mirror.yml` depends on it and runs by hand, rarely.
+      - name: a mirror restores the published signature, and refuses what was never signed
+        run: |
+          rm web/dist/hashes.json.sig
+          node bin/mirror-signature.mjs --dist web/dist --log-file "$RUNNER_TEMP/log.jsonl"
+          node bin/verify-build.mjs web/dist --public-key "$RUNNER_TEMP/key.pub" --log-file "$RUNNER_TEMP/log.jsonl"
+          # An empty log has no entry for this manifest: the mirror must stop
+          # rather than publish an unsigned copy of a signed page.
+          : > "$RUNNER_TEMP/empty.jsonl"
+          ! node bin/mirror-signature.mjs --dist web/dist --log-file "$RUNNER_TEMP/empty.jsonl"
       # A tampered manifest must fail, or the check above proves nothing.
       - name: a changed manifest must not verify
         run: |
