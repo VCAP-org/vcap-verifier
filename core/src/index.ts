@@ -23,7 +23,7 @@ export { parseTrustDocument, parseTrustedLog, TrustDocumentError } from './trust
 export type { TrustDocument, TrustDocumentEntry } from './trust.js'
 export { verifyAnchor } from './anchor.js'
 export type { AnchorAttachment, ChainReader } from './anchor.js'
-export { fromBase64, toBase64url, toHex, fromHex } from './bytes.js'
+export { fromBase64, toBase64, toBase64url, toHex, fromHex } from './bytes.js'
 export { validateTimestamp } from './rfc3161.js'
 export { validateAndroidAttestation, googleRoots } from './attestation/android.js'
 export { parseCertificate, pemToDer } from './x509.js'

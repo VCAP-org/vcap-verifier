@@ -45,6 +45,17 @@ export const fromBase64 = (s: string): Bytes => {
   return out.subarray(0, n)
 }
 
+/**
+ * Standard base64 with padding, for the callers that hand bytes to a platform
+ * decoder rather than to another verifier: `atob`, Android's `Base64.decode`
+ * and `NSData` all refuse the URL-safe alphabet. Everything *inside* a proof
+ * is base64url (§6.1) and keeps using `toBase64url`.
+ */
+export const toBase64 = (b: Bytes): string => {
+  const raw = toBase64url(b).replace(/-/g, '+').replace(/_/g, '/')
+  return raw + '='.repeat((4 - raw.length % 4) % 4)
+}
+
 export const toBase64url = (b: Bytes): string => {
   let out = ''
   for (let i = 0; i < b.length; i += 3) {

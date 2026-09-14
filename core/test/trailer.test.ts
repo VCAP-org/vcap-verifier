@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { equal, fromUtf8, utf8 } from '../src/bytes.js'
+import { equal, fromBase64, fromUtf8, toBase64, utf8 } from '../src/bytes.js'
 import { buildTrailer, parseTrailer, replaceTrailer } from '../src/trailer.js'
 import { verify } from '../src/verify.js'
 import { corpus } from './corpus.js'
@@ -85,5 +85,17 @@ describe('buildTrailer', () => {
     expect(fromUtf8(read.payload)).toBe('{"v":"vcap/1.0"}')
     expect(read.flags).toBe(6)
     expect(fromUtf8(read.media)).toBe('media')
+  })
+})
+
+describe('toBase64', () => {
+  it('round-trips through fromBase64 in the standard alphabet, padded', () => {
+    for (let n = 0; n < 8; n++) {
+      const bytes = new Uint8Array(Array.from({ length: n }, (_, i) => (i * 61 + 251) & 0xff))
+      const text = toBase64(bytes)
+      expect(/^[A-Za-z0-9+/]*={0,2}$/.test(text)).toBe(true)
+      expect(text.length % 4).toBe(0)
+      expect(equal(fromBase64(text), bytes)).toBe(true)
+    }
   })
 })
