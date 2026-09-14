@@ -1,6 +1,7 @@
 export { verify, coreHashOf, extractCore } from './verify.js'
 export type { Verdict, VerifyOptions, Outcome } from './verify.js'
-export { parseTrailer } from './trailer.js'
+export { parseTrailer, buildTrailer, replaceTrailer } from './trailer.js'
+export type { Trailer, Replacement } from './trailer.js'
 export { canonicalBytes, detectContainer } from './canonical.js'
 export { jcs } from './jcs.js'
 export type { Json } from './jcs.js'
