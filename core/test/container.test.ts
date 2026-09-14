@@ -6,10 +6,12 @@ import { verify } from '../src/verify.js'
 import { fromBase64, toBase64url } from '../src/bytes.js'
 
 /**
- * Two files sealed by real hardware (see fixtures/NOTES.md). The acceptance
+ * Three files sealed by real hardware (see fixtures/NOTES.md). The acceptance
  * test of §5 recomputation is not "the parser runs": it is that the hashes
- * read back from the container are the hashes a StrongBox device signed, on a
- * file with an empty edit list and interleaved audio and on one without audio.
+ * read back from the container are the hashes a device signed — on a file with
+ * an empty edit list and interleaved audio, on one without audio, and on one
+ * whose slices carry the zero padding an encoder adds to a cheap scene, where
+ * how far a NAL unit reaches stops being a question with one obvious answer.
  */
 interface Sealed { capture_id: string, segment_count: number, segments: { gop: number, hash: string }[] }
 
@@ -22,7 +24,7 @@ const load = (name: string) => {
 }
 
 describe('§5 recomputation from the container', () => {
-  for (const name of ['sealed', 'sealed-hevc']) {
+  for (const name of ['sealed', 'sealed-hevc', 'sealed-padded']) {
     it(`${name}: every segment hashes to what the device signed`, async () => {
       const { media, sealed } = load(name)
       const r = await recomputeSegments(media, fromBase64(sealed.capture_id))
