@@ -67,3 +67,46 @@ test('a reader can add a log and take one away, and the verdict follows', async 
 
   await stop(server)
 })
+
+/**
+ * The second panel, on the same terms as the first and for the opposite
+ * reason. A transparency log we run has to be kept from reading as a third
+ * party; a timestamping authority really is one, so the risk runs the other
+ * way — a reader could take a token for a statement about the file. The panel
+ * has to say both halves, publish the same bytes beside the page, and let the
+ * whole set be switched off without the verdict becoming an error.
+ */
+test('names the authority it ships with, says what a token does not prove, and publishes the same bytes', async ({ page }) => {
+  const { server, url } = await serve()
+  await page.goto(url)
+
+  const row = page.locator('#tsa-roots > li')
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('a6379e7cecc05faa3cbf076013d745e327bbbaa38c0b9af22469d4701d18aabc')
+  await expect(row).toContainText('Run by somebody else')
+  await expect(row).toContainText('never who made the file')
+  // The caveat that keeps a free service from reading as a guarantee.
+  await expect(row).toContainText('no contractual liability')
+
+  const published = await page.request.get(new URL('tsa.json', url).href)
+  expect(published.ok()).toBe(true)
+  const document = await published.json() as { authorities: { fingerprint_sha256: string, independent?: boolean }[] }
+  expect(document.authorities[0]?.fingerprint_sha256).toBe('a6379e7cecc05faa3cbf076013d745e327bbbaa38c0b9af22469d4701d18aabc')
+  expect(document.authorities[0]?.independent).toBe(true)
+
+  await stop(server)
+})
+
+test('switching every authority off leaves a whole verdict, not an error', async ({ page }) => {
+  const { server, url } = await serve()
+  await page.goto(url)
+
+  await page.setInputFiles('#file', join(vectors, '59-jpeg-timestamped/input.jpg'))
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+
+  await page.uncheck('#tsa-roots input[type=checkbox]')
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await expect(label(page, 'trusted time not evaluated')).toHaveCount(1)
+
+  await stop(server)
+})

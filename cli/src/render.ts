@@ -18,7 +18,7 @@ const CEILING: Record<string, string> = {
 /** What a label means for somebody who has not read the spec. */
 const MEANING: Record<string, string> = {
   'no trusted time': 'only the device\'s own clock says when this was taken',
-  'trusted time not evaluated': 'a timestamp is attached and no TSA root was pinned to check it (--tsa-root)',
+  'trusted time not evaluated': 'a timestamp is attached and no authority this run trusts issued it (--show-trust lists the ones it does; --tsa-root adds)',
   'timestamp evidence invalid': 'the attached timestamp does not hold up',
   'not anchored': 'nothing places this before a block on a public chain',
   'anchoring not verified': 'the anchor\'s path is consistent; the chain was not consulted',

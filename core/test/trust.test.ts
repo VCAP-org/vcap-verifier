@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseTrustDocument, parseTrustedLog, TrustDocumentError } from '../src/trust.js'
+import { fingerprintOf, parseTrustDocument, parseTrustedLog, parseTsaDocument, parseTsaRoot, TrustDocumentError } from '../src/trust.js'
 import { logIdOf } from '../src/registry.js'
-import { toBase64url } from '../src/bytes.js'
+import { fromBase64, toBase64url } from '../src/bytes.js'
 
 /**
  * A trust document is a list of people somebody decided to believe, so the one
@@ -70,6 +70,76 @@ describe('trust/logs.json', () => {
       expect(entry.operator).toBeTruthy()
       expect(entry.environment).toBeTruthy()
       expect(typeof entry.independent).toBe('boolean')
+    }
+  })
+})
+
+/**
+ * The same rule, for the other half of a trust set. A TSA root is pinned by
+ * the fingerprint a reader can reproduce with `openssl x509 -noout
+ * -fingerprint -sha256`, and the reason to publish that fingerprint at all is
+ * that they can compare it — so a document whose two fields disagree must be
+ * refused rather than pinning a certificate under a name that describes
+ * something else.
+ */
+describe('parseTsaDocument', () => {
+  const root = (): string => {
+    const { authorities } = JSON.parse(readFileSync(join(import.meta.dirname, '../../trust/tsa.json'), 'utf8')) as { authorities: { certificate: string }[] }
+    return authorities[0]?.certificate as string
+  }
+
+  it('reads an authority and decodes its certificate', async () => {
+    const parsed = await parseTsaDocument({ authorities: [{ fingerprint_sha256: await fingerprintOf(fromBase64(root())), certificate: root() }] })
+    expect(parsed.roots).toHaveLength(1)
+  })
+
+  it('refuses a fingerprint that is not its own certificate’s', async () => {
+    await expect(parseTsaDocument({ authorities: [{ fingerprint_sha256: '00'.repeat(32), certificate: root() }] })).rejects.toBeInstanceOf(TrustDocumentError)
+  })
+
+  it('refuses a document that is not one', async () => {
+    await expect(parseTsaDocument({ authorities: [{ fingerprint_sha256: 'x' }] })).rejects.toBeInstanceOf(TrustDocumentError)
+    await expect(parseTsaDocument({ logs: [] })).rejects.toBeInstanceOf(TrustDocumentError)
+  })
+
+  it('reads and refuses a single `<fingerprint>:<certificate>` line', async () => {
+    const der = fromBase64(root())
+    const fingerprint = await fingerprintOf(der)
+    expect((await parseTsaRoot(`${fingerprint}:${root()}`)).fingerprint).toBe(fingerprint)
+    await expect(parseTsaRoot(`${'00'.repeat(32)}:${root()}`)).rejects.toBeInstanceOf(TrustDocumentError)
+    await expect(parseTsaRoot(root())).rejects.toBeInstanceOf(TrustDocumentError)
+  })
+})
+
+/**
+ * The authorities this repository ships. Unlike the log above, a TSA is a real
+ * third party — so this entry is allowed to claim more, and the test pins how
+ * much more. It must say who runs it, that somebody else does, and it must
+ * still carry its caveats: a free service with no SLA and no liability is
+ * exactly as useful as it is, and a document that printed the independence and
+ * swallowed the caveats would be selling it.
+ */
+describe('trust/tsa.json', () => {
+  const document = JSON.parse(readFileSync(join(import.meta.dirname, '../../trust/tsa.json'), 'utf8')) as {
+    authorities: { fingerprint_sha256: string, certificate: string, operator?: string, independent?: boolean, environment?: string, proves?: string, does_not_prove?: string, caveats?: string[] }[]
+  }
+
+  it('parses, and every fingerprint is the hash of its own certificate', async () => {
+    const parsed = await parseTsaDocument(document)
+    expect(parsed.roots.length).toBeGreaterThan(0)
+    for (let at = 0; at < parsed.roots.length; at++) {
+      expect(await fingerprintOf(parsed.roots[at] as Uint8Array)).toBe(document.authorities[at]?.fingerprint_sha256)
+    }
+  })
+
+  it('says who runs every authority, what it proves, and what it does not', () => {
+    for (const entry of document.authorities) {
+      expect(entry.operator).toBeTruthy()
+      expect(entry.environment).toBeTruthy()
+      expect(typeof entry.independent).toBe('boolean')
+      expect(entry.proves).toBeTruthy()
+      expect(entry.does_not_prove).toBeTruthy()
+      expect(entry.caveats?.length).toBeGreaterThan(0)
     }
   })
 })

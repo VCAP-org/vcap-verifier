@@ -58,8 +58,9 @@ where enrolment puts it), a page that actually reaches a log or a status list
 core/    isomorphic verification core (TypeScript, WebCrypto only — no Buffer, no Node API)
          built to dist/ with declarations for consumers that compile; see core/README.md
 cli/     `vcap-verify`, a verdict from a shell (see cli/README.md)
-trust/   the transparency logs the page and the CLI trust by default, as data
-         (`logs.json`, published unchanged beside the page — see trust/README.md)
+trust/   what the page and the CLI trust by default, as data: the transparency
+         logs (`logs.json`) and the timestamping authorities (`tsa.json`), both
+         published unchanged beside the page — see trust/README.md
 web/     the static verifier page (esbuild, one bundle with its SHA-256 published)
 spec/    vcap-spec as a git submodule: the conformance vectors the core runs in CI
 bin/     sign and verify a build manifest (the key itself lives outside every repo)
