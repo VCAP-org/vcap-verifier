@@ -1,8 +1,9 @@
 #!/usr/bin/env -S npx tsx
 import { readFile } from 'node:fs/promises'
-import { verify, pemToDer, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
+import { verify, pemToDer, parseTrustedLog, TrustDocumentError, type TrustedLog, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
 import { type Options, USAGE, UsageError, parse } from './options.js'
 import { render } from './render.js'
+import { DEFAULT_TRUST_FILE, describeTrust, readTrustFile, type TrustSet } from './trust.js'
 
 /**
  * `vcap-verify`: a verdict from a shell.
@@ -12,6 +13,12 @@ import { render } from './render.js'
  * checked* and *anchoring not verified* are the normal answers here, and they
  * are answers rather than failures. A caller who wants those closed reads the
  * log and the chain themselves and uses the library.
+ *
+ * The one thing it does read from disk beyond the files named is its trust set
+ * (`trust.ts`): which transparency logs it will check a `registry` attachment
+ * against. It ships trusting one, ours, and `--show-trust` prints it,
+ * `--no-default-logs` drops it. That is a decision the reader is entitled to
+ * see and to undo, not a configuration detail.
  */
 const EXIT = { ok: 0, doesNotVerify: 1, notGreen: 2, usage: 64 }
 
@@ -48,6 +55,18 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
     return EXIT.ok
   }
 
+  let trust: TrustSet
+  try {
+    trust = await trustSet(options)
+  } catch (error) {
+    io.err(`vcap-verify: ${error instanceof Error ? error.message : String(error)}\n`)
+    return EXIT.usage
+  }
+  if (options.showTrust) {
+    io.out(describeTrust(trust))
+    return EXIT.ok
+  }
+
   const tsaRoots: Uint8Array[] = []
   for (const path of options.tsaRoots) {
     const pem = await readFile(path, 'utf8')
@@ -58,8 +77,6 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
     }
     for (const block of blocks) tsaRoots.push(pemToDer(block))
   }
-  const trustedLogs = options.logs.map(({ logId, spki }) => ({ logId, spki: base64(spki) }))
-
   // §8's watermark detection. This tool runs no detector and contacts nothing,
   // so the evidence is a file the caller produced — the `watermark` block of a
   // `/v1/verify` response, or any other detector's output in that shape. What
@@ -85,7 +102,7 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
       verdict: await verify(file, {
         sidecar,
         recomputeSegments: options.recompute,
-        trustedLogs,
+        trustedLogs: trust.logs,
         tsaRoots,
         ...(watermark ? { watermark: async () => watermark } : {}),
         now: options.now
@@ -110,7 +127,29 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
   return EXIT.ok
 }
 
-const base64 = (text: string): Uint8Array => Uint8Array.from(Buffer.from(text, 'base64'))
+/**
+ * The trust set for this run: what the tool ships with, unless refused, plus
+ * every document and every key the caller named, in the order they gave them.
+ * A document that does not parse stops the run — a verifier that silently
+ * ignored half a trust set would produce *log not trusted* for a log the
+ * caller believes they pinned, and that is the one failure mode this whole
+ * feature exists to avoid.
+ */
+const trustSet = async (options: Options): Promise<TrustSet> => {
+  const set: TrustSet = { logs: [], entries: [] }
+  const add = (from: TrustSet): void => { set.logs.push(...from.logs); set.entries.push(...from.entries) }
+  if (!options.noDefaultLogs) add(await readTrustFile(DEFAULT_TRUST_FILE))
+  for (const path of options.trustFiles) add(await readTrustFile(path))
+  for (const text of options.logs) {
+    let log: TrustedLog
+    try { log = await parseTrustedLog(text) } catch (error) {
+      throw error instanceof TrustDocumentError ? new Error(`--log: ${error.message}`) : error
+    }
+    set.logs.push(log)
+    set.entries.push({ log_id: log.logId, spki: text.slice(text.indexOf(':') + 1), name: 'given on the command line' })
+  }
+  return set
+}
 
 /**
  * §3.1 discovery: the sidecar of `F` is `<full filename of F>.vcap` in the

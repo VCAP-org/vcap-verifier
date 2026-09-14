@@ -58,6 +58,8 @@ where enrolment puts it), a page that actually reaches a log or a status list
 core/    isomorphic verification core (TypeScript, WebCrypto only — no Buffer, no Node API)
          built to dist/ with declarations for consumers that compile; see core/README.md
 cli/     `vcap-verify`, a verdict from a shell (see cli/README.md)
+trust/   the transparency logs the page and the CLI trust by default, as data
+         (`logs.json`, published unchanged beside the page — see trust/README.md)
 web/     the static verifier page (esbuild, one bundle with its SHA-256 published)
 spec/    vcap-spec as a git submodule: the conformance vectors the core runs in CI
 bin/     sign and verify a build manifest (the key itself lives outside every repo)
@@ -170,8 +172,8 @@ derived from their hashes, so a new deploy replaces the old cache and an old
 one never serves a new page's request. Once the footer says *available
 offline*, the page verifies files with no network at all — which is the
 product invariant made literal. It never fetches anything else: no
-analytics, no roots, no logs (trusted logs and TSA roots, when the page gains
-them, will be shipped in the build and hashed like the rest).
+analytics, no roots, no logs: the trusted logs are shipped **in** the build and
+hashed like the rest, and TSA roots will be, when the page gains them.
 
 This is tested, not asserted: `web/test/offline.spec.ts` (Playwright, the
 `offline` job in CI, run against the same `web-dist` artifact the

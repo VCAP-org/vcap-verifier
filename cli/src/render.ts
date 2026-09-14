@@ -24,7 +24,7 @@ const MEANING: Record<string, string> = {
   'anchoring not verified': 'the anchor\'s path is consistent; the chain was not consulted',
   'anchor evidence invalid': 'the attached anchor does not hold up',
   'key not in transparency log': 'nobody can confirm this signing key was registered',
-  'log not trusted': 'the proof names a transparency log this verifier does not follow (--log)',
+  'log not trusted': 'the proof names a transparency log this verifier does not follow (--show-trust lists the ones it does; --trust and --log add)',
   'registry evidence invalid': 'the attached registration does not hold up',
   'revocation not checked': 'the key was registered; whether it still is was not asked',
   'chain revocation not checked': 'the attestation certificates\' revocation was not established',
@@ -79,6 +79,13 @@ export const render = (path: string, verdict: Verdict): string => {
   }
   if (verdict.location && verdict.location.level !== 'none') lines.push(`  position  ${position(verdict)}`)
   if (verdict.core_hash) lines.push(`  core      ${verdict.core_hash}`)
+  // The registry line exists because the label it replaces used to be the only
+  // trace of this check. A reader who watched *log not trusted* disappear is
+  // owed the sentence that took its place — and the reminder of whose log it
+  // was, which `--show-trust` answers and this line must not pretend to.
+  if (verdict.registry) {
+    lines.push(`  log       ${verdict.registry.ok ? `${verdict.registry.detail} — in a log this verifier trusts (--show-trust says which, and who runs it)` : verdict.registry.detail}`)
+  }
   if (verdict.segments) {
     const verified = verdict.segments.verified
     const recomputed = verdict.content?.recomputed === true
