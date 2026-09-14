@@ -28,7 +28,10 @@ const capture = (): { io: Streams, out: () => string, err: () => string } => {
 }
 
 const trustArgs = (): string[] => {
-  const args: string[] = []
+  // The corpus's expectations are a verifier whose trust set is exactly the
+  // corpus's. The tool ships trusting one log of ours, which would be a second
+  // opinion nobody wrote these vectors against, so it is dropped here.
+  const args: string[] = ['--no-default-logs']
   const tsa = join(TRUST, 'tsa-roots.pem')
   if (existsSync(tsa)) args.push('--tsa-root', tsa)
   const logsFile = join(TRUST, 'logs.json')
@@ -273,5 +276,72 @@ describe('--watermark', () => {
     expect(await run(['--watermark', join(VECTORS, 'nope.json'), inputOf('01-jpeg-sealed')], io)).toBe(64)
 
     expect(err()).toContain('not readable JSON')
+  })
+})
+
+/**
+ * The default trust set. Pinning a log is a trust decision made on the
+ * reader's behalf, so what is tested here is not that it works but that it is
+ * *visible and refusable*: printed on request, named with its operator, and
+ * gone the moment the reader says so.
+ */
+describe('trust set', () => {
+  const REGISTRY = '49-jpeg-registry-verified'
+  const corpusLog = (): string => {
+    const { logs } = JSON.parse(readFileSync(join(TRUST, 'logs.json'), 'utf8')) as { logs: { log_id: string, spki: string }[] }
+    return `${logs[0]?.log_id}:${logs[0]?.spki}`
+  }
+
+  it('--show-trust prints the shipped set, its operator and the fact that it is ours', async () => {
+    const { io, out } = capture()
+    expect(await run(['--show-trust'], io)).toBe(0)
+
+    expect(out()).toContain('1Iw8uAnl63-NzdTys4KmO8d0GphTBiNC4AqxJyaaRFQ')
+    expect(out()).toContain('not independent corroboration')
+  })
+
+  it('--no-default-logs --show-trust says nobody is trusted', async () => {
+    const { io, out } = capture()
+    expect(await run(['--no-default-logs', '--show-trust'], io)).toBe(0)
+
+    expect(out()).toContain('no transparency log is trusted')
+  })
+
+  it('a log the set does not hold is *log not trusted*, and the verdict is otherwise whole', async () => {
+    const { io, out } = capture()
+    expect(await run(['--json', '--no-default-logs', inputOf(REGISTRY)], io)).toBe(0)
+    const verdict = JSON.parse(out().trim())
+
+    expect(verdict.outcome).toBe('authentic')
+    expect(verdict.labels).toContain('log not trusted')
+  })
+
+  it('--log closes it, and the key-status question takes its place', async () => {
+    const { io, out } = capture()
+    expect(await run(['--json', '--no-default-logs', '--log', corpusLog(), inputOf(REGISTRY)], io)).toBe(0)
+    const verdict = JSON.parse(out().trim())
+
+    expect(verdict.labels).not.toContain('log not trusted')
+    expect(verdict.registry.ok).toBe(true)
+    // What the offline verifier still cannot answer: a revocation is a later
+    // leaf, and no inclusion proof shows its absence.
+    expect(verdict.labels).toContain('revocation not checked')
+  })
+
+  it('--trust reads a document, and refuses one whose id is not its own key', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vcap-trust-'))
+    const { logs } = JSON.parse(readFileSync(join(TRUST, 'logs.json'), 'utf8')) as { logs: { log_id: string, spki: string }[] }
+    const good = join(dir, 'good.json')
+    writeFileSync(good, JSON.stringify({ logs }))
+    const bad = join(dir, 'bad.json')
+    writeFileSync(bad, JSON.stringify({ logs: [{ log_id: 'AAAA', spki: logs[0]?.spki }] }))
+
+    const ok = capture()
+    expect(await run(['--json', '--no-default-logs', '--trust', good, inputOf(REGISTRY)], ok.io)).toBe(0)
+    expect(JSON.parse(ok.out().trim()).labels).not.toContain('log not trusted')
+
+    const refused = capture()
+    expect(await run(['--trust', bad, inputOf(REGISTRY)], refused.io)).toBe(64)
+    expect(refused.err()).toContain('is not the SHA-256 of its own spki')
   })
 })

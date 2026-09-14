@@ -23,7 +23,7 @@ const git = (...args) => {
   try { return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { return '' }
 }
 const commit = git('rev-parse', 'HEAD') || 'unknown'
-const dirty = git('status', '--porcelain', '--', '.', '../core/src') !== ''
+const dirty = git('status', '--porcelain', '--', '.', '../core/src', '../trust') !== ''
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
@@ -107,6 +107,11 @@ const STATIC = ['manifest.webmanifest', 'icon.svg', 'detector.json']
 rmSync('dist', { recursive: true, force: true })
 mkdirSync('dist')
 for (const name of STATIC) copyFileSync(`src/${name}`, `dist/${name}`)
+// The trust set, published verbatim beside the page. It is the same bytes the
+// bundle pinned, so a reader can fetch it, recompute each log_id from its key
+// and see exactly whom this build believes — and it is covered by hashes.json
+// like every other shipped file.
+copyFileSync('../trust/logs.json', 'dist/logs.json')
 for (const name of ORT_ASSETS) copyFileSync(join(ortDist, name), `dist/${name}`)
 
 if (serve) {
@@ -139,7 +144,7 @@ if (serve) {
   // the old one goes; the worker itself is not in its own list (the browser
   // fetches it), nor is what is written after it — but the hash records are,
   // as URLs, so they are readable offline too.
-  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', ...ORT_ASSETS, ...STATIC]
+  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', 'logs.json', ...ORT_ASSETS, ...STATIC]
   // Everything shipped is cached except the detector module: it is an explicit
   // choice of the user's, it pulls a model far larger than this page, and an
   // offline page that silently held a stale detector would be worse than one

@@ -36,6 +36,16 @@ attestation roots are pinned in the library (`googleRoots`); logs and TSA roots
 are yours to name, because the same bytes are green for a verifier that pins a
 log and amber for one that does not, and both are right.
 
+This library ships **no** default trust set, and that is deliberate: a log
+imported by a dependency is a trust decision out of the caller's sight, and the
+callers here are the page, the CLI, the app and the platform, each of which
+has to be able to show its reader whom it believes. What it does ship is a
+reader for a written one — `parseTrustDocument(json)`, which decodes each
+`spki` and refuses any entry whose `log_id` is not that key's SHA-256 — and
+`parseTrustedLog('<log_id>:<base64 spki>')` for a single pasted line. The set
+the verifiers in this repository happen to load is `trust/logs.json`, one
+directory up.
+
 ## The watermark, and what this core will not do with it
 
 `watermark` in the core is the **writer** saying a mark was embedded in the

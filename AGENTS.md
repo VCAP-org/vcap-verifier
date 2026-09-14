@@ -35,6 +35,17 @@ part of correctness:
   corpus version; `core/test/corpus.ts` throws rather than hand back an empty
   list. A floor (`>= 84`) is not that assertion: it passes while the corpus
   shrinks under it, and it passes loudest when nothing ran at all.
+- The **trust set** — which transparency logs a `registry` attachment is
+  checked against — is `trust/logs.json`, data and not a constant, and it is
+  bundled into the page, read by the CLI and published unchanged beside the
+  page. Two rules hold wherever it is used. It must be **visible and
+  refusable**: every surface names the logs it trusts, says who runs each one,
+  and lets the reader drop them and supply their own — a default that cannot be
+  inspected or turned off is a requirement pretending to be a default, and it
+  destroys the only claim this repository makes. And a log **this project runs
+  is not a third party**: `registry` proves the sealing key was in *our* log
+  before the capture and nothing else, so no wording anywhere may let it read
+  as independent corroboration.
 - No analytics, no telemetry, no uploads. Nothing leaves the browser, and that
   must stay auditable in a single read of the source.
 - The **detector** is the one thing the page fetches, and only on a click:

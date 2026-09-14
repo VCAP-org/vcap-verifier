@@ -63,6 +63,15 @@
   <p class="muted">optional — or drag it here, or with the file above. It is read here, not looked for anywhere.</p>
 </div>
 <div id="out"></div>
+<div class="panel" id="trust">
+  <strong>Transparency logs this page trusts</strong>
+  <p class="muted">A sealed file can carry a proof that its signing key was in a transparency log before the capture (<code>registry</code>). Checking it needs that log's public key, so this page ships with a set — visible here, switchable, and replaceable with your own. The same set is published beside this page as <a href="logs.json"><code>logs.json</code></a>: fetch it, recompute each <code>log_id</code> from its key, and decide for yourself.</p>
+  <ul id="trust-logs"></ul>
+  <p class="muted">Switching all of them off is a supported way to use this page: a proof naming a log you do not follow reads <em>log not trusted</em>, which is missing evidence and not a failure. The rest of the verdict is unchanged.</p>
+  <p><label>Your own trust document <input type="file" id="trust-file" accept=".json,application/json"></label></p>
+  <p><label>or one log, as <code>&lt;log_id&gt;:&lt;base64 spki&gt;</code> <input type="text" id="trust-line" size="40" spellcheck="false"></label> <button type="button" id="trust-add">Trust it</button></p>
+  <p class="muted" id="trust-state"></p>
+</div>
 <div class="panel">
   <strong>Watermark detector</strong>
   <p class="muted">Reading a mark out of pixels needs the detector model — around 34 MB. This page never downloads it on its own and never caches it for offline use: without it a watermark reads <em>not evaluated</em>, which is a weaker verdict and not a failure.</p>
@@ -70,7 +79,7 @@
   <p class="muted" id="detector-state">no detector loaded — watermarks are not evaluated</p>
 </div>
 <footer>
-  What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated by this page yet. A position is never "guaranteed": the page names the level it reaches — declared by the device, or corroborated by a registry this page trusts, of which it ships none yet.
+  What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated by this page yet. A position is never "guaranteed": the page names the level it reaches — declared by the device, or corroborated by a registry this page trusts. The logs it trusts are listed above, and the one it ships with is run by the same people who publish this page: it proves a key was in our log, never that we are honest.
   <p>This build: bundle <code id="bundle-hash">{{bundle_sha256}}</code>, from commit <a href="https://github.com/VCAP-org/vcap-verifier/commit/{{commit}}"><code id="commit">{{commit_short}}</code></a>, esbuild {{esbuild}} — <a href="hashes.json">every shipped file, hashed</a>. Offline: <span id="offline">needs a browser with service workers</span>. Rebuild that commit yourself to check them: the <a href="https://github.com/VCAP-org/vcap-verifier#reproducing-the-published-build">README</a> says how.</p>
 </footer>
 <script type="module" src="verifier.js"></script>

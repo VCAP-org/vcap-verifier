@@ -3,7 +3,7 @@
  *
  * No argument-parsing dependency: this tool exists so that somebody can check
  * a file without trusting us, and every package in its tree is something they
- * would have to trust. Fourteen flags of hand-rolled parsing is a smaller ask
+ * would have to trust. Seventeen flags of hand-rolled parsing is a smaller ask
  * than a transitive graph.
  */
 export interface Options {
@@ -23,7 +23,13 @@ export interface Options {
    */
   watermark?: string
   /** Transparency-log public keys, `--log <log_id>:<base64 spki>`. */
-  logs: { logId: string, spki: string }[]
+  logs: string[]
+  /** Trust documents to add, `--trust <path.json>`; the same shape as `trust/logs.json`. */
+  trustFiles: string[]
+  /** Drop the logs this tool ships with, leaving only what `--trust` and `--log` added. */
+  noDefaultLogs: boolean
+  /** Print the effective trust set and stop. */
+  showTrust: boolean
   /** TSA roots to pin, PEM files. Without one a timestamp is *trusted time not evaluated*. */
   tsaRoots: string[]
   /** Exit non-zero unless the verdict's ceiling is green. */
@@ -50,10 +56,23 @@ Options
                             sampling {frames, strategy}, model_version (§8). This tool runs no
                             detector: "decoded" is what somebody else's read out of the pixels
   --log <id>:<spki>         a transparency log to trust: log_id and its base64 DER SPKI
+  --trust <path.json>       a trust document to add, in the shape of trust/logs.json; repeatable
+  --no-default-logs         do not trust the logs this tool ships with
+  --show-trust              print the logs this run would trust, and stop
   --tsa-root <path.pem>     a TSA root to pin; repeatable
   --require-green           exit 1 unless the ceiling is green
   --at <iso8601>            the instant to verify at, instead of now
   -h, --help                this
+
+Trust
+  This tool ships trusting one transparency log, the vcap development log, and
+  it is run by the same people who publish this tool — it is not independent
+  corroboration of anything. The set is the file trust/logs.json beside this
+  source, not a constant: read it, edit it, or replace it with --no-default-logs
+  and your own --trust / --log. Verifying against a set that contains none of
+  ours is a supported way to run this, and costs one check: a proof naming a log
+  you do not follow reads *log not trusted*, which is absent evidence, not a
+  failure.
 
 Exit codes
   0   authentic, or a verified clip
@@ -66,7 +85,7 @@ tampered file is a successful run of the tool and a failure of the file.
 `
 
 export const parse = (argv: string[]): Options => {
-  const o: Options = { files: [], json: false, recompute: true, logs: [], tsaRoots: [], requireGreen: false, help: false }
+  const o: Options = { files: [], json: false, recompute: true, logs: [], trustFiles: [], noDefaultLogs: false, showTrust: false, tsaRoots: [], requireGreen: false, help: false }
   const next = (flag: string, at: number): string => {
     const value = argv[at + 1]
     if (value === undefined || value.startsWith('--')) throw new UsageError(`${flag} needs a value`)
@@ -83,6 +102,9 @@ export const parse = (argv: string[]): Options => {
       case '--sidecar': o.sidecar = next(arg, at); at++; break
       case '--watermark': o.watermark = next(arg, at); at++; break
       case '--no-sidecar': o.sidecar = false; break
+      case '--no-default-logs': o.noDefaultLogs = true; break
+      case '--show-trust': o.showTrust = true; break
+      case '--trust': o.trustFiles.push(next(arg, at)); at++; break
       case '--tsa-root': o.tsaRoots.push(next(arg, at)); at++; break
       case '--at': {
         const value = next(arg, at); at++
@@ -93,11 +115,10 @@ export const parse = (argv: string[]): Options => {
       }
       case '--log': {
         const value = next(arg, at); at++
-        // `log_id:spki`, and the id is base64url so it never contains a colon
-        // — the split is on the first one, and the SPKI keeps its padding.
-        const colon = value.indexOf(':')
-        if (colon <= 0) throw new UsageError(`--log wants <log_id>:<base64 spki>, got ${value}`)
-        o.logs.push({ logId: value.slice(0, colon), spki: value.slice(colon + 1) })
+        // Kept as written and decoded in `trust.ts`, which is also where the
+        // id is checked against the key it names.
+        if (value.indexOf(':') <= 0) throw new UsageError(`--log wants <log_id>:<base64 spki>, got ${value}`)
+        o.logs.push(value)
         break
       }
       default:
@@ -106,7 +127,7 @@ export const parse = (argv: string[]): Options => {
     }
   }
 
-  if (!o.help) {
+  if (!o.help && !o.showTrust) {
     if (o.files.length === 0) throw new UsageError('no file given')
     if (o.sidecar && o.files.length > 1) throw new UsageError('--sidecar takes a single file')
     // One detection is about one file's pixels. Spreading it over a directory

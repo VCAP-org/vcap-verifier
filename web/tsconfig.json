@@ -13,6 +13,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
       "vcap-verify-core": [

@@ -33,14 +33,33 @@ named set of them:
 
 ```
 --log <log_id>:<base64 spki>   a transparency log to trust
+--trust <path.json>            a trust document, shaped like trust/logs.json
+--no-default-logs              do not trust the logs this tool ships with
+--show-trust                   print the logs this run would trust
 --tsa-root <path.pem>          a TSA root to pin
 ```
 
 Google's attestation roots are pinned in the library.
 
+## The one log it ships trusting
+
+`trust/logs.json`, at the root of this repository, holds the **vcap development
+log** — and that log is run by the same people who write this tool. It is a
+pin, not a second opinion: a `registry` attachment that checks out against it
+proves the sealing key was a leaf of *our* log before the capture, and proves
+nothing about whether we are honest. `--show-trust` prints that in as many
+words, along with each log's id and operator.
+
+The set is a file you can read and edit, not a constant compiled in. Drop it
+with `--no-default-logs` and bring your own with `--trust` or `--log`;
+verifying against a set that contains none of ours is a supported way to run
+this and costs exactly one check — a proof naming a log you do not follow reads
+*log not trusted*, which §8 counts as absent evidence, never a failure.
+
 `--log` also decides the §7.1 position level: a `location_corroboration` is
 the registry's countersignature of an operator's answer, so without the log's
-key it reads *location corroboration not evaluated* and the position stays
+key it reads *location corroboration not evaluated* — or *not verified*, once
+some log key is held and none of them signed it — and the position stays
 *declared*. A position is never "guaranteed": the `position` line names the
 level reached — `declared` or `corroborated` — and says what the registry
 attests, never "verified by the operator".
