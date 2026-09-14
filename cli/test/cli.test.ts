@@ -28,10 +28,11 @@ const capture = (): { io: Streams, out: () => string, err: () => string } => {
 }
 
 const trustArgs = (): string[] => {
-  // The corpus's expectations are a verifier whose trust set is exactly the
-  // corpus's. The tool ships trusting one log of ours, which would be a second
-  // opinion nobody wrote these vectors against, so it is dropped here.
-  const args: string[] = ['--no-default-logs']
+  // The corpus's expectations are a verifier whose trust is exactly the
+  // corpus's. The tool ships trusting one log of ours and one timestamping
+  // authority, neither of which anybody wrote these vectors against, so both
+  // are dropped here — separately, because they are separate switches.
+  const args: string[] = ['--no-default-logs', '--no-default-tsa']
   const tsa = join(TRUST, 'tsa-roots.pem')
   if (existsSync(tsa)) args.push('--tsa-root', tsa)
   const logsFile = join(TRUST, 'logs.json')
@@ -146,12 +147,15 @@ describe('vcap-verify', () => {
   })
 
   it('says what it cannot check rather than passing over it', async () => {
-    // No `--tsa-root`, on a file carrying a timestamp: the honest answer is
-    // that the evidence could not be read, not that the file has no time.
+    // No authority at all, on a file carrying a timestamp: the honest answer
+    // is that the evidence could not be read, not that the file has no time.
+    // `--no-default-tsa` is what expresses that now the tool ships a root —
+    // with one pinned, a token from an authority it does not hold is a
+    // different sentence, which the case below checks.
     const timestamped = fileVectors.find((v) => v.name.startsWith('59-'))
     if (!timestamped) return
     const { io, out } = capture()
-    await run(['--json', '--no-recompute', inputOf(timestamped.name)], io)
+    await run(['--json', '--no-recompute', '--no-default-tsa', inputOf(timestamped.name)], io)
     expect(JSON.parse(out().trim()).labels).toContain('trusted time not evaluated')
   })
 
@@ -300,11 +304,48 @@ describe('trust set', () => {
     expect(out()).toContain('not independent corroboration')
   })
 
+  it('--show-trust prints the shipped authority, that somebody else runs it, and its caveats', async () => {
+    const { io, out } = capture()
+    expect(await run(['--show-trust'], io)).toBe(0)
+
+    expect(out()).toContain('timestamping authorities')
+    expect(out()).toContain('a6379e7cecc05faa3cbf076013d745e327bbbaa38c0b9af22469d4701d18aabc')
+    expect(out()).toContain('run by somebody else')
+    // The half that makes the other half honest: a third party is worth having
+    // and still proves only a hash and an instant, and the service has no SLA.
+    expect(out()).toContain('never who made the file')
+    expect(out()).toContain('no contractual liability')
+  })
+
+  it('--no-default-tsa --show-trust says no authority is trusted, and leaves the logs alone', async () => {
+    const { io, out } = capture()
+    expect(await run(['--no-default-tsa', '--show-trust'], io)).toBe(0)
+
+    expect(out()).toContain('no timestamping authority is trusted')
+    // Two decisions, two switches: refusing a clock is not refusing our log.
+    expect(out()).toContain('1Iw8uAnl63-NzdTys4KmO8d0GphTBiNC4AqxJyaaRFQ')
+  })
+
   it('--no-default-logs --show-trust says nobody is trusted', async () => {
     const { io, out } = capture()
     expect(await run(['--no-default-logs', '--show-trust'], io)).toBe(0)
 
     expect(out()).toContain('no transparency log is trusted')
+    // And the authority is still there: dropping our log must not quietly
+    // drop a third party's clock with it.
+    expect(out()).toContain('FreeTSA')
+  })
+
+  it('a timestamp is *trusted time not evaluated* with no authority, and the verdict is otherwise whole', async () => {
+    const { io, out } = capture()
+    expect(await run(['--no-default-logs', '--no-default-tsa', '--json', '--no-recompute', '--at', '2025-09-09T12:00:00Z', inputOf('59-jpeg-timestamped')], io)).toBe(0)
+    const verdict = JSON.parse(out().trim().split('\n')[0] as string)
+
+    expect(verdict.outcome).toBe('authentic')
+    expect(verdict.labels).toContain('trusted time not evaluated')
+    // §7 falls back to the device's own word for the validated instant. That
+    // is the honest answer for a verifier with no roots, never an error.
+    expect(verdict.validated_at.source).toBe('device_clock')
   })
 
   it('a log the set does not hold is *log not trusted*, and the verdict is otherwise whole', async () => {

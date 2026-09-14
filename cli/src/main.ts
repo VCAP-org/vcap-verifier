@@ -1,9 +1,9 @@
 #!/usr/bin/env -S npx tsx
 import { readFile } from 'node:fs/promises'
-import { verify, pemToDer, parseTrustedLog, TrustDocumentError, type TrustedLog, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
+import { verify, pemToDer, parseTrustedLog, fingerprintOf, TrustDocumentError, type TrustedLog, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
 import { type Options, USAGE, UsageError, parse } from './options.js'
 import { render } from './render.js'
-import { DEFAULT_TRUST_FILE, describeTrust, readTrustFile, type TrustSet } from './trust.js'
+import { DEFAULT_TRUST_FILE, DEFAULT_TSA_FILE, describeTrust, describeTsa, readTrustFile, readTsaFile, type TrustSet, type TsaSet } from './trust.js'
 
 /**
  * `vcap-verify`: a verdict from a shell.
@@ -14,11 +14,14 @@ import { DEFAULT_TRUST_FILE, describeTrust, readTrustFile, type TrustSet } from 
  * are answers rather than failures. A caller who wants those closed reads the
  * log and the chain themselves and uses the library.
  *
- * The one thing it does read from disk beyond the files named is its trust set
- * (`trust.ts`): which transparency logs it will check a `registry` attachment
- * against. It ships trusting one, ours, and `--show-trust` prints it,
- * `--no-default-logs` drops it. That is a decision the reader is entitled to
- * see and to undo, not a configuration detail.
+ * The only thing it reads from disk beyond the files named is its trust
+ * (`trust.ts`): which transparency logs it checks a `registry` attachment
+ * against, and which timestamping authorities it checks a `timestamp` against.
+ * It ships trusting one of each — our development log, and FreeTSA — and
+ * `--show-trust` prints both, `--no-default-logs` and `--no-default-tsa` drop
+ * them one at a time. Two switches because they are two decisions: our log is
+ * us, a TSA is somebody else. Those are decisions the reader is entitled to
+ * see and to undo, not configuration details.
  */
 const EXIT = { ok: 0, doesNotVerify: 1, notGreen: 2, usage: 64 }
 
@@ -62,12 +65,17 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
     io.err(`vcap-verify: ${error instanceof Error ? error.message : String(error)}\n`)
     return EXIT.usage
   }
-  if (options.showTrust) {
-    io.out(describeTrust(trust))
-    return EXIT.ok
+  let tsa: TsaSet
+  try {
+    tsa = await tsaSet(options)
+  } catch (error) {
+    io.err(`vcap-verify: ${error instanceof Error ? error.message : String(error)}\n`)
+    return EXIT.usage
   }
-
-  const tsaRoots: Uint8Array[] = []
+  // A PEM that holds no certificate is the caller's mistake and stops the run,
+  // for the same reason a broken trust document does: a root the caller
+  // believes they pinned, silently absent, produces *trusted time not
+  // evaluated* and looks exactly like a file with no timestamp.
   for (const path of options.tsaRoots) {
     const pem = await readFile(path, 'utf8')
     const blocks = pem.match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g)
@@ -75,8 +83,17 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
       io.err(`vcap-verify: ${path} holds no certificate\n`)
       return EXIT.usage
     }
-    for (const block of blocks) tsaRoots.push(pemToDer(block))
+    for (const block of blocks) {
+      tsa.roots.push(pemToDer(block))
+      tsa.entries.push({ fingerprint_sha256: await fingerprintOf(pemToDer(block)), certificate: '', name: `given on the command line (${path})`, independent: undefined })
+    }
   }
+  if (options.showTrust) {
+    io.out('transparency logs\n' + describeTrust(trust))
+    io.out('\ntimestamping authorities\n' + await describeTsa(tsa))
+    return EXIT.ok
+  }
+  const tsaRoots = tsa.roots
   // §8's watermark detection. This tool runs no detector and contacts nothing,
   // so the evidence is a file the caller produced — the `watermark` block of a
   // `/v1/verify` response, or any other detector's output in that shape. What
@@ -147,6 +164,22 @@ const trustSet = async (options: Options): Promise<TrustSet> => {
     }
     set.logs.push(log)
     set.entries.push({ log_id: log.logId, spki: text.slice(text.indexOf(':') + 1), name: 'given on the command line' })
+  }
+  return set
+}
+
+/**
+ * The timestamping authorities for this run: what the tool ships with, unless
+ * refused, plus every PEM the caller named. A separate function from
+ * `trustSet` and a separate switch, because they are separate decisions —
+ * `--no-default-logs` must never quietly also drop a third party's clock.
+ */
+const tsaSet = async (options: Options): Promise<TsaSet> => {
+  const set: TsaSet = { roots: [], entries: [] }
+  if (!options.noDefaultTsa) {
+    const shipped = await readTsaFile(DEFAULT_TSA_FILE)
+    set.roots.push(...shipped.roots)
+    set.entries.push(...shipped.entries)
   }
   return set
 }

@@ -112,6 +112,10 @@ for (const name of STATIC) copyFileSync(`src/${name}`, `dist/${name}`)
 // and see exactly whom this build believes — and it is covered by hashes.json
 // like every other shipped file.
 copyFileSync('../trust/logs.json', 'dist/logs.json')
+// The timestamping authorities, likewise, and as a separate document: a reader
+// who refuses the log we run and keeps a third party's clock has taken a
+// position the page has to be able to represent.
+copyFileSync('../trust/tsa.json', 'dist/tsa.json')
 for (const name of ORT_ASSETS) copyFileSync(join(ortDist, name), `dist/${name}`)
 
 if (serve) {
@@ -144,7 +148,7 @@ if (serve) {
   // the old one goes; the worker itself is not in its own list (the browser
   // fetches it), nor is what is written after it — but the hash records are,
   // as URLs, so they are readable offline too.
-  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', 'logs.json', ...ORT_ASSETS, ...STATIC]
+  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', 'logs.json', 'tsa.json', ...ORT_ASSETS, ...STATIC]
   // Everything shipped is cached except the detector module: it is an explicit
   // choice of the user's, it pulls a model far larger than this page, and an
   // offline page that silently held a stale detector would be worse than one

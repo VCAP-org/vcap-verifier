@@ -35,7 +35,19 @@ part of correctness:
   corpus version; `core/test/corpus.ts` throws rather than hand back an empty
   list. A floor (`>= 84`) is not that assertion: it passes while the corpus
   shrinks under it, and it passes loudest when nothing ran at all.
-- The **trust set** — which transparency logs a `registry` attachment is
+- The **trust sets** are `trust/logs.json` and `trust/tsa.json`: two
+  documents, because they are two decisions, with separate switches everywhere
+  (`--no-default-logs` / `--no-default-tsa`, two panels, two Settings
+  sections). Refusing the log we run must never also drop a third party's
+  clock. A **TSA** is the one pinned party that really is independent, so its
+  entry is allowed to claim more than `logs.json` does — and exactly that much:
+  a token proves *this hash existed before that instant, and that authority
+  said so*, never who made the file. FreeTSA is a free community service with
+  no SLA and no contractual liability, and that stays in the caveats wherever
+  the entry is printed. A root is never shipped on a URL's word: it is proven
+  against a real token first, because a wrong certificate fails closed and
+  looks like tampering.
+- The **log trust set** — which transparency logs a `registry` attachment is
   checked against — is `trust/logs.json`, data and not a constant, and it is
   bundled into the page, read by the CLI and published unchanged beside the
   page. Two rules hold wherever it is used. It must be **visible and

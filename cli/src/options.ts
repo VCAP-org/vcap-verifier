@@ -30,8 +30,10 @@ export interface Options {
   noDefaultLogs: boolean
   /** Print the effective trust set and stop. */
   showTrust: boolean
-  /** TSA roots to pin, PEM files. Without one a timestamp is *trusted time not evaluated*. */
+  /** TSA roots to pin, PEM files, on top of the ones this tool ships with. */
   tsaRoots: string[]
+  /** Drop the timestamping authorities this tool ships with, leaving only what `--tsa-root` added. */
+  noDefaultTsa: boolean
   /** Exit non-zero unless the verdict's ceiling is green. */
   requireGreen: boolean
   /** The verifier's clock, for reproducing a verdict at a stated instant. */
@@ -58,21 +60,35 @@ Options
   --log <id>:<spki>         a transparency log to trust: log_id and its base64 DER SPKI
   --trust <path.json>       a trust document to add, in the shape of trust/logs.json; repeatable
   --no-default-logs         do not trust the logs this tool ships with
-  --show-trust              print the logs this run would trust, and stop
-  --tsa-root <path.pem>     a TSA root to pin; repeatable
+  --show-trust              print the logs and the timestamping authorities this run
+                            would trust, and stop
+  --tsa-root <path.pem>     a timestamping authority root to pin, on top of the shipped
+                            ones; repeatable
+  --no-default-tsa          do not trust the timestamping authorities this tool ships with
   --require-green           exit 1 unless the ceiling is green
   --at <iso8601>            the instant to verify at, instead of now
   -h, --help                this
 
 Trust
-  This tool ships trusting one transparency log, the vcap development log, and
-  it is run by the same people who publish this tool — it is not independent
-  corroboration of anything. The set is the file trust/logs.json beside this
-  source, not a constant: read it, edit it, or replace it with --no-default-logs
-  and your own --trust / --log. Verifying against a set that contains none of
-  ours is a supported way to run this, and costs one check: a proof naming a log
-  you do not follow reads *log not trusted*, which is absent evidence, not a
-  failure.
+  Two sets, two documents, two switches, because they are two decisions.
+
+  Transparency logs (trust/logs.json). This tool ships trusting one, the vcap
+  development log, and it is run by the same people who publish this tool — it
+  is not independent corroboration of anything. Read it, edit it, or drop it
+  with --no-default-logs and bring your own --trust / --log. A proof naming a
+  log you do not follow reads *log not trusted*: absent evidence, not a failure.
+
+  Timestamping authorities (trust/tsa.json). This tool ships trusting FreeTSA,
+  which is a genuine third party — a token from it is evidence we did not make.
+  What it proves is narrow: this hash existed before that instant, and that
+  authority said so. Never who made the file. FreeTSA is a free community
+  service with no SLA and no contractual liability. Drop it with
+  --no-default-tsa and bring your own --tsa-root. Without any authority a
+  timestamp reads *trusted time not evaluated* and §7 validates against the
+  device's own clock, which caps the ceiling at amber.
+
+  Verifying against sets that contain none of ours is a supported way to run
+  this tool, not a degraded one.
 
 Exit codes
   0   authentic, or a verified clip
@@ -85,7 +101,7 @@ tampered file is a successful run of the tool and a failure of the file.
 `
 
 export const parse = (argv: string[]): Options => {
-  const o: Options = { files: [], json: false, recompute: true, logs: [], trustFiles: [], noDefaultLogs: false, showTrust: false, tsaRoots: [], requireGreen: false, help: false }
+  const o: Options = { files: [], json: false, recompute: true, logs: [], trustFiles: [], noDefaultLogs: false, showTrust: false, tsaRoots: [], noDefaultTsa: false, requireGreen: false, help: false }
   const next = (flag: string, at: number): string => {
     const value = argv[at + 1]
     if (value === undefined || value.startsWith('--')) throw new UsageError(`${flag} needs a value`)
@@ -103,6 +119,7 @@ export const parse = (argv: string[]): Options => {
       case '--watermark': o.watermark = next(arg, at); at++; break
       case '--no-sidecar': o.sidecar = false; break
       case '--no-default-logs': o.noDefaultLogs = true; break
+      case '--no-default-tsa': o.noDefaultTsa = true; break
       case '--show-trust': o.showTrust = true; break
       case '--trust': o.trustFiles.push(next(arg, at)); at++; break
       case '--tsa-root': o.tsaRoots.push(next(arg, at)); at++; break
