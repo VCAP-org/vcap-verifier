@@ -1,0 +1,24 @@
+{
+  "capture_id": "3lfGs4qxw3UL5Kqqjc7U-A",
+  "segment_count": 3,
+  "segments": [
+    {
+      "gop": 0,
+      "hash": "L07gVEhN-xS92qZozKwx1vS6FRvm4jRf-IDopPcw9zk",
+      "prev": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "sig": "oY1T6Tyrf5OpceceIjCLkEEsXqLit4rRjEwjQ-spFD1Zqot1k3dJkWWa6hamr9IPYCxt9rXecLfbhhq0nxOl8g"
+    },
+    {
+      "gop": 1,
+      "hash": "8Zrt2nU9r8w4aOZBvcSbG8n8BOE-hmB2-Lx6K8TJr2U",
+      "prev": "Rjrw0AZA0SkzYol4cKfz8-fO9PVqlxjc2dbI12WyTMM",
+      "sig": "UwVw4hQC6XGpSWXNRmEybRGjMKgMi_haaOZDihzmJo8tJm3bnGudsVehAgAaG4IF4irRtLa14znsuBj1swwcgA"
+    },
+    {
+      "gop": 2,
+      "hash": "GNMWEToCp5jiVPw94BezMlMX_YS1gy-WgffEfGI0U2Q",
+      "prev": "00X0p7lmO47-5BknpsWu2NYsPJqubAWMOiDjxdLZIPk",
+      "sig": "a2hIBv_UdTeNbf7usk4iwzlWqmeMflQWUPrUy34tvHZJZtq4ujtgswO5LoZbbRa6HvlekzZ3pC6pxRyPZgRN0A"
+    }
+  ]
+}
