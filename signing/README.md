@@ -188,3 +188,9 @@ The order therefore is: build, sign, publish on the primary, **commit the log
 line**, and only then run the mirror workflow. A mirror cannot run ahead of the
 key holder, which is the property that lets a reader diff the two hosts and
 learn something from the answer.
+
+Pass `build_run_id`, the successful `ci` push run on `main` that produced the
+published `web-dist` artifact. The workflow checks the run and manifest commit,
+downloads that artifact and restores its recorded signature. It must not rebuild
+the workflow's current HEAD: the signature-log commit comes after the build it
+records, so that would create a new, unsigned build instead of mirroring it.

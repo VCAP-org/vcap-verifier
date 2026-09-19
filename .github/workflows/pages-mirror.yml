@@ -25,11 +25,17 @@ name: pages-mirror
 #     public verification page stays a deliberate gesture (D30), on both hosts.
 on:
   workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful CI run whose signed web-dist is on the primary
+        required: true
+        type: string
 
 # Publish the artifact, nothing else: no write to the repository, and no secret
 # of any kind is read here.
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -40,14 +46,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The gate is the same one everything else uses: two clean builds, one set of
-  # hashes, or nothing is published.
-  build:
-    uses: ./.github/workflows/build-web.yml
-
   deploy:
     name: mirror the published build on github pages
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -59,10 +59,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+      # The signature log is committed AFTER the build it records. Building
+      # this workflow's HEAD would therefore always produce an unsigned new
+      # commit. Reuse the successful CI artifact that was actually published.
+      - name: require a successful CI run from this repository
+        id: source
+        uses: actions/github-script@v7
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        with:
+          script: |
+            const raw = process.env.BUILD_RUN_ID;
+            if (!/^[1-9][0-9]*$/.test(raw)) throw new Error('Invalid CI run id');
+            const run_id = Number(raw);
+            if (!Number.isSafeInteger(run_id)) throw new Error('Invalid CI run id');
+            const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id });
+            if (run.conclusion !== 'success' || run.path !== '.github/workflows/ci.yml' || run.event !== 'push' || run.head_branch !== 'main') {
+              throw new Error('The source must be a successful CI push on main');
+            }
+            core.setOutput('commit', run.head_sha);
       - uses: actions/download-artifact@v4
         with:
           name: web-dist
           path: web/dist
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: bind the artifact to the successful source commit
+        env:
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const manifest = JSON.parse(fs.readFileSync("web/dist/hashes.json", "utf8"));
+            if (manifest.dirty || manifest.commit !== process.env.SOURCE_COMMIT) {
+              throw new Error("The artifact does not match the successful clean source commit");
+            }
+          '
 
       # Every file the manifest names, rehashed from the reproduced tree.
       - run: node bin/verify-build.mjs web/dist
