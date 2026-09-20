@@ -81,6 +81,18 @@ export interface WatermarkEvidence {
   corrected_bits?: number | null
   /** Frames the decode was averaged over; 1 for a still. */
   frames_sampled?: number | null
+  /**
+   * `video-rep-v1`: of those frames, how many decoded to the id reported.
+   *
+   * The number that separates a clip that carries a mark from a clip with one
+   * marked frame in it. An unmarked frame abstains rather than dissents, so a
+   * decode averaged over frames is set by any single marked one: splicing a
+   * genuine frame into foreign footage reports the real id at the agreement
+   * of a clean recovery (measured, 0.996). `agreement` does not catch that
+   * and must never be presented as if it did — this does, and a verifier that
+   * has it says "n of m" instead of an unqualified recovery.
+   */
+  frames_with_id?: number | null
   /** Which frames were chosen and how — reported, because it is settable. */
   sampling?: { frames?: number | null, strategy?: string | null } | null
   /** The detector build that looked. A verdict from an unnamed model is not reproducible. */
@@ -108,6 +120,8 @@ export interface WatermarkOutcome {
   agreement?: number
   corrected_bits?: number
   frames_sampled?: number
+  /** Of those frames, how many carried the id — the claim, for a clip. */
+  frames_with_id?: number
   /** The policy those frames were chosen under: two answers under different policies are not comparable. */
   sampling?: { frames: number, strategy: string }
   model_version?: string
@@ -171,6 +185,7 @@ export const evaluateWatermark = (evidence: unknown, claim: WatermarkClaim): Wat
     ...(num(evidence.agreement, 0, 1) !== undefined ? { agreement: num(evidence.agreement, 0, 1) } : {}),
     ...(num(evidence.corrected_bits, 0, 4096) !== undefined ? { corrected_bits: num(evidence.corrected_bits, 0, 4096) } : {}),
     ...(num(evidence.frames_sampled, 0, 1e6) !== undefined ? { frames_sampled: num(evidence.frames_sampled, 0, 1e6) } : {}),
+    ...(num(evidence.frames_with_id, 0, 1e6) !== undefined ? { frames_with_id: num(evidence.frames_with_id, 0, 1e6) } : {}),
     ...(text(evidence.model_version, 128) !== undefined ? { model_version: text(evidence.model_version, 128) } : {}),
     ...sampling(evidence.sampling)
   }
@@ -201,9 +216,16 @@ export const evaluateWatermark = (evidence: unknown, claim: WatermarkClaim): Wat
   }
   const normalized = layout === 'photo-bch-v3' ? decoded.toLowerCase() : String(Number(decoded))
   if (normalized === declared) {
+    // For a clip, the count is part of the sentence and not a field beside
+    // it: "the payload carries the declared mark id" over one spliced frame
+    // is true and misleading, and a reader who has to go looking for the
+    // qualifier is a reader who will not.
+    const carried = layout === 'video-rep-v1' && shown.frames_with_id !== undefined && shown.frames_sampled !== undefined
+      ? `; ${shown.frames_with_id} of ${shown.frames_sampled} sampled frames carry it`
+      : ''
     return {
       result: 'matched',
-      detail: layout === 'photo-bch-v3' ? 'the payload carries the declared capture id' : 'the payload carries the declared mark id',
+      detail: (layout === 'photo-bch-v3' ? 'the payload carries the declared capture id' : 'the payload carries the declared mark id') + carried,
       ...withIds,
       decoded: normalized
     }
