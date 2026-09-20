@@ -230,4 +230,49 @@ describe('the evidence is data from an untrusted caller', () => {
     expect(seenClaim[0]).toEqual({ layout: 'photo-bch-v3', captureId: CAPTURE_ID, mime: 'image/jpeg', coreHash: v.core_hash })
     expect(v.core_hash).toBe(toHex(await coreHashOf(photo.proof as never)))
   })
+  /**
+   * The splice: one genuine marked frame in foreign footage reports the real
+   * id at the agreement of a clean recovery, because an unmarked frame
+   * abstains rather than dissents. `agreement` cannot tell the two apart —
+   * the count can, and the sentence carries it so nobody has to go looking.
+   */
+  describe('how much of a clip carried the id', () => {
+    const clip = { layout: 'video-rep-v1' as const, captureId: 'a'.repeat(32), markId: 5902388, mime: 'video/mp4', coreHash: 'b'.repeat(64) }
+    const evidence = (framesWithId: number) => ({
+      layout: 'video-rep-v1',
+      decoded: '5902388',
+      agreement: 0.996,
+      frames_sampled: 8,
+      frames_with_id: framesWithId,
+      model_version: 'videoseal-y256b-3'
+    })
+
+    it('says how many frames carried it, in the sentence and not only in a field', () => {
+      const spliced = evaluateWatermark(evidence(1), clip)
+      const whole = evaluateWatermark(evidence(8), clip)
+
+      expect(spliced.result).toBe('matched')
+      expect(spliced.frames_with_id).toBe(1)
+      expect(spliced.detail).toContain('1 of 8 sampled frames carry it')
+      expect(whole.detail).toContain('8 of 8 sampled frames carry it')
+      // The field this must never be mistaken for: identical in both.
+      expect(spliced.agreement).toBe(whole.agreement)
+    })
+
+    it('says nothing about frames when the detector did not count them', () => {
+      const outcome = evaluateWatermark({ layout: 'video-rep-v1', decoded: '5902388', frames_sampled: 8 }, clip)
+
+      expect(outcome.result).toBe('matched')
+      expect(outcome.frames_with_id).toBeUndefined()
+      expect(outcome.detail).toBe('the payload carries the declared mark id')
+    })
+
+    it('drops a count that is not a number, like every other reported figure', () => {
+      const outcome = evaluateWatermark({ ...evidence(1), frames_with_id: Number.NaN }, clip)
+
+      expect(outcome.frames_with_id).toBeUndefined()
+      expect(outcome.detail).toBe('the payload carries the declared mark id')
+    })
+  })
+
 })
