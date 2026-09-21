@@ -14,6 +14,27 @@ export const COLOR: Record<Verdict['outcome'], string> = {
   authentic: 'green', verified_clip: 'amber', tampered: 'red', nested_proof: 'amber',
   corrupted_proof: 'red', no_proof_found: 'grey', unsupported_format_version: 'grey'
 }
+/**
+ * The answer to the question the reader arrived with, in the words they would
+ * use. It sits **above** the specification's title and never instead of it:
+ * `TITLE` below is copied from §8 and a relabelled verdict is a different
+ * verdict, so both are printed — the plain line for somebody who wants to know
+ * whether to believe a photo, the spec line for somebody who has to quote it.
+ *
+ * "Yes" and "No" answer authenticity and nothing else. The levels a proof
+ * reaches — position, trusted time, watermark — stay on their own axes below,
+ * because collapsing them into the headline is how a verifier starts implying
+ * things it has not checked.
+ */
+export const PLAIN: Record<Verdict['outcome'], string> = {
+  authentic: 'Yes — this file is what it says it is.',
+  verified_clip: 'In part — these are signed frames of a longer recording.',
+  tampered: 'No — this file changed after it was sealed.',
+  nested_proof: 'Careful — a sealed file was sealed a second time.',
+  corrupted_proof: 'The proof is damaged and cannot be read.',
+  no_proof_found: 'This file carries no proof.',
+  unsupported_format_version: 'This page cannot read a proof of this version.'
+}
 export const TITLE: Record<Verdict['outcome'], string> = {
   authentic: 'Authentic — signed at capture, file complete',
   verified_clip: 'Verified clip — signed frames of a longer original',
@@ -108,6 +129,7 @@ export const card = (name: string, v: Verdict): string => {
     v.reason ? `<li>${escape(v.reason)}</li>` : ''
   ].filter(Boolean)
   return `<div class="verdict ${COLOR[v.outcome]}">
+    <p class="lede">${escape(PLAIN[v.outcome])}</p>
     <h2>${escape(TITLE[v.outcome])}</h2>
     <div class="muted">${escape(name)}</div>
     ${position(v)}

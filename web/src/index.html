@@ -6,89 +6,244 @@
 <title>vcap verifier</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#2e8b57">
+<meta name="theme-color" content="#0b4f9e">
 <style>
-  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-  body { margin: 0; padding: 2rem 1rem; max-width: 60rem; margin-inline: auto; line-height: 1.45; }
-  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
-  .muted { opacity: .7; font-size: .9rem; }
-  .drop { margin-top: 1.5rem; border: 2px dashed currentColor; border-radius: .75rem; padding: 2rem; text-align: center; opacity: .8; }
-  .drop.over { opacity: 1; background: rgba(127,127,127,.08); }
-  .drop.sidecar { margin-top: .75rem; padding: 1rem; border-style: dotted; font-size: .9rem; }
-  .verdict { margin-top: 1.5rem; border-radius: .75rem; padding: 1rem 1.25rem; border: 1px solid transparent; }
-  .green { background: #e6f6ea; border-color: #2e8b57; color: #0f3d22; }
-  .amber { background: #fff4d6; border-color: #b8860b; color: #4a3400; }
-  .red { background: #fde8e8; border-color: #b22222; color: #4a0f0f; }
-  .grey { background: #eee; border-color: #888; color: #222; }
-  @media (prefers-color-scheme: dark) { .green{background:#0f3d22;color:#e6f6ea} .amber{background:#4a3400;color:#fff4d6} .red{background:#4a0f0f;color:#fde8e8} .grey{background:#222;color:#eee} }
-  .traced { background: #fff4d6; border-color: #b8860b; color: #4a3400; }
-  @media (prefers-color-scheme: dark) { .traced{background:#4a3400;color:#fff4d6} }
-  .verdict h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
-  .position { margin: .5rem 0 0; }
-  ul { margin: .5rem 0 0; padding-left: 1.2rem; }
-  code { font-family: ui-monospace, monospace; font-size: .85em; word-break: break-all; }
-  details { margin-top: .75rem; }
-  /* The two verdicts sit next to each other where there is room, and stack
-     where there is not: the copy is always first, because it is the file the
-     reader came to ask about. */
-  .pair { display: grid; gap: 1rem; grid-template-columns: 1fr; }
-  @media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
-  .compare { margin-top: 1.5rem; border-collapse: collapse; width: 100%; font-size: .9rem; }
-  .compare caption { text-align: left; font-weight: 600; padding-bottom: .5rem; }
-  .compare th, .compare td { border: 1px solid rgba(127,127,127,.4); padding: .35rem .5rem; text-align: left; vertical-align: top; }
-  .compare thead th { font-size: .85rem; opacity: .8; }
-  .compare tbody th { font-weight: 500; white-space: nowrap; }
-  .compare .change { white-space: nowrap; font-size: .85em; }
-  .compare tr.lost { background: rgba(178,34,34,.12); }
-  .compare tr.differs { background: rgba(184,134,11,.12); }
-  .absent { opacity: .6; font-style: italic; }
-  .panel { margin-top: 1.5rem; border: 1px solid rgba(127,127,127,.4); border-radius: .75rem; padding: .75rem 1rem; font-size: .9rem; }
-  .panel p { margin: .5rem 0 0; }
-  footer { margin-top: 3rem; font-size: .8rem; opacity: .6; }
+/*
+ * The shared design tokens, in the only form a page like this can take them:
+ * custom properties, inline, no build step, no webfont, no network. The page
+ * has to work offline and its build has to be reproducible byte for byte, so
+ * a font from somebody else's host is not a style decision but a third party.
+ *
+ * The colours are not invented here. They come from `App/src/theme.ts`, the
+ * one place in this product where contrast is *measured* rather than chosen —
+ * 4.5:1 for text, 3:1 for a border, asserted by a test — and this page
+ * inherits the measurement with the value. `Doc/11-design-system.md` is the
+ * agreement; this block is its web half.
+ */
+:root {
+  color-scheme: light dark;
+  --background: #ffffff;
+  --surface: #f4f4f8;
+  --text: #1b1b1f;
+  --muted: #4a4a52;
+  --border: #767680;
+  --rule: #dcdce3;
+  --action: #0b4f9e;
+  --on-action: #ffffff;
+  --green: #0f6b3d;  --green-wash: #e8f4ed;
+  --amber: #8a5300;  --amber-wash: #fff4e5;
+  --red:   #a1121f;  --red-wash:   #fdeaec;
+  --grey:  #4a4a52;  --grey-wash:  #f0f0f4;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
+  --r-sm:8px; --r-md:12px; --r-lg:16px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 4px 12px rgb(0 0 0 / 5%);
+}
+/* A second measured set, not the light one dimmed: the washes carry the
+   verdict colour at low luminance and the ink on them is its light
+   counterpart, so a verdict reads the same either way. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background:#131316; --surface:#1d1d21; --text:#f2f2f5; --muted:#b6b6c0;
+    --border:#8a8a94; --rule:#33333a; --action:#7fb2ee; --on-action:#0a1a2c;
+    --green:#6fd39b; --green-wash:#10281c;
+    --amber:#f0c07a; --amber-wash:#2c2011;
+    --red:#f4a0a8;   --red-wash:#2c1214;
+    --grey:#b6b6c0;  --grey-wash:#232329;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 14px rgb(0 0 0 / 30%);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0 auto; padding: var(--s6) var(--s4) var(--s7);
+  max-width: 54rem;
+  font: 1rem/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text); background: var(--background);
+}
+h1 { font: 700 1.5rem/1.2 system-ui, sans-serif; margin: 0; letter-spacing: -0.01em; }
+h2 { font: 700 1.375rem/1.28 system-ui, sans-serif; margin: 0; letter-spacing: -0.01em; }
+h3 { font: 700 1rem/1.4 system-ui, sans-serif; margin: 0; }
+p { margin: var(--s3) 0 0; }
+a { color: var(--action); }
+code { font: 0.85em ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.muted { color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
+
+/* The masthead says what the page answers, not what it is called. Somebody
+   arrives here holding a photo, not looking for a product. */
+header { margin-bottom: var(--s6); }
+header .brand { font-size: 0.8125rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 var(--s2); }
+header .claim { margin-top: var(--s3); max-width: 42rem; }
+
+/* Dropzone — the one thing on this page with a job, sized like it. */
+.drop {
+  margin-top: var(--s4);
+  border: 2px dashed var(--border); border-radius: var(--r-lg);
+  padding: var(--s7) var(--s5); text-align: center; background: var(--surface);
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.drop.over { border-color: var(--action); background: var(--grey-wash); }
+.drop .call { font: 700 1.125rem/1.4 system-ui, sans-serif; margin: 0; }
+.drop input[type=file] { display: block; margin: var(--s4) auto 0; max-width: 100%; }
+.drop .muted { margin-top: var(--s2); }
+
+/* The two extra files are a disclosure: most readers have one file, and three
+   file pickers at once is the page asking a question nobody came with. */
+.more { margin-top: var(--s4); }
+.more > summary {
+  cursor: pointer; font-weight: 600; padding: var(--s3) var(--s4);
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface);
+}
+.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.more .drop.sidecar {
+  margin-top: 0; border-style: dotted; border-width: 1px; border-radius: 0;
+  padding: var(--s4); text-align: left;
+}
+.more .drop.sidecar:last-child { border-bottom-left-radius: var(--r-md); border-bottom-right-radius: var(--r-md); }
+.more .drop.sidecar .call { font-size: 1rem; }
+
+/* Verdict — the only element allowed to be large, because it is the answer. */
+.verdict {
+  margin-top: var(--s5); border-radius: var(--r-lg);
+  padding: var(--s5); border: 1px solid var(--border);
+  background: var(--surface); box-shadow: var(--shadow);
+  border-left-width: 6px;
+}
+.verdict .lede {
+  font: 700 2rem/1.2 system-ui, sans-serif; margin: 0 0 var(--s2);
+  letter-spacing: -0.02em;
+}
+.verdict h2 { font-size: 1.0625rem; font-weight: 600; color: var(--muted); }
+.verdict .muted { margin-top: var(--s2); }
+.verdict ul { margin: var(--s4) 0 0; padding-left: 1.1rem; }
+.verdict li { margin-top: var(--s1); }
+.verdict .position { margin-top: var(--s3); font-weight: 600; }
+.green { background: var(--green-wash); border-left-color: var(--green); }
+.green .lede { color: var(--green); }
+.amber, .traced { background: var(--amber-wash); border-left-color: var(--amber); }
+.amber .lede, .traced .lede { color: var(--amber); }
+.red { background: var(--red-wash); border-left-color: var(--red); }
+.red .lede { color: var(--red); }
+.grey { background: var(--grey-wash); border-left-color: var(--grey); }
+.grey .lede { color: var(--text); }
+
+/* Two verdicts side by side where there is room, stacked where there is not.
+   The copy is always first: it is the file the reader came to ask about. */
+.pair { display: grid; gap: var(--s4); grid-template-columns: 1fr; }
+@media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
+
+details.tech { margin-top: var(--s4); }
+details.tech > summary { cursor: pointer; color: var(--muted); font-size: 0.875rem; }
+
+.compare { margin-top: var(--s5); border-collapse: collapse; width: 100%; font-size: 0.875rem; }
+.compare caption { text-align: left; font-weight: 700; padding-bottom: var(--s2); }
+.compare th, .compare td { border: 1px solid var(--rule); padding: var(--s2) var(--s3); text-align: left; vertical-align: top; }
+.compare thead th { font-size: 0.8125rem; color: var(--muted); }
+.compare tbody th { font-weight: 500; white-space: nowrap; }
+.compare .change { white-space: nowrap; font-size: 0.85em; }
+.compare tr.lost { background: var(--red-wash); }
+.compare tr.differs { background: var(--amber-wash); }
+.absent { color: var(--muted); font-style: italic; }
+
+/* What the page trusts. Demoted under the verdict but never hidden: that this
+   set is visible and switchable is part of what the page claims, so it is a
+   section with a rule above it and not a drawer. */
+.settings { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: var(--s5); }
+.settings > h3 { font-size: 0.8125rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.panel {
+  margin-top: var(--s4); border: 1px solid var(--rule); border-radius: var(--r-md);
+  padding: var(--s4); background: var(--surface);
+}
+.panel h3 { margin-bottom: var(--s2); }
+.panel ul { margin: var(--s3) 0 0; padding-left: 1.1rem; font-size: 0.875rem; }
+.panel label { display: inline-block; margin-top: var(--s2); }
+.panel input[type=text] { min-width: 18rem; max-width: 100%; }
+input[type=text], input[type=file] {
+  font: inherit; font-size: 0.9375rem; color: var(--text); background: var(--background);
+  border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--s2) var(--s3);
+}
+input[type=file] { padding: var(--s2); }
+button {
+  font: inherit; font-weight: 600; cursor: pointer;
+  color: var(--on-action); background: var(--action);
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  padding: var(--s2) var(--s4); min-height: 44px;
+}
+button:hover { background: var(--action); filter: brightness(1.08); }
+:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: var(--s4);
+  font-size: 0.8125rem; line-height: 1.55; color: var(--muted); }
 </style>
 </head>
 <body>
-<h1>vcap verifier</h1>
-<p class="muted">Drop a sealed photo or video. Everything happens in this page: no upload, no account, no server of ours.</p>
+<header>
+  <p class="brand">vcap verifier</p>
+  <h1>Is this photo or video real?</h1>
+  <p class="claim">Drop the file below and this page tells you whether it was signed by the camera that took it, and whether anything changed since. <strong>The file never leaves your browser</strong> — no upload, no account, no server of ours.</p>
+</header>
+
+<main>
 <div class="drop" id="drop">
-  <p><label>The file in question <input type="file" id="file" multiple> </label></p>
-  <p class="muted">or drag the file here</p>
+  <p class="call"><label for="file">Drop the file here</label></p>
+  <p class="muted">a sealed photo or video — or choose it:</p>
+  <input type="file" id="file" multiple>
 </div>
-<div class="drop sidecar" id="original-drop">
-  <p><label>The original, if you have it <input type="file" id="original"> </label></p>
-  <p class="muted">optional — a copy that came back re-compressed, cropped or through a social network has usually lost its proof. Next to the original, the page can show what it lost and what it kept.</p>
-</div>
-<div class="drop sidecar" id="sidecar-drop">
-  <p><label>Sidecar, if the proof travels beside the file (<code>&lt;filename&gt;.vcap</code>) <input type="file" id="sidecar" accept=".vcap,application/json"> </label></p>
-  <p class="muted">optional — or drag it here, or with the file above. It is read here, not looked for anywhere.</p>
-</div>
+
+<!-- Two more files help in two specific situations, and neither is the common
+     one. Behind a disclosure so the page asks one question at a time. -->
+<details class="more" id="more">
+  <summary>I also have the original, or a <code>.vcap</code> file</summary>
+  <div class="drop sidecar" id="original-drop">
+    <p class="call"><label for="original">The original</label></p>
+    <p class="muted">A copy that came back re-compressed, cropped or through a social network has usually lost its proof. Next to the original, this page can show what it lost and what it kept.</p>
+    <input type="file" id="original">
+  </div>
+  <div class="drop sidecar" id="sidecar-drop">
+    <p class="call"><label for="sidecar">A sidecar file</label></p>
+    <p class="muted">When the proof travels beside the file rather than inside it (<code>&lt;filename&gt;.vcap</code>). It is read here, not looked for anywhere.</p>
+    <input type="file" id="sidecar" accept=".vcap,application/json">
+  </div>
+</details>
+
 <div id="out"></div>
-<div class="panel" id="trust">
-  <strong>Transparency logs this page trusts</strong>
-  <p class="muted">A sealed file can carry a proof that its signing key was in a transparency log before the capture (<code>registry</code>). Checking it needs that log's public key, so this page ships with a set — visible here, switchable, and replaceable with your own. The same set is published beside this page as <a href="logs.json"><code>logs.json</code></a>: fetch it, recompute each <code>log_id</code> from its key, and decide for yourself.</p>
-  <ul id="trust-logs"></ul>
-  <p class="muted">Switching all of them off is a supported way to use this page: a proof naming a log you do not follow reads <em>log not trusted</em>, which is missing evidence and not a failure. The rest of the verdict is unchanged.</p>
-  <p><label>Your own trust document <input type="file" id="trust-file" accept=".json,application/json"></label></p>
-  <p><label>or one log, as <code>&lt;log_id&gt;:&lt;base64 spki&gt;</code> <input type="text" id="trust-line" size="40" spellcheck="false"></label> <button type="button" id="trust-add">Trust it</button></p>
-  <p class="muted" id="trust-state"></p>
-</div>
-<div class="panel" id="tsa">
-  <strong>Timestamping authorities this page trusts</strong>
-  <p class="muted">A sealed file can carry an RFC 3161 token binding its proof to an instant (<code>timestamp</code>). Checking it needs that authority's root certificate, so this page ships with a set — visible here, switchable, and replaceable with your own. The same set is published beside this page as <a href="tsa.json"><code>tsa.json</code></a>: fetch it, recompute each fingerprint from its certificate, and decide for yourself. Unlike the logs above, these authorities are run by other people — which is exactly what makes a token worth having, and exactly why what it proves has to be stated narrowly.</p>
-  <ul id="tsa-roots"></ul>
-  <p class="muted">Switching all of them off is a supported way to use this page: a proof carrying a timestamp reads <em>trusted time not evaluated</em>, which is missing evidence and not a failure, and certificates are validated at the instant the device claims instead. The rest of the verdict is unchanged.</p>
-  <p><label>Your own TSA trust document <input type="file" id="tsa-file" accept=".json,application/json"></label></p>
-  <p><label>or one root, as <code>&lt;sha256 fingerprint&gt;:&lt;base64 certificate&gt;</code> <input type="text" id="tsa-line" size="40" spellcheck="false"></label> <button type="button" id="tsa-add">Trust it</button></p>
-  <p class="muted" id="tsa-state"></p>
-</div>
-<div class="panel">
-  <strong>Watermark detector</strong>
-  <p class="muted">Reading a mark out of pixels needs the detector model — around 34 MB. This page never downloads it on its own and never caches it for offline use: without it a watermark reads <em>not evaluated</em>, which is a weaker verdict and not a failure.</p>
-  <p><button type="button" id="load-detector">Load the detector</button> <label class="muted">or use a detection you already have <input type="file" id="evidence" accept=".json,application/json"></label></p>
-  <p class="muted" id="detector-state">no detector loaded — watermarks are not evaluated</p>
-</div>
+</main>
+
+<section class="settings">
+  <h3>What this page trusts</h3>
+  <p class="muted">Every check below can be switched off, and switching one off never turns a verdict into an error — it turns a line of evidence into <em>not evaluated</em>, which is a weaker answer and an honest one.</p>
+
+  <div class="panel" id="trust">
+    <h3>Transparency logs</h3>
+    <p class="muted">A sealed file can prove its signing key was published in a transparency log before the capture. Checking that needs the log's public key, so this page ships with a set — visible here, switchable, replaceable with your own. The same set is published beside this page as <a href="logs.json"><code>logs.json</code></a>: fetch it, recompute each <code>log_id</code> from its key, and decide for yourself.</p>
+    <ul id="trust-logs"></ul>
+    <p class="muted">A proof naming a log you do not follow reads <em>log not trusted</em>. The rest of the verdict is unchanged.</p>
+    <p><label>Your own trust document <input type="file" id="trust-file" accept=".json,application/json"></label></p>
+    <p><label>or one log, as <code>&lt;log_id&gt;:&lt;base64 spki&gt;</code> <input type="text" id="trust-line" size="40" spellcheck="false"></label> <button type="button" id="trust-add">Trust it</button></p>
+    <p class="muted" id="trust-state"></p>
+  </div>
+
+  <div class="panel" id="tsa">
+    <h3>Timestamping authorities</h3>
+    <p class="muted">A sealed file can carry an RFC 3161 token binding its proof to an instant. Checking it needs that authority's root certificate, so this page ships with a set, published beside it as <a href="tsa.json"><code>tsa.json</code></a>. Unlike the logs above these authorities are run by other people — which is what makes a token worth having, and why what it proves has to be stated narrowly.</p>
+    <ul id="tsa-roots"></ul>
+    <p class="muted">With all of them off, a timestamp reads <em>trusted time not evaluated</em> and certificates are validated at the instant the device claims instead.</p>
+    <p><label>Your own TSA trust document <input type="file" id="tsa-file" accept=".json,application/json"></label></p>
+    <p><label>or one root, as <code>&lt;sha256 fingerprint&gt;:&lt;base64 certificate&gt;</code> <input type="text" id="tsa-line" size="40" spellcheck="false"></label> <button type="button" id="tsa-add">Trust it</button></p>
+    <p class="muted" id="tsa-state"></p>
+  </div>
+
+  <div class="panel">
+    <h3>Watermark detector</h3>
+    <p class="muted">Reading an invisible mark out of pixels needs a model of about 34 MB. This page never downloads it on its own and never caches it: without it a watermark reads <em>not evaluated</em>, which is a weaker verdict and not a failure.</p>
+    <p><button type="button" id="load-detector">Load the detector</button> <label class="muted">or use a detection you already have <input type="file" id="evidence" accept=".json,application/json"></label></p>
+    <p class="muted" id="detector-state">no detector loaded — watermarks are not evaluated</p>
+  </div>
+</section>
+
 <footer>
-  What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated by this page yet. A position is never "guaranteed": the page names the level it reaches — declared by the device, or corroborated by a registry this page trusts. The logs it trusts are listed above, and the one it ships with is run by the same people who publish this page: it proves a key was in our log, never that we are honest. The timestamping authorities are listed above too and are run by other people: a token from one proves that a hash existed before an instant, never who made the file.
+  <p>What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated here yet. A position is never “guaranteed”: the page names the level it reaches — declared by the device, or corroborated by a registry it trusts. The log it ships with is run by the same people who publish this page: it proves a key was in our log, never that we are honest. The timestamping authorities are run by other people: a token proves a hash existed before an instant, never who made the file.</p>
   <p>This build: bundle <code id="bundle-hash">{{bundle_sha256}}</code>, from commit <a href="https://github.com/VCAP-org/vcap-verifier/commit/{{commit}}"><code id="commit">{{commit_short}}</code></a>, esbuild {{esbuild}} — <a href="hashes.json">every shipped file, hashed</a>. Offline: <span id="offline">needs a browser with service workers</span>. Rebuild that commit yourself to check them: the <a href="https://github.com/VCAP-org/vcap-verifier#reproducing-the-published-build">README</a> says how.</p>
 </footer>
 <script type="module" src="verifier.js"></script>
