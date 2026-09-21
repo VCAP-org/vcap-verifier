@@ -19,8 +19,11 @@ test('puts the copy next to the original and names what the copy lost', async ({
 
   await page.setInputFiles('#file', copy)
   await expect(page.locator('.verdict h2')).toHaveText('No proof found')
-  // Alone, the copy is a grey verdict and nothing else: no table to compare with.
+  // Alone, the copy gets no comparison table — there is nothing to compare it
+  // with — but it is no longer met with silence: this is the file people
+  // actually arrive with, and the page says the pixels may still carry a mark.
   await expect(page.locator('.compare')).toHaveCount(0)
+  await expect(page.locator('.panel.mark h3')).toHaveText('This file carries no proof — but it may still carry an invisible mark')
 
   await page.setInputFiles('#original', original)
   await expect(page.locator('.pair .verdict h2').first()).toHaveText('No proof found')
@@ -39,6 +42,38 @@ test('puts the copy next to the original and names what the copy lost', async ({
   await expect(row('watermark (§8)').locator('td').nth(1)).toContainText('not evaluated — no detection was available')
   await expect(page.locator('.pair .verdict li', { hasText: 'watermark not evaluated' })).toHaveCount(1)
 
+  await stop(server)
+})
+
+/**
+ * The owner's own photos, straight out of the app and through a chat, landed
+ * here: the trailer stripped, the mark intact, and a page that said "No proof
+ * found" and nothing else — with the detector downloaded. The mark was there
+ * all along (decoded clean, 0 corrected bits, from a copy re-encoded *and*
+ * resized), and the page never looked, because the core evaluates a watermark
+ * only for a proof that declares one and a stripped copy declares nothing.
+ *
+ * The invariant is right and stays: a watermark is never the reason a verdict
+ * is positive. What was wrong was the silence around it.
+ */
+test('a stripped copy is told its pixels may still carry a mark, and how to read it', async ({ page }) => {
+  const { server, url } = await serve()
+  await page.goto(url)
+
+  await page.setInputFiles('#file', copy)
+  await expect(page.locator('.verdict h2')).toHaveText('No proof found')
+  const panel = page.locator('.panel.mark')
+  await expect(panel).toHaveCount(1)
+  await expect(panel).toContainText('Load the detector above and this page will look.')
+  // Not dressed as a verdict: no verdict colour, and outside the verdict card.
+  await expect(panel).not.toHaveClass(/green|amber|red|grey/)
+  await expect(page.locator('.verdict .panel.mark')).toHaveCount(0)
+
+  // A file that does carry its proof gets no such panel: the signature layer
+  // answered, and the invitation would be noise.
+  await page.setInputFiles('#file', original)
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await expect(page.locator('.panel.mark')).toHaveCount(0)
   await stop(server)
 })
 

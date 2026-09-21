@@ -174,6 +174,12 @@ body.has-file .choose { margin-top: var(--s3); padding: var(--s2) var(--s4); }
 .pair { display: grid; gap: var(--s4); grid-template-columns: 1fr; }
 @media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
 
+/* A mark read from a file with no proof: a fact about pixels, deliberately
+   not wearing any colour of the verdict palette. */
+.panel.mark { margin-top: var(--s4); border-left: 6px solid var(--border); }
+.panel.mark h3 { font-size: 1.0625rem; }
+.panel.mark code { font-size: 0.9em; }
+
 details.tech { margin-top: var(--s4); }
 details.tech > summary { cursor: pointer; color: var(--muted); font-size: 0.875rem; }
 

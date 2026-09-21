@@ -1,5 +1,5 @@
 import { evaluateWatermark, verify, type Verdict, type WatermarkClaim, type WatermarkEvidence, type WatermarkOutcome } from 'vcap-verify-core'
-import { card, comparison, trace } from './render.js'
+import { bareMark, card, comparison, trace } from './render.js'
 import { readEvidence } from './evidence.js'
 import { mountTrust, mountTsa, trustedLogs, trustedTsaRoots } from './trust.js'
 import type { Detector, DetectProgress } from './detector.js'
@@ -43,6 +43,13 @@ const inputs = {
   sidecar: document.getElementById('sidecar') as HTMLInputElement,
   evidence: document.getElementById('evidence') as HTMLInputElement
 }
+/**
+ * The registry a capture id can be looked up in. The only server this page
+ * ever names: verification itself needs none, and this is offered to a reader
+ * holding a stripped copy as a thing they may choose to do, never as a step.
+ */
+const TRACE_URL = 'https://console.vcap.gregoriogalante.com/trace'
+
 const out = document.getElementById('out') as HTMLDivElement
 const chosen = document.createElement('p')
 chosen.className = 'chosen'
@@ -104,6 +111,37 @@ const verdictOf = async (file: File, seen: { claim?: WatermarkClaim }, extra: { 
   return verdict
 }
 
+/**
+ * Read the mark out of a file that carries no proof, on its own terms.
+ *
+ * The claim handed to the detector names a layout and nothing else: there is
+ * no signed id to compare against, which is exactly why what comes back is
+ * printed as an identifier and never as a verdict. Choosing the layout from
+ * the mime is the same rule §8 uses to tell a video proof from a photo one.
+ */
+const markAlone = async (file: File): Promise<string> => {
+  if (!detector) {
+    return `<div class="panel mark">
+      <h3>This file carries no proof — but it may still carry an invisible mark</h3>
+      <p class="muted">A copy that came back from a chat app or a social network has usually lost its proof and kept the mark. Load the detector above and this page will look.</p>
+    </div>`
+  }
+  const video = file.type.startsWith('video/')
+  const claim: WatermarkClaim = {
+    layout: video ? 'video-rep-v1' : 'photo-bch-v3',
+    captureId: '',
+    mime: file.type,
+    coreHash: ''
+  }
+  try {
+    const evidence = await detector.detect(new Uint8Array(await file.arrayBuffer()), claim, progress(file.name))
+    say(`Model ${detector.model_version}, running on ${detector.backend}.`, 'ready', 'Invisible watermark: checked in this page')
+    return bareMark(evidence.decoded ?? null, evidence.layout, TRACE_URL)
+  } catch {
+    return ''
+  }
+}
+
 /** A signature that stands: the verdicts where the file speaks for itself. */
 const signed = (v: Verdict): boolean => v.outcome === 'authentic' || v.outcome === 'verified_clip'
 
@@ -127,6 +165,11 @@ const check = async (): Promise<void> => {
 
   if (!original) {
     out.innerHTML = card(copyName, copyVerdict)
+    // A file the signature layer could not speak for may still carry a mark,
+    // and until now the page said nothing about it: the watermark is only
+    // evaluated for a proof that declares one, which a stripped copy does not
+    // have. This is the file people actually arrive with.
+    if (copyVerdict.outcome === 'no_proof_found') out.innerHTML += await markAlone(copy)
     return
   }
 
