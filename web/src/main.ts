@@ -44,8 +44,14 @@ const inputs = {
   evidence: document.getElementById('evidence') as HTMLInputElement
 }
 const out = document.getElementById('out') as HTMLDivElement
+const chosen = document.createElement('p')
+chosen.className = 'chosen'
+;(document.getElementById('drop') as HTMLDivElement).append(chosen)
 const detectorState = document.getElementById('detector-state') as HTMLParagraphElement
 const loadButton = document.getElementById('load-detector') as HTMLButtonElement
+const detectorBar = document.getElementById('detector-bar') as HTMLDivElement
+const detectorTitle = document.getElementById('detector-title') as HTMLHeadingElement
+const detectorMark = detectorBar.querySelector('.mark') as HTMLSpanElement
 
 // What the user has handed over so far. Each arrives on its own and the
 // verdict is recomputed whenever any of them changes, so the order does not
@@ -94,7 +100,7 @@ const verdictOf = async (file: File, seen: { claim?: WatermarkClaim }, extra: { 
     tsaRoots: trustedTsaRoots(),
     watermark: lookup(bytes, extra.detection, seen, file.name)
   })
-  if (detector) say(`detector ${detector.model_version} on ${detector.backend}`)
+  if (detector) say(`Model ${detector.model_version}, running on ${detector.backend}.`, 'ready', 'Invisible watermark: checked in this page')
   return verdict
 }
 
@@ -103,7 +109,16 @@ const signed = (v: Verdict): boolean => v.outcome === 'authentic' || v.outcome =
 
 const check = async (): Promise<void> => {
   const { copy, original, sidecar, detection } = held
-  if (!copy) { out.innerHTML = '<div class="verdict grey"><h2>Drop the file in question</h2></div>'; return }
+  // Nothing rather than a card telling the reader to drop a file: the dropzone
+  // directly above already says that, and the same sentence twice reads as an
+  // answer the page has already given.
+  document.body.classList.toggle('has-file', copy !== undefined)
+  chosen.textContent = copy ? copy.name : ''
+  if (!copy) { out.innerHTML = ''; return }
+
+  // Verifying a large video takes seconds of hashing. Without this the page
+  // looks like it ignored the file.
+  out.innerHTML = '<div class="verdict grey"><p class="lede">Reading the file…</p></div>'
 
   const sidecarBytes = sidecar ? new Uint8Array(await sidecar.arrayBuffer()) : undefined
   const copySeen: { claim?: WatermarkClaim } = {}
@@ -134,7 +149,7 @@ const check = async (): Promise<void> => {
       ? await detector.detect(new Uint8Array(await copy.arrayBuffer()), originalSeen.claim, progress(copy.name))
       : null)
     if (evidence) traced = evaluateWatermark(evidence, originalSeen.claim)
-    if (detector) say(`detector ${detector.model_version} on ${detector.backend}`)
+    if (detector) say(`Model ${detector.model_version}, running on ${detector.backend}.`, 'ready', 'Invisible watermark: checked in this page')
   }
 
   out.innerHTML = [
@@ -163,7 +178,7 @@ const take = async (files: FileList | File[], zone: 'copy' | 'original'): Promis
   if (detection) {
     try {
       held.detection = readEvidence(await detection.text())
-      say(`a detection from ${detection.name} is loaded; no detector ran in this page`)
+      say(`A detection from ${detection.name} is in use. No detector ran in this page.`, 'ready', 'Invisible watermark: read from a detection you supplied')
     } catch {
       // A file that is not a detection changes nothing: the page keeps the
       // verdict it had and says why, rather than failing over a side input.
@@ -173,7 +188,23 @@ const take = async (files: FileList | File[], zone: 'copy' | 'original'): Promis
   if (media || sidecar || detection) void check()
 }
 
-const say = (text: string): void => { detectorState.textContent = text }
+/**
+ * The detector bar's state, in one place.
+ *
+ * It used to be a line of grey text under a button at the foot of the page,
+ * which is why a verdict saying "watermark not evaluated" read as a broken
+ * page: the sentence naming the absence and the control that fills it were
+ * three screens apart. The bar says what the page can check, next to the file
+ * it is checking, and the three states are visible without reading.
+ */
+type Capability = 'off' | 'working' | 'ready'
+const say = (text: string, state: Capability = 'off', title?: string): void => {
+  detectorState.textContent = text
+  if (title !== undefined) detectorTitle.textContent = title
+  detectorBar.classList.toggle('working', state === 'working')
+  detectorBar.classList.toggle('ready', state === 'ready')
+  detectorMark.textContent = state === 'ready' ? '✓' : state === 'working' ? '◍' : '○'
+}
 
 for (const zone of ['copy', 'original'] as const) {
   inputs[zone].addEventListener('change', () => { if (inputs[zone].files) void take(inputs[zone].files as FileList, zone) })
@@ -195,7 +226,7 @@ zones.sidecar.addEventListener('drop', (e) => { e.preventDefault(); zones.sideca
  */
 loadButton.addEventListener('click', () => {
   loadButton.disabled = true
-  say('loading the detector…')
+  say('Fetching the model…', 'working', 'Invisible watermark: loading')
   const url = new URL('detector.js', location.href).href
   const started = performance.now()
   void import(url)
@@ -203,7 +234,7 @@ loadButton.addEventListener('click', () => {
       (loaded, total) => {
         const seconds = (performance.now() - started) / 1000
         const speed = seconds > 0 ? ` · ${(loaded / 1e6 / seconds).toFixed(1)} MB/s` : ''
-        say(`downloading the detector: ${(loaded / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB${speed}`)
+        say(`${(loaded / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB${speed}`, 'working', 'Invisible watermark: downloading')
       }
     ))
     .then((loaded) => {
@@ -211,12 +242,12 @@ loadButton.addEventListener('click', () => {
       // The backend is part of the answer: the same build is 2.3-2.6x slower
       // on one thread, which is what a page served without cross-origin
       // isolation gets, and a timing nobody can place is not a measurement.
-      say(`detector ${loaded.model_version} runs in this page on ${loaded.backend} — downloaded and verified in ${((performance.now() - started) / 1000).toFixed(1)} s`)
+      say(`Model ${loaded.model_version} on ${loaded.backend}, downloaded and verified in ${((performance.now() - started) / 1000).toFixed(1)} s.`, 'ready', 'Invisible watermark: checked in this page')
       void check()
     })
     .catch((error: Error) => {
       loadButton.disabled = false
-      say(`no detector: ${error.message}`)
+      say(`The detector did not load: ${error.message}. Watermarks stay unevaluated, which is a weaker verdict and not a failure.`, 'off', 'Invisible watermark: not checked')
     })
 })
 
