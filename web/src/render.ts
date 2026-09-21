@@ -139,6 +139,41 @@ export const card = (name: string, v: Verdict): string => {
 }
 
 /**
+ * A mark read out of a file that carries no proof.
+ *
+ * This is the case a person actually arrives with: a photo that came back from
+ * a chat app or a social network, re-encoded, its trailer stripped. The
+ * signature layer answers *no proof found* — correctly — and stops, because a
+ * watermark may never be the reason a verdict is positive and the core
+ * enforces that by construction: the watermark is evaluated after the
+ * signature, and a file with no proof never reaches it.
+ *
+ * So the page used to say nothing at all about the pixels, even with the
+ * detector loaded, and a mark that survived the re-encode went unmentioned.
+ * The product has an answer for this file — the payload is the capture id, and
+ * a registry can turn that id into the proof — and the two halves simply never
+ * met on screen.
+ *
+ * What is printed here is deliberately not a verdict: no colour of the verdict
+ * palette, the word "not" in the first sentence, and the id as a fact about
+ * the pixels rather than a claim about the file.
+ */
+export const bareMark = (decoded: string | null, layout: string | null | undefined, traceUrl: string): string => {
+  if (decoded === null) {
+    return `<div class="panel mark">
+      <h3>No invisible mark came back from these pixels</h3>
+      <p class="muted">Which is not proof of anything either: heavy re-compression, a crop or a screenshot can take the mark out, and a file that never carried one looks the same from here.</p>
+    </div>`
+  }
+  return `<div class="panel mark">
+    <h3>An invisible mark is still in these pixels</h3>
+    <p><strong>This is not a verdict of authenticity.</strong> No signature covers these bytes, so nothing here says the picture is unedited or that it is the file that was sealed. What the pixels carry is an identifier, and that is all.</p>
+    <p>It reads <code>${escape(decoded)}</code>${layout ? ` in <code>${escape(layout)}</code>` : ''}.</p>
+    <p class="muted">Two things can be done with it. Drop the <strong>original</strong> above, and this page will compare the two itself, here, with nothing leaving your browser. Or look the identifier up in the registry that issued it — <a href="${escape(traceUrl)}">${escape(traceUrl)}</a> — which is a request to somebody's server, and the only one this page will ever suggest.</p>
+  </div>`
+}
+
+/**
  * The side-by-side table: one row per piece of evidence, read out of each
  * verdict. A row exists when at least one of the two files has something to
  * say about it, so what is missing from the copy is visible next to what the
