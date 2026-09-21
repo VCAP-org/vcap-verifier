@@ -85,7 +85,24 @@ const download = async (url: string, total: number, onProgress: (loaded: number,
  * every failure here leaves the page working and the watermark *not
  * evaluated*, so the message has to say which of the two it is.
  */
-export const loadDetector = async (onProgress: (loaded: number, total: number) => void): Promise<Detector> => {
+/**
+ * Where a load has got to, for a reader watching a bar that would otherwise sit
+ * at "34.2 of 34.2 MB" for minutes.
+ *
+ * The download is the visible part and it is not the long part. After it come
+ * a SHA-256 over 34 MB, and then the engine — onnxruntime-web's WebAssembly
+ * binary, another 27.8 MB fetched by the runtime itself, which no progress
+ * callback of ours can see. On a slow link that second download takes longer
+ * than the first, and a page that says nothing during it is a page the reader
+ * concludes is broken. Naming the phase is the least we can do; pretending
+ * there is one download would be worse than the silence.
+ */
+export type LoadPhase = 'checking' | 'engine'
+
+export const loadDetector = async (
+  onProgress: (loaded: number, total: number) => void,
+  onPhase: (phase: LoadPhase) => void = () => {}
+): Promise<Detector> => {
   const response = await fetch('detector.json')
   if (!response.ok) throw new Error(`detector.json could not be read: ${response.status}`)
   const manifest = await response.json() as DetectorManifest
@@ -93,11 +110,13 @@ export const loadDetector = async (onProgress: (loaded: number, total: number) =
 
   const { url, sha256, bytes, model_version: modelVersion, runtime, execution_providers: providers } = manifest.build
   const model = await download(url, bytes, onProgress)
+  onPhase('checking')
   const digest = toHex(await crypto.subtle.digest('SHA-256', model as BufferSource))
   // A model that hashes to something else is not the model this page vouches
   // for, whatever it would have decoded.
   if (digest !== sha256) throw new Error(`the downloaded model hashes ${digest} and the manifest pins ${sha256}`)
 
+  onPhase('engine')
   const module = await import(new URL(runtime, location.href).href) as Runtime
   return await module.createDetector(model, modelVersion, providers)
 }

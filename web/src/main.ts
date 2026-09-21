@@ -234,7 +234,13 @@ loadButton.addEventListener('click', () => {
       (loaded, total) => {
         const seconds = (performance.now() - started) / 1000
         const speed = seconds > 0 ? ` · ${(loaded / 1e6 / seconds).toFixed(1)} MB/s` : ''
-        say(`${(loaded / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB${speed}`, 'working', 'Invisible watermark: downloading')
+        say(`${(loaded / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB${speed}`, 'working', 'Invisible watermark: downloading the model')
+      },
+      // The two phases after the bytes arrive, which together take longer than
+      // the download on a slow link and used to happen in silence.
+      (phase) => {
+        if (phase === 'checking') say('Checking the model against the digest this page pins.', 'working', 'Invisible watermark: checking the model')
+        else say('Fetching the WebAssembly engine — about 28 MB more, once.', 'working', 'Invisible watermark: starting the engine')
       }
     ))
     .then((loaded) => {
