@@ -18,7 +18,10 @@ test('verifies vectors with the server gone and the browser offline', async ({ p
   await stop(server)
   await context.setOffline(true)
   await page.reload()
-  await expect(page.locator('h1')).toHaveText('vcap verifier')
+  // The page identifies itself in the masthead; the `h1` is the question it
+  // answers, which is what a reader arriving with a photo is looking for.
+  await expect(page.locator('header .brand')).toHaveText('vcap verifier')
+  await expect(page.locator('h1')).toHaveText('Is this photo or video real?')
 
   await page.setInputFiles('#file', join(vectors, '01-jpeg-sealed/input.jpg'))
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
