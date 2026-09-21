@@ -126,12 +126,16 @@ test('the detector is fetched on a click and never on load, and its absence is a
   // The page is complete and nothing about the detector has been asked for.
   expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(false)
   expect(requested.some((p) => p.endsWith('/detector.json'))).toBe(false)
-  await expect(page.locator('#detector-state')).toHaveText('no detector loaded — watermarks are not evaluated')
+  // The absence is stated where the reader is about to need it: the bar's
+  // title, next to the file, and not a line of grey text at the foot.
+  await expect(page.locator('#detector-title')).toHaveText('Invisible watermark: not checked')
+  await expect(page.locator('#detector-bar')).not.toHaveClass(/ready/)
 
   await page.click('#load-detector')
   // The reader gets the reason, and the verdict on screen is untouched: a
   // detector that cannot be had is *watermark not evaluated*, not a failure.
-  await expect(page.locator('#detector-state')).toContainText('no detector: the model could not be fetched: 404')
+  await expect(page.locator('#detector-state')).toContainText('The detector did not load: the model could not be fetched: 404')
+  await expect(page.locator('#detector-title')).toHaveText('Invisible watermark: not checked')
   expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(true)
   expect(requested.some((p) => p.endsWith('/detector.json'))).toBe(true)
   await expect(page.locator('.verdict h2')).toContainText('Authentic')

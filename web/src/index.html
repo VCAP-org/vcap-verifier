@@ -88,6 +88,47 @@ header .claim { margin-top: var(--s3); max-width: 42rem; }
 .drop input[type=file] { display: block; margin: var(--s4) auto 0; max-width: 100%; }
 .drop .muted { margin-top: var(--s2); }
 
+/* The file control: the input does the work, the label is what a person sees.
+   `sr-only` rather than `display:none` — a hidden input is still the thing a
+   keyboard and a screen reader operate, and hiding it outright would take the
+   page's only job away from both. */
+.choose {
+  display: inline-block; margin-top: var(--s4); cursor: pointer;
+  font-weight: 600; color: var(--on-action); background: var(--action);
+  border-radius: var(--r-sm); padding: var(--s3) var(--s5); min-height: 44px;
+}
+#file {
+  position: absolute; width: 1px; height: 1px; padding: 0;
+  margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+#file:focus-visible + .choose, .choose:has(+ #file:focus-visible) { outline: 2px solid var(--action); outline-offset: 2px; }
+.drop .chosen { margin-top: var(--s3); font-weight: 600; }
+
+/* Once there is a file the answer matters more than the invitation, so the
+   dropzone gives up its height rather than pushing the verdict down a screen. */
+body.has-file .drop { padding: var(--s4); }
+body.has-file .drop .call { font-size: 1rem; }
+body.has-file .drop .muted { display: none; }
+body.has-file .choose { margin-top: var(--s3); padding: var(--s2) var(--s4); }
+
+/* Capability bar: what the page can check, next to the thing it checks. */
+.capability {
+  margin-top: var(--s4); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: var(--s4); background: var(--background);
+  display: flex; flex-wrap: wrap; gap: var(--s4);
+  align-items: center; justify-content: space-between;
+}
+.capability-head { display: flex; gap: var(--s3); align-items: flex-start; }
+.capability .mark { font-size: 1.25rem; line-height: 1.2; color: var(--muted); }
+.capability h3 { font-size: 0.9375rem; }
+.capability .muted { margin-top: var(--s1); max-width: 34rem; }
+.capability-actions { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; }
+.capability.ready { border-color: var(--green); background: var(--green-wash); }
+.capability.ready .mark { color: var(--green); }
+.capability.working { border-color: var(--action); }
+.capability.working .mark { color: var(--action); }
+.capability.ready .capability-actions { display: none; }
+
 /* The two extra files are a disclosure: most readers have one file, and three
    file pickers at once is the page asking a question nobody came with. */
 .more { margin-top: var(--s4); }
@@ -186,9 +227,32 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
 
 <main>
 <div class="drop" id="drop">
-  <p class="call"><label for="file">Drop the file here</label></p>
-  <p class="muted">a sealed photo or video — or choose it:</p>
+  <p class="call">Drop the file here</p>
+  <p class="muted">a sealed photo or video</p>
+  <!-- The native control is the input; the label is what a person sees and
+       clicks. A bare "Choose file / no file selected" is the browser's idea of
+       a form, not an invitation, and this page's whole job starts here. -->
+  <label class="choose" for="file">Choose a file</label>
   <input type="file" id="file" multiple>
+</div>
+
+<!-- What this page can and cannot check right now, said where the reader is
+     about to need it instead of at the foot of the page. The watermark is the
+     one capability that is off by default, and a verdict reading "watermark
+     not evaluated" with the remedy three screens below it reads as a page that
+     does not work. It is a statement of capability, not a setting. -->
+<div class="capability" id="detector-bar">
+  <div class="capability-head">
+    <span class="mark" aria-hidden="true">○</span>
+    <div>
+      <h3 id="detector-title">Invisible watermark: not checked</h3>
+      <p class="muted" id="detector-state">Reading a mark out of pixels needs a model of about 34 MB. This page never downloads it on its own and never keeps it.</p>
+    </div>
+  </div>
+  <div class="capability-actions">
+    <button type="button" id="load-detector">Load the detector · 34 MB</button>
+    <label class="muted">or use a detection you already have <input type="file" id="evidence" accept=".json,application/json"></label>
+  </div>
 </div>
 
 <!-- Two more files help in two specific situations, and neither is the common
@@ -234,12 +298,6 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
     <p class="muted" id="tsa-state"></p>
   </div>
 
-  <div class="panel">
-    <h3>Watermark detector</h3>
-    <p class="muted">Reading an invisible mark out of pixels needs a model of about 34 MB. This page never downloads it on its own and never caches it: without it a watermark reads <em>not evaluated</em>, which is a weaker verdict and not a failure.</p>
-    <p><button type="button" id="load-detector">Load the detector</button> <label class="muted">or use a detection you already have <input type="file" id="evidence" accept=".json,application/json"></label></p>
-    <p class="muted" id="detector-state">no detector loaded — watermarks are not evaluated</p>
-  </div>
 </section>
 
 <footer>
