@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { canonicalBytes, coreHashOf, evaluateWatermark, extractCore, jcs, parseTrailer, toBase64url, toHex, verify } from '../src/index.js'
+import { VIDEO_AGREEMENT_FLOOR, canonicalBytes, coreHashOf, evaluateWatermark, extractCore, jcs, parseTrailer, toBase64url, toHex, verify } from '../src/index.js'
 import type { WatermarkClaim, WatermarkEvidence } from '../src/watermark.js'
 import { sha256, subtle } from '../src/sha.js'
 import { genKey } from './fixtures.js'
@@ -181,6 +181,75 @@ describe('§8 — "Invalidating — red": a payload that decodes to another id',
   })
 })
 
+/**
+ * `watermark-layouts-1.0.md` *The agreement floor*, and the §8 outcome it maps
+ * onto. The figures are the ones that produced the rule: a campaign of 38
+ * recordings on one phone where two clips resolved an id their pixels had
+ * never been given, at 0.738 and 0.789, while correct ids came back as low as
+ * 0.727. The floor refuses all four.
+ */
+describe('§8 — a `video-rep-v1` id below the agreement floor', () => {
+  const video: WatermarkClaim = { layout: 'video-rep-v1', captureId: CAPTURE_ID, markId: 11074285, mime: 'video/mp4', coreHash: 'ff' }
+  const decode = (decoded: string, agreement: number) => evaluateWatermark({ layout: 'video-rep-v1', decoded, agreement }, video)
+
+  it('pins the floor the layout states', () => {
+    expect(VIDEO_AGREEMENT_FLOOR).toBe(0.85)
+  })
+
+  it('does not report the wrong id the campaign resolved at 0.738 and 0.789', () => {
+    for (const agreement of [0.738, 0.789]) {
+      const v = decode('4290898', agreement)
+      expect(v.result).toBe('not_recovered')
+      expect(v.id_refused).toBe(true)
+      // Not *contradicted*: a decode nobody may report is not evidence
+      // against the file that carried it. Before the floor this was red.
+      expect(v.detail).toContain('a mark may be present and its id is not resolvable')
+      expect(v.detail).not.toContain('4290898')
+      expect(v.agreement).toBe(agreement)
+    }
+  })
+
+  it('costs the correct ids under the floor too, and says so in the same words', () => {
+    // 0.727 is the campaign's worst *correct* recovery, below a wrong one at
+    // 0.738. The populations overlap, so this is what the rule buys honesty
+    // with: a true answer refused, printed exactly like a false one.
+    const v = decode('11074285', 0.727)
+    expect(v.result).toBe('not_recovered')
+    expect(v.id_refused).toBe(true)
+  })
+
+  it('is inclusive at the floor and resolves above it', () => {
+    expect(decode('11074285', 0.85).result).toBe('matched')
+    expect(decode('11074285', 0.8499).result).toBe('not_recovered')
+    // The worst synthetic chain measured to recover: the floor may never
+    // refuse it, which is what fixes it below 0.87.
+    expect(decode('11074285', 0.87).result).toBe('matched')
+  })
+
+  it('reports no id at all when the detection carries no agreement figure', () => {
+    // The layout's only discriminator, absent: evidence this verifier cannot
+    // read, never a match on a checksum that passes one word in 256.
+    const v = evaluateWatermark({ layout: 'video-rep-v1', decoded: '11074285' }, video)
+    expect(v.result).toBe('not_evaluated')
+    expect(v.detail).toContain('no agreement figure')
+  })
+
+  it('takes a detector\'s own refusal as the sentence, never as an outcome', () => {
+    // The page's decoder applies the floor itself, so no unbelievable id ever
+    // reaches a progress line: it reports no id and says why.
+    const v = evaluateWatermark({ layout: 'video-rep-v1', decoded: null, agreement: 0.74, id_refused: true }, video)
+    expect(v.result).toBe('not_recovered')
+    expect(v.id_refused).toBe(true)
+    // And with the hint absent the outcome is identical — it moves nothing.
+    expect(evaluateWatermark({ layout: 'video-rep-v1', decoded: null, agreement: 0.74 }, video).result).toBe('not_recovered')
+  })
+
+  it('leaves `photo-bch-v3` alone: its block code has nothing for a floor to catch', async () => {
+    const v = await run(seen(CAPTURE_ID))
+    expect(v.labels).toContain('watermark matched')
+  })
+})
+
 describe('the evidence is data from an untrusted caller', () => {
   const claim: WatermarkClaim = { layout: 'photo-bch-v3', captureId: CAPTURE_ID, mime: 'image/jpeg', coreHash: 'ff' }
 
@@ -206,9 +275,11 @@ describe('the evidence is data from an untrusted caller', () => {
 
   it('refuses a mark id outside the 24 bits the layout carries', () => {
     const video: WatermarkClaim = { layout: 'video-rep-v1', captureId: CAPTURE_ID, markId: 1, mime: 'video/mp4', coreHash: 'ff' }
-    expect(evaluateWatermark({ decoded: '16777216' }, video).result).toBe('not_evaluated')
-    expect(evaluateWatermark({ decoded: '16777215' }, video).result).toBe('contradicted')
-    expect(evaluateWatermark({ decoded: '1' }, video).result).toBe('matched')
+    // Every one carries an agreement above the floor: without it no
+    // `video-rep-v1` id is reportable at all, which is the test below.
+    expect(evaluateWatermark({ decoded: '16777216', agreement: 0.98 }, video).result).toBe('not_evaluated')
+    expect(evaluateWatermark({ decoded: '16777215', agreement: 0.98 }, video).result).toBe('contradicted')
+    expect(evaluateWatermark({ decoded: '1', agreement: 0.98 }, video).result).toBe('matched')
   })
 
   it('does not answer a question it was not asked: a detection of another layout', () => {
@@ -260,7 +331,9 @@ describe('the evidence is data from an untrusted caller', () => {
     })
 
     it('says nothing about frames when the detector did not count them', () => {
-      const outcome = evaluateWatermark({ layout: 'video-rep-v1', decoded: '5902388', frames_sampled: 8 }, clip)
+      // The agreement stays: a count may be missing, the layout's own figure
+      // may not, or there is no reportable id at all.
+      const outcome = evaluateWatermark({ layout: 'video-rep-v1', decoded: '5902388', frames_sampled: 8, agreement: 0.99 }, clip)
 
       expect(outcome.result).toBe('matched')
       expect(outcome.frames_with_id).toBeUndefined()

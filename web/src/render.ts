@@ -287,7 +287,12 @@ export const trace = (outcome: WatermarkOutcome): string => {
   const headline: Record<WatermarkOutcome['result'], string> = {
     matched: 'Origin traced — the copy\'s pixels carry the id the original declares',
     contradicted: 'A different id — the pixels carry a mark, and it is not the original\'s',
-    not_recovered: 'Nothing recovered — the watermark did not survive either',
+    // Both are *not recovered* to the specification, and they are two different
+    // things to a reader: nothing came back, against something came back that
+    // may not be believed. Neither says anything about an id.
+    not_recovered: outcome.id_refused === true
+      ? 'A mark may be present — its id could not be resolved'
+      : 'Nothing recovered — the watermark did not survive either',
     not_evaluated: 'Watermark not evaluated against the original'
   }
   const css: Record<WatermarkOutcome['result'], string> = {

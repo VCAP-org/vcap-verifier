@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { crc8, decodePhoto, decodeVideo } from '../src/layouts.js'
+import { VIDEO_AGREEMENT_FLOOR, crc8, decodePhoto, decodeVideo } from '../src/layouts.js'
+import { VIDEO_AGREEMENT_FLOOR as CORE_FLOOR } from 'vcap-verify-core'
 
 /**
  * The layout port against the vectors that pin it. `test/layouts.json` is the
@@ -83,7 +84,7 @@ describe('photo-bch-v3', () => {
 describe('video-rep-v1', () => {
   it('decodes every vector, unanimously', () => {
     for (const { mark_id: id, message } of vectors['video-rep-v1'].cases) {
-      expect(decodeVideo(logits(message))).toEqual({ markId: id, agreement: 1 })
+      expect(decodeVideo(logits(message))).toEqual({ markId: id, agreement: 1, refused: false })
     }
   })
 
@@ -93,12 +94,36 @@ describe('video-rep-v1', () => {
     }
   })
 
-  it('survives a fifth of the bits and reports how unanimous it was', () => {
+  it('survives errors up to the floor and reports how unanimous it was', () => {
     const { mark_id: id, message } = vectors['video-rep-v1'].cases[1]!
-    const decoded = decodeVideo(flip(logits(message), 51, 7))
+    const decoded = decodeVideo(flip(logits(message), 38, 7))
     expect(decoded.markId).toBe(id)
     expect(decoded.agreement).toBeLessThan(1)
-    expect(decoded.agreement).toBeGreaterThan(0.7)
+    expect(decoded.agreement).toBeGreaterThanOrEqual(VIDEO_AGREEMENT_FLOOR)
+  })
+
+  /**
+   * `watermark-layouts-1.0.md` *The agreement floor*. The layout refuses an id
+   * the checksum accepted, because eight bits of CRC pass by chance one word
+   * in 256 and on real recordings that happened twice in 38, at 0.738 and
+   * 0.789, handing back an id the pixels had never carried.
+   */
+  it('refuses a mark id the crc accepted below the floor, and keeps the figure', () => {
+    const { message } = vectors['video-rep-v1'].cases[1]!
+    // Three more flipped positions than the test above — the same correct id
+    // underneath, and the decoder now declines to report it. That is the cost
+    // of the rule, and it is deliberate: at this agreement a correct id and a
+    // wrong one are not distinguishable.
+    const decoded = decodeVideo(flip(logits(message), 39, 7))
+    expect(decoded.markId).toBeNull()
+    expect(decoded.refused).toBe(true)
+    expect(decoded.agreement).toBeLessThan(VIDEO_AGREEMENT_FLOOR)
+  })
+
+  it('keeps the floor equal to the one the core enforces', () => {
+    // Two files hold the constant — the detector artifact stays free of the
+    // core — and a verdict follows the core's. They may never differ.
+    expect(CORE_FLOOR).toBe(VIDEO_AGREEMENT_FLOOR)
   })
 
   it('reports not recovered, with the agreement, when the crc rejects the vote', () => {
