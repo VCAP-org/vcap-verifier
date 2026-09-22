@@ -220,6 +220,10 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 .verdict h2 { font-size: 1rem; font-weight: 600; color: var(--muted); margin-top: var(--s3); }
 .verdict .file-line { margin-top: var(--s1); font-size: 0.875rem; color: var(--muted); }
 .verdict .position { margin-top: var(--s4); font-weight: 600; }
+/* How much of a clip carried the mark. Not muted and not inside the technical
+   section: "1 of 8" and "8 of 8" are two different situations, and a reader
+   who has to open a disclosure to learn which one they are in will not. */
+.verdict .carried { margin-top: var(--s4); }
 /* The ceilings. They are the specification's words and they stay them — but a
    bullet list of seven grey phrases inside a green card reads as a list of
    faults, which is the opposite of what a ceiling is. As chips under a line

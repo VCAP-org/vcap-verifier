@@ -1,4 +1,8 @@
 import type { Verdict, WatermarkEvidence, WatermarkOutcome } from 'vcap-verify-core'
+// The sampling policy, not a second copy of it: the page explains a refusal by
+// the same count `detector-runtime.ts` samples at, and importing the runtime
+// here would pull the engine into the bundle.
+import { VIDEO_FRAMES } from './sampling.js'
 
 /**
  * Everything the page prints. The rule for every string here: the outcome and
@@ -105,6 +109,54 @@ const figures = (w: WatermarkOutcome): string => {
   return parts.length > 0 ? ` [${parts.join(', ')}]` : ''
 }
 
+/**
+ * How much of a clip carried the mark, in the words of somebody who has not
+ * read §8 — and the reason this page prints a count at all.
+ *
+ * "The payload carries the declared mark id" is true of a clip that is the
+ * capture and equally true of foreign footage with one genuine frame cut into
+ * it: an unmarked frame abstains rather than dissenting, so the averaged
+ * decode is set by any single marked frame and reports the real id at the
+ * agreement of a clean recovery (0.996, measured). The agreement figure cannot
+ * separate the two and must never be shown as if it could. The count can, and
+ * a reader who is shown "8 of 8" and a reader who is shown "1 of 8" are
+ * looking at two different situations.
+ *
+ * The count says **where** the mark is, never **whether** it is: whether is
+ * the clip's own decode, which already answered. Hence three sentences and not
+ * two, because zero is not a small number here but a different statement.
+ * Every frame is held to the same 0.85 floor the clip's answer was held to,
+ * and on the build this page ships the hardest surviving chain is under that
+ * floor from one frame and over it from eight — so a genuine, wholly marked
+ * clip can legitimately have no frame that resolved alone
+ * (`vcap-ml/reports/frames-to-recover.md`). Reading zero as evidence of a
+ * splice would convict exactly those clips, and for the same reason the count
+ * is never a floor of its own: requiring one frame to pass individually would
+ * refuse the clips averaging exists for.
+ */
+const carriedNote = (w: { frames_with_id?: number | null, frames_sampled?: number | null }): string => {
+  const carried = w.frames_with_id
+  const sampled = w.frames_sampled
+  if (carried === null || carried === undefined || sampled === null || sampled === undefined || sampled < 1) return ''
+  if (carried === 0) {
+    return `The mark is there — the ${sampled} sampled frames read together resolve it — but no single frame carried it clearly enough on its own, which is what heavy re-compression does to a clip. So this page can say the mark is in the file and not how much of the file carries it.`
+  }
+  if (carried >= sampled) {
+    return `All ${sampled} frames sampled across the clip carry the mark on their own, so the mark runs through the clip rather than sitting in one frame of it.`
+  }
+  return `${carried} of the ${sampled} frames sampled across the clip carry the mark on their own; the other ${sampled - carried} do not. That can be a genuine recording the codec hit hardest in places — or footage with a piece of that capture cut into it, which is the case no single confidence figure can tell apart.`
+}
+
+/** The count on its own line, above the fold: a qualifier inside a collapsed section is a qualifier nobody reads. */
+const carriedParagraph = (w: { frames_with_id?: number | null, frames_sampled?: number | null }, css = ''): string => {
+  const note = carriedNote(w)
+  return note === '' ? '' : `<p${css === '' ? '' : ` class="${css}"`}>${escape(note)}</p>`
+}
+
+/** Only next to a reported id: a count of frames carrying nothing is not a fact about the clip. */
+const carriedLine = (w: WatermarkOutcome | undefined): string =>
+  w !== undefined && w.result === 'matched' ? carriedParagraph(w, 'carried') : ''
+
 export const card = (name: string, v: Verdict): string => {
   // The ceilings, and they keep the specification's words: these are what the
   // verdict does **not** reach, and a paraphrase would be a different claim
@@ -143,6 +195,7 @@ export const card = (name: string, v: Verdict): string => {
     <h2>${escape(TITLE[v.outcome])}</h2>
     <div class="file-line">${escape(name)}</div>
     ${position(v)}
+    ${carriedLine(v.watermark)}
     ${lines.length
       ? `<div class="limits"><p class="limits-head">What this verdict does not cover</p><ul class="chips">${lines.join('')}</ul></div>`
       : ''}
@@ -194,6 +247,7 @@ export const bareMark = (evidence: WatermarkEvidence, traceUrl: string): string 
     <h3>An invisible mark is still in these pixels</h3>
     <p><strong>This is not a verdict of authenticity.</strong> No signature covers these bytes, so nothing here says the picture is unedited or that it is the file that was sealed. What the pixels carry is an identifier, and that is all.</p>
     <p>It reads <code>${escape(decoded)}</code>${layout ? ` in <code>${escape(layout)}</code>` : ''}.</p>
+    ${carriedParagraph(evidence)}
     <p class="muted">Two things can be done with it. Drop the <strong>original</strong> above, and this page will compare the two itself, here, with nothing leaving your browser. Or look the identifier up in the registry that issued it, which is a request to somebody's server and the only one this page will ever suggest.</p>
     <p><a class="btn secondary" href="${escape(traceUrl)}/${escape(decoded)}" rel="noreferrer">Look this identifier up in the registry</a></p>
   </div>`
@@ -288,9 +342,6 @@ export const comparison = (copy: { name: string, verdict: Verdict }, original: {
   </table>`
 }
 
-/** Frames past which the measured margin stops improving (`watermark-robustness-1.0.md`). */
-const SETTLED_FRAMES = 8
-
 /**
  * Whether reading more of the clip would change a refusal — the question a
  * reader of *not recovered* actually has, and one only the frame count can
@@ -307,8 +358,8 @@ const SETTLED_FRAMES = 8
 const frameNote = (w: { frames_sampled?: number | null }): string => {
   const frames = w.frames_sampled
   if (frames === null || frames === undefined || frames < 1) return ''
-  return frames >= SETTLED_FRAMES
-    ? ` Reading more of the clip would not change this: ${frames} frames were averaged, and past ${SETTLED_FRAMES} the measurements show no further gain.`
+  return frames >= VIDEO_FRAMES
+    ? ` Reading more of the clip would not change this: ${frames} frames were averaged, and past ${VIDEO_FRAMES} the measurements show no further gain.`
     : ` Reading more of the clip could change this: only ${frames === 1 ? 'one frame was' : `${frames} frames were`} averaged, and this model needs about four before the hardest clip that survives at all clears the floor.`
 }
 
@@ -341,7 +392,7 @@ export const trace = (outcome: WatermarkOutcome): string => {
     matched: 'traced', contradicted: 'red', not_recovered: 'grey', not_evaluated: 'grey'
   }
   const caveat = outcome.result === 'matched'
-    ? '<p><strong>This is not a verdict of authenticity.</strong> No valid signature covers these bytes, so nothing here says the pixels are unedited or that the file is the one that was sealed — only that a mark the original declares came back out of them.</p>'
+    ? `<p><strong>This is not a verdict of authenticity.</strong> No valid signature covers these bytes, so nothing here says the pixels are unedited or that the file is the one that was sealed — only that a mark the original declares came back out of them.</p>${carriedLine(outcome)}`
     : outcome.id_refused === true
       ? `<p><strong>This is not a wrong id — it is no id.</strong> Something came back out of the pixels and the copies of it disagreed too much to name one, so the page says nothing rather than risk pointing you at somebody else's recording.${frameNote(outcome)}</p>`
       : ''

@@ -204,3 +204,30 @@ test('two identical files lose nothing, and the table says so on every row', asy
   await expect(page.locator('.compare tbody tr.differs')).toHaveCount(0)
   await stop(server)
 })
+
+/**
+ * The count, on the page, for a clip whose proof binds a `mark_id`.
+ *
+ * Both detections below report the same id at the same agreement, and before
+ * the count the page rendered them identically — which is the splice: one
+ * genuine frame in foreign footage reports the real id at the agreement of a
+ * clean recovery, because an unmarked frame abstains rather than dissenting.
+ * The sentence sits outside the technical disclosure, because a qualifier a
+ * reader has to open a section to find is a qualifier they will not read.
+ */
+test('a clip says how many of its sampled frames carried the mark', async ({ page }) => {
+  const clip = join(vectors, '85-mp4-container-ios-sealed/input.mp4')
+  const { server, url } = await serve()
+  await page.goto(url)
+  await page.setInputFiles('#file', clip)
+
+  await page.setInputFiles('#evidence', join(fixtures, 'detection-clip-spliced.json'))
+  await expect(page.locator('.verdict li', { hasText: 'watermark matched' })).toHaveCount(1)
+  await expect(page.locator('.verdict .carried')).toContainText('1 of the 8 frames sampled across the clip')
+  await expect(page.locator('.verdict .carried')).toContainText('cut into it')
+
+  await page.setInputFiles('#evidence', join(fixtures, 'detection-clip-whole.json'))
+  await expect(page.locator('.verdict .carried')).toContainText('All 8 frames sampled across the clip')
+  await expect(page.locator('.verdict .carried')).not.toContainText('cut into it')
+  await stop(server)
+})

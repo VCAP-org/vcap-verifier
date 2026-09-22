@@ -340,6 +340,17 @@ describe('the evidence is data from an untrusted caller', () => {
       expect(outcome.detail).toBe('the payload carries the declared mark id')
     })
 
+    /** "n of m" is one claim: a count larger than the frames it came from, or with no m beside it, is unreadable rather than weak. */
+    it('drops a count with no denominator, or one larger than it', () => {
+      const tooMany = evaluateWatermark({ ...evidence(9), frames_sampled: 8 }, clip)
+      const { frames_sampled: _dropped, ...noDenominator } = evidence(1)
+      const orphan = evaluateWatermark(noDenominator, clip)
+
+      expect(tooMany.frames_with_id).toBeUndefined()
+      expect(tooMany.detail).toBe('the payload carries the declared mark id')
+      expect(orphan.frames_with_id).toBeUndefined()
+    })
+
     it('drops a count that is not a number, like every other reported figure', () => {
       const outcome = evaluateWatermark({ ...evidence(1), frames_with_id: Number.NaN }, clip)
 

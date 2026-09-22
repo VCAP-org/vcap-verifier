@@ -16,6 +16,15 @@ part of correctness:
   wrong `mark_id` points a reader at somebody else's capture. The floor is
   `VIDEO_AGREEMENT_FLOOR` in the core, exported for the surfaces that apply it
   before they report — never re-derived, never printed alongside the refused id.
+- A clip's *watermark matched* says **how much of the clip carried it**: the id
+  comes from the sampled frames averaged and decoded once, the count comes from
+  the same frames decoded individually, and both are held to the floor. An
+  unmarked frame abstains rather than dissents, so one genuine frame spliced
+  into foreign footage reports the real id at the agreement of a clean
+  recovery — the count is the only thing that sees it, and `agreement` is never
+  shown as if it did. A count of zero is a limitation and not an accusation:
+  on the shipped build the hardest surviving chain clears the floor over eight
+  frames and not over one.
 - The verifier must be able to say **no proof found** without embarrassment. One
   that cannot does not deserve trust.
 
