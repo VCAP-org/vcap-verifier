@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { VIDEO_AGREEMENT_FLOOR, crc8, decodeClip, decodePhoto, decodeVideo } from '../src/layouts.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { VIDEO_AGREEMENT_FLOOR, crc8, decodeClip, decodePhoto, decodeVideo, readClip } from '../src/layouts.js'
+import type { VideoPayload } from '../src/layouts.js'
 import { VIDEO_AGREEMENT_FLOOR as CORE_FLOOR } from 'vcap-verify-core'
 
 /**
@@ -202,24 +203,28 @@ describe('video-rep-v1, over the frames of a clip', () => {
   })
 
   /**
-   * Why the id is not taken frame by frame. On the int8 build the browser
-   * ships, the hardest chain that survives at all reads 39 flipped bits from
-   * one frame — agreement 0.848, under the floor — and 35 from eight
-   * (`vcap-ml/reports/frames-to-recover.md`). A page that required a frame to
-   * pass on its own would refuse that clip; averaging still recovers it, and
-   * the count honestly says no frame resolved alone.
+   * Why the id is not taken frame by frame, and why the floor does not gate
+   * the count. On the int8 build the browser ships, the hardest chain that
+   * survives at all reads 39 flipped bits from one frame — agreement 0.848,
+   * under the floor — and 35 from eight (`vcap-ml/reports/frames-to-recover.md`).
+   * A page that required a frame to *report* an id on its own would refuse
+   * that clip, so the id comes from the average. And a page that held the
+   * count to the floor as well reported *0 of 8* for a clip marked throughout,
+   * below the *1 of 8* of a splice: each of these frames decodes to the clip's
+   * id, and each is under the floor, so each counts.
    */
-  it('still recovers a clip no single frame could report, and says so with a zero', () => {
+  it('counts a frame that decodes to the clip id although the floor refuses that frame an id', () => {
     const frames = Array.from({ length: 8 }, (_, i) => flipRun(marked(), i * 32, 39))
     for (const frame of frames) {
       const alone = decodeVideo(frame)
       expect(alone.markId).toBeNull()
+      expect(alone.refused).toBe(true)
       expect(alone.agreement).toBeLessThan(VIDEO_AGREEMENT_FLOOR)
     }
     const clip = decodeClip(frames)
     expect(clip.markId).toBe(markIdOf())
     expect(clip.agreement).toBeGreaterThanOrEqual(VIDEO_AGREEMENT_FLOOR)
-    expect(clip.framesWithId).toBe(0)
+    expect(clip.framesWithId).toBe(8)
   })
 
   /** No id to count against is not a count of zero: nothing was reported to carry. */
@@ -238,5 +243,57 @@ describe('video-rep-v1, over the frames of a clip', () => {
     const clip = decodeClip([marked(0), ...Array.from({ length: 7 }, () => marked(1))])
     expect(clip.markId).toBe(markIdOf(1))
     expect(clip.framesWithId).toBe(7)
+  })
+})
+
+/**
+ * The normative gate for everything above: `vectors/_watermark/clip-reading.json`
+ * in `vcap-spec`, six cases chosen where the aggregate decode and the
+ * per-frame decodes disagree — which is where two implementations of ours
+ * already did.
+ *
+ * The cases are **readings** and not pixels: an id, an agreement and a CRC
+ * verdict per frame, plus the same for the clip. So they are run against
+ * `readClip`, which is that rule and nothing else, rather than through a
+ * detector — no logits reproduce those exact agreements, and a fixture built
+ * to approximate them would pin our arithmetic instead of the spec's rule.
+ */
+describe('video-rep-v1 clip reading, against the pinned vectors', () => {
+  // The submodule is the source of truth and `core/vectors` is the snapshot
+  // `vectors-sync.mjs --check` keeps equal to it, so a checkout without the
+  // submodule still runs the vectors — and neither missing is a pass.
+  const dir = new URL('../../spec/vectors/_watermark/clip-reading.json', import.meta.url)
+  const file = existsSync(dir) ? dir : new URL('../../core/vectors/_watermark/clip-reading.json', import.meta.url)
+  if (!existsSync(file)) throw new Error('[vcap] no clip-reading.json in the spec submodule or the snapshot: run `git submodule update --init` (a suite that runs no vectors is a failure, not a pass)')
+
+  interface Reading { agreement: number, crc_passes: boolean, mark_id: number | null }
+  const pinned = JSON.parse(readFileSync(file, 'utf8')) as {
+    floor: number
+    cases: Array<{
+      name: string
+      clip: Reading
+      frames: Reading[]
+      reported: { mark_id: number | null, frames_with_id: number | null, sampled: number, agreement: number }
+    }>
+  }
+
+  /** A pinned reading as a block decode: the CRC has spoken, the floor has not. */
+  const block = ({ agreement, crc_passes: passes, mark_id: markId }: Reading): VideoPayload =>
+    ({ markId: passes ? markId : null, agreement, refused: false })
+
+  it('pins the same floor the layout fixes', () => {
+    expect(pinned.floor).toBe(VIDEO_AGREEMENT_FLOOR)
+  })
+
+  it('runs every case the corpus carries', () => {
+    expect(pinned.cases.length).toBeGreaterThan(0)
+  })
+
+  it.each(pinned.cases)('$name', ({ clip, frames, reported }) => {
+    const read = readClip(block(clip), frames.map(block))
+    expect(read.markId === null ? null : String(read.markId)).toBe(reported.mark_id === null ? null : String(reported.mark_id))
+    expect(read.framesWithId).toBe(reported.frames_with_id)
+    expect(read.agreement).toBe(reported.agreement)
+    expect(frames.length).toBe(reported.sampled)
   })
 })

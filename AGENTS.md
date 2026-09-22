@@ -18,13 +18,17 @@ part of correctness:
   before they report — never re-derived, never printed alongside the refused id.
 - A clip's *watermark matched* says **how much of the clip carried it**: the id
   comes from the sampled frames averaged and decoded once, the count comes from
-  the same frames decoded individually, and both are held to the floor. An
+  the same frames decoded individually, and the floor is held against the id
+  alone: a frame counts when its own decode passes the CRC and yields the id
+  the clip reported, whatever its own agreement was, because the count names no
+  id and equality against an already-floored id is what the floor supplied. An
   unmarked frame abstains rather than dissents, so one genuine frame spliced
   into foreign footage reports the real id at the agreement of a clean
   recovery — the count is the only thing that sees it, and `agreement` is never
-  shown as if it did. A count of zero is a limitation and not an accusation:
-  on the shipped build the hardest surviving chain clears the floor over eight
-  frames and not over one.
+  shown as if it did — and the figure beside the id is the aggregate decode's
+  own, never a mean over the frames that carried it. A count of zero is a
+  limitation and not an accusation: a clip can resolve on the average while no
+  single frame's checksum holds, which is what heavy re-compression does.
 - The verifier must be able to say **no proof found** without embarrassment. One
   that cannot does not deserve trust.
 

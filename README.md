@@ -382,12 +382,19 @@ decode is set by any single marked frame and a splice reports the real id at
 the agreement of a clean recovery, 0.996 measured. Agreement cannot see that
 and is never shown as if it could (§8; `vcap-spec/spec/watermark-robustness-1.0.md`).
 
-Every frame is held to the same 0.85 floor, so the count can never name an id
-the clip's own answer refused — and it can legitimately be **zero**. On the
-int8 build the hardest surviving chain clears the floor over eight frames and
-not over one, so a genuine, wholly marked clip may have no frame that resolved
-alone. The page says that in those words rather than treating a zero as
-evidence of a splice.
+The 0.85 floor gates the id and **not** the count (§8, *Which sampled frames
+count*). A frame counts when its own decode passes the CRC and yields the id
+the clip reported, whatever its own agreement was: the count names no id, and
+equality against an id the floor already licensed is the discriminator here —
+a chance CRC pass has to land on the one value in 2²⁴ the clip resolved. The
+count can never name an id the clip's own answer refused, because a refused
+clip reports no id and no count at all. Applying the floor a second time cost
+real counts for nothing: on the int8 build the hardest surviving chain is under
+the floor from one frame and over it from eight, so a genuine, wholly marked
+clip reported **0 of 8** while one spliced frame reported **1 of 8** — the
+count ranked the recording below the splice. The count can still be zero when
+no frame's checksum held at all, and the page says that in those words rather
+than treating a zero as evidence of a splice.
 
 A detection can still come from a file the user already holds instead: the
 `watermark` block of a `/v1/verify` response, or what `vcap-verify --watermark`
