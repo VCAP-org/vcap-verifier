@@ -4,10 +4,18 @@
 //
 //   node bin/sign-build.mjs [--dist web/dist] [--key <private key.pem>]
 //
-// What this does NOT do is sign the page. The signature is detached, it is
-// written *next to* `dist/` and never inside it, and nothing in the signed
-// bytes depends on it — otherwise signing would change the tree it certifies
-// and the reproducible build would invalidate itself on the first publish.
+// What this does NOT do is sign the page. The signature is detached and
+// nothing in the signed bytes depends on it — otherwise signing would change
+// the tree it certifies and the reproducible build would invalidate itself on
+// the first publish.
+//
+// The constraint is **outside the manifest it certifies**, not outside
+// `dist/`. This comment used to say the file was written next to `dist/` and
+// never inside it, which the line below has always contradicted: it lands at
+// `dist/hashes.json.sig`, so that publishing a build copies one directory and
+// not two. What makes that safe is that `hashes.json` does not list it and CI
+// removes it before comparing two clean builds — the signature is never among
+// the bytes it signs.
 //
 // What the signature is worth is written in signing/README.md and repeated by
 // `bin/verify-build.mjs`: there is no legal entity (R4) and no certificate
