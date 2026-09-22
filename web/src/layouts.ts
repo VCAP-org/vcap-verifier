@@ -11,9 +11,25 @@
  *
  * The two differ because the channels differ. A photo survives compression
  * with most bits intact, so it carries the whole 128-bit capture id under a
- * block code. A video re-encoded by a messaging app flips a fifth of the bits,
- * past any block code, so it carries a short id repeated eight times and the
- * proof binds that id to the capture id.
+ * block code. A video re-encoded by a messaging app comes back with bit errors
+ * in the tens, past any block code of this size, so it carries a short id
+ * repeated eight times and the proof binds that id to the capture id.
+ *
+ * Two numbers exist for that repetition code and only the smaller one is a
+ * promise. The code recovers an id through roughly 51 random flips of 256
+ * (≈ 0.80 agreement) — but `VIDEO_AGREEMENT_FLOOR` below lets one be
+ * **reported** only through 38 of 256, a 14.8 % bit error rate: agreement is
+ * `1 − flips/256` while every position's majority holds, so 38 flips is 0.8516
+ * and reportable and 39 is 0.8477 and refused. The 51 is what the code can
+ * repair; the 38 is all `decodeVideo` may say out loud, and the five points of
+ * bit error rate between them are not margin this file has.
+ *
+ * Inside that ceiling recovery is probable and not certain: a position whose
+ * eight copies split 4–4 ties and loses the CRC, so about three patterns in
+ * four resolve the id at 38 flips. Every failure there is a **refusal and
+ * never a wrong id** — a 20 000-pattern sweep per flip count returned none at
+ * any count — which is the asymmetry the floor exists for
+ * (`vcap-spec/spec/watermark-robustness-1.0.md`, *What may be reported*).
  *
  * Failure is a result here, never an exception: a payload that does not decode
  * is *not recovered*, which is the normal outcome of heavy re-compression and

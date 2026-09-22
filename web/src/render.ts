@@ -1,4 +1,4 @@
-import type { Verdict, WatermarkOutcome } from 'vcap-verify-core'
+import type { Verdict, WatermarkEvidence, WatermarkOutcome } from 'vcap-verify-core'
 
 /**
  * Everything the page prints. The rule for every string here: the outcome and
@@ -92,7 +92,12 @@ const watermarkLine = (w: WatermarkOutcome): string =>
  */
 const figures = (w: WatermarkOutcome): string => {
   const parts = [
-    w.agreement !== undefined ? `agreement ${(w.agreement * 100).toFixed(0)}%` : null,
+    // One decimal, because whole percent lands on the wrong side of the floor
+    // exactly where the floor decides: the hardest surviving chain on the
+    // shipped build reads 0.848 from a single frame, which rounds to "85%" and
+    // sits next to a sentence saying it is below 0.85. A figure that appears
+    // to contradict the reason given for refusing it reads as a broken page.
+    w.agreement !== undefined ? `agreement ${(w.agreement * 100).toFixed(1)}%` : null,
     w.corrected_bits !== undefined ? `${w.corrected_bits} bits corrected` : null,
     w.frames_sampled !== undefined ? `${w.frames_sampled} frame${w.frames_sampled === 1 ? '' : 's'}${w.sampling ? ` (${w.sampling.strategy})` : ''}` : null,
     w.model_version ?? null
@@ -165,8 +170,21 @@ export const card = (name: string, v: Verdict): string => {
  * palette, the word "not" in the first sentence, and the id as a fact about
  * the pixels rather than a claim about the file.
  */
-export const bareMark = (decoded: string | null, layout: string | null | undefined, traceUrl: string): string => {
+export const bareMark = (evidence: WatermarkEvidence, traceUrl: string): string => {
+  const decoded = evidence.decoded ?? null
+  const layout = evidence.layout
   if (decoded === null) {
+    // Two different things, and the reader is owed the difference. "Nothing
+    // came back" and "something came back and may not be named" both produce
+    // no id, but only the second one is a clip whose mark is probably there —
+    // and only the second one can be changed by reading more of it.
+    if (evidence.id_refused === true) {
+      return `<div class="panel mark">
+        <h3>A mark may be in these pixels, and its identifier could not be read</h3>
+        <p>Something came back out of them, and the copies of it disagreed too much to name an identifier. The page says nothing rather than risk pointing you at somebody else's recording — a name it is not sure of would be worse than no name.${frameNote(evidence)}</p>
+        <p class="muted">This is not proof of anything either way: a file that never carried a mark can look like this too.</p>
+      </div>`
+    }
     return `<div class="panel mark">
       <h3>No invisible mark came back from these pixels</h3>
       <p class="muted">Which is not proof of anything either: heavy re-compression, a crop or a screenshot can take the mark out, and a file that never carried one looks the same from here.</p>
@@ -270,6 +288,30 @@ export const comparison = (copy: { name: string, verdict: Verdict }, original: {
   </table>`
 }
 
+/** Frames past which the measured margin stops improving (`watermark-robustness-1.0.md`). */
+const SETTLED_FRAMES = 8
+
+/**
+ * Whether reading more of the clip would change a refusal — the question a
+ * reader of *not recovered* actually has, and one only the frame count can
+ * answer. The floor is applied per decode, so a thin detection can be refused
+ * on a clip a deeper one resolves: on the shipped int8 build the hardest chain
+ * that survives reads 0.848 from one frame and 0.867 from eight. Eight is also
+ * where the measured gain stops, so a detection that already has them is told
+ * that more would not help rather than left to hope
+ * (`vcap-spec/spec/watermark-robustness-1.0.md`).
+ *
+ * A detection handed to the page in a file may have sampled anything, or not
+ * said — hence three answers and not one.
+ */
+const frameNote = (w: { frames_sampled?: number | null }): string => {
+  const frames = w.frames_sampled
+  if (frames === null || frames === undefined || frames < 1) return ''
+  return frames >= SETTLED_FRAMES
+    ? ` Reading more of the clip would not change this: ${frames} frames were averaged, and past ${SETTLED_FRAMES} the measurements show no further gain.`
+    : ` Reading more of the clip could change this: only ${frames === 1 ? 'one frame was' : `${frames} frames were`} averaged, and this model needs about four before the hardest clip that survives at all clears the floor.`
+}
+
 /**
  * The watermark read against the **original's** signed ids, for a copy whose
  * own signature no longer says anything. This is the piece that holds when the
@@ -300,7 +342,9 @@ export const trace = (outcome: WatermarkOutcome): string => {
   }
   const caveat = outcome.result === 'matched'
     ? '<p><strong>This is not a verdict of authenticity.</strong> No valid signature covers these bytes, so nothing here says the pixels are unedited or that the file is the one that was sealed — only that a mark the original declares came back out of them.</p>'
-    : ''
+    : outcome.id_refused === true
+      ? `<p><strong>This is not a wrong id — it is no id.</strong> Something came back out of the pixels and the copies of it disagreed too much to name one, so the page says nothing rather than risk pointing you at somebody else's recording.${frameNote(outcome)}</p>`
+      : ''
   return `<div class="verdict ${css[outcome.result]}">
     <h2>${escape(headline[outcome.result])}</h2>
     <p>${escape(`${outcome.result.replace(/_/g, ' ')} — ${outcome.detail}${figures(outcome)}`)}</p>

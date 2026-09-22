@@ -152,7 +152,7 @@ const markAlone = async (file: File): Promise<string> => {
   try {
     const evidence = await detector.detect(new Uint8Array(await file.arrayBuffer()), claim, progress(file.name))
     say(`Model ${detector.model_version}, running on ${detector.backend}.`, 'ready', 'Invisible watermark: checked in this page')
-    return bareMark(evidence.decoded ?? null, evidence.layout, TRACE_URL)
+    return bareMark(evidence, TRACE_URL)
   } catch {
     return ''
   }
