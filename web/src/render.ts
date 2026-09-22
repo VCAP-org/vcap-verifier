@@ -101,6 +101,11 @@ const figures = (w: WatermarkOutcome): string => {
 }
 
 export const card = (name: string, v: Verdict): string => {
+  // The ceilings, and they keep the specification's words: these are what the
+  // verdict does **not** reach, and a paraphrase would be a different claim
+  // (D20). What changes is only how they are set — as chips under a line that
+  // names them, rather than a bullet list of seven grey phrases inside a green
+  // card, which read as a list of faults and is the opposite of a ceiling.
   const lines = [
     ...v.labels.map((l) => `<li>${escape(l)}</li>`),
     ...v.not_evaluated.map((k) => `<li>not evaluated: <code>${escape(k)}</code></li>`)
@@ -131,10 +136,12 @@ export const card = (name: string, v: Verdict): string => {
   return `<div class="verdict ${COLOR[v.outcome]}">
     <p class="lede">${escape(PLAIN[v.outcome])}</p>
     <h2>${escape(TITLE[v.outcome])}</h2>
-    <div class="muted">${escape(name)}</div>
+    <div class="file-line">${escape(name)}</div>
     ${position(v)}
-    ${lines.length ? `<ul>${lines.join('')}</ul>` : ''}
-    ${details.length ? `<details><summary>details</summary><ul>${details.join('')}</ul></details>` : ''}
+    ${lines.length
+      ? `<div class="limits"><p class="limits-head">What this verdict does not cover</p><ul class="chips">${lines.join('')}</ul></div>`
+      : ''}
+    ${details.length ? `<details class="tech"><summary><span class="chev" aria-hidden="true">›</span> Technical detail</summary><ul>${details.join('')}</ul></details>` : ''}
   </div>`
 }
 

@@ -54,6 +54,14 @@ const out = document.getElementById('out') as HTMLDivElement
 const chosen = document.createElement('p')
 chosen.className = 'chosen'
 ;(document.getElementById('drop') as HTMLDivElement).append(chosen)
+
+// Every other file control prints what was chosen beside its button. The
+// native control said this for us and looked like somebody else's form; having
+// taken it away, the page owes the reader the same fact.
+for (const span of document.querySelectorAll<HTMLSpanElement>('[data-name-for]')) {
+  const input = document.getElementById(span.dataset.nameFor as string) as HTMLInputElement
+  input.addEventListener('change', () => { span.textContent = input.files?.[0]?.name ?? '' })
+}
 const detectorState = document.getElementById('detector-state') as HTMLParagraphElement
 const loadButton = document.getElementById('load-detector') as HTMLButtonElement
 const detectorBar = document.getElementById('detector-bar') as HTMLDivElement
