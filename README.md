@@ -357,11 +357,19 @@ with a progress figure instead of blocking on it. A second click costs nothing:
 the engine revalidates to a 304 and the model is served `immutable`. That is
 why detection is **progressive**: every frame reports as it lands and the
 payload is shown as soon as it decodes — for `video-rep-v1` often on the first
-frame, since the eight copies inside one message already do the work
+frame, since the eight copies inside one message already do much of the work
 aggregation was expected to do (`vcap-ml/reports/frames-to-recover.md`, one
-clip with no motion; the page samples eight uniform frames anyway, as that
-report recommends). An id under the agreement floor is never shown, partially
-or otherwise.
+clip with no motion).
+
+**The page reads eight uniformly spaced frames, and on the hardest chain that
+survives it needs them.** That count used to be described here as margin; it is
+not. On the int8 build published for browsers, crf 36 at 640 px costs 39
+flipped bits of 256 aggregated over a single frame — agreement 0.848, *under*
+the 0.85 floor — so a one-frame page would answer *watermark not recovered* on
+a clip whose id it had decoded correctly. Four frames clear the floor (0.859)
+and eight settle it (0.867), which is also where the measurable gain stops: a
+ninth frame changes no outcome and costs another model run. An id under the
+agreement floor is never shown, partially or otherwise.
 
 A detection can still come from a file the user already holds instead: the
 `watermark` block of a `/v1/verify` response, or what `vcap-verify --watermark`
@@ -374,19 +382,38 @@ hand dropped the media bytes.
 A verifier that only publishes what its detector can read is advertising. The
 measured curve of the published model — both break points, what quantization
 costs, and the list of what was not measured — is public in
-`vcap-spec/spec/watermark-robustness-1.0.md`. The two numbers a reader of this
-page needs:
+`vcap-spec/spec/watermark-robustness-1.0.md`. The three numbers a reader of
+this page needs:
 
 - **A photo reduced to a thumbnail carries no readable mark.** Recovery is
   total through a double re-encode at JPEG quality 40, and **zero** from a
   480 px / quality 30 thumbnail onward. There is no partial answer in between:
   BCH either corrects the block or it does not exist.
 - **A clip past crf 36 / 640 px does not decode.** It holds to crf 36 with
-  agreement 0.87–0.90; at crf 40 it is at 0.65–0.67, well past the layout's
-  correction floor.
+  agreement 0.87–0.90; at crf 40 it is at 0.65–0.67 — past what the repetition
+  code can correct, and far past what this page is allowed to report.
+- **What may be reported off a clip is 38 flipped bits of 256, not 51.** Two
+  numbers exist for this channel and only the smaller one is a promise. The
+  code *recovers* an id through roughly 51 random flips of 256, about 0.80
+  agreement; the floor below lets one be **reported** only through **38 of 256,
+  a 14.8 % bit error rate** (0.8516 reportable, 0.8477 refused). The larger
+  number is what the code can repair, the smaller is what a reader may rely on,
+  and the five points of bit error rate between them are not margin this page
+  has. On the int8 build it ships, the hardest surviving chain spends **34 of
+  those 38 bits** — about four bits of headroom. Inside the ceiling recovery is
+  probable and not certain: roughly three patterns in four at 38 flips, because
+  a position whose eight copies split 4–4 ties and loses the checksum. And
+  **every one of those failures is a refusal, never a wrong id** — across a
+  20 000-pattern sweep per flip count, none returned an id that was not the one
+  embedded. At the edge of this channel the page fails by saying less, not by
+  naming somebody else's capture.
 
-Both were measured on three images and one synthetic clip, on re-encode recipes
-named after sharing services but not produced by them.
+The first two were measured on three images and one synthetic clip, on
+re-encode recipes named after sharing services but not produced by them. The
+third is arithmetic on the floor plus a sweep of *uniformly random* flips,
+which is a property of the code and not of a codec: a real encoder puts its
+errors where its bitrate ran out, in bursts, which is what the layout's
+32-position interleave is against and what the sweep does not measure.
 
 **And a clip's `mark_id` is refused below 0.85 agreement, even when its
 checksum passes.** `video-rep-v1` protects a 24-bit id with eight bits of CRC,

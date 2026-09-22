@@ -64,13 +64,25 @@ export interface Detector {
 }
 
 /**
- * Frames a clip is sampled at. `vcap-ml/reports/frames-to-recover.md` measured
- * the payload coming back from the **first** frame on all seven sharing
- * chains — the eight copies inside the message already do the work aggregation
- * was expected to do — so eight uniform frames is margin, not necessity, and
- * the corpus it was measured on is one clip (the report says so). It is
- * reported in the evidence because it is settable: two answers taken under
- * different policies are not comparable.
+ * Frames a clip is sampled at, and eight is what the measurements ask for
+ * rather than a round number.
+ *
+ * `vcap-ml/reports/frames-to-recover.md` finds the payload coming back from
+ * the **first** frame on all seven sharing chains, which used to read here as
+ * "eight is margin, not necessity". That was a statement about what the code
+ * corrects, not about what a decoder may report, and the 0.85 floor separates
+ * the two. On `detector_int8` — the only build published for browsers, so the
+ * one this file runs — the hardest chain that survives at all, crf 36 at
+ * 640 px, costs **39 flipped bits aggregated over a single frame: agreement
+ * 0.848, under the floor**. A one-frame page would answer *watermark not
+ * recovered* on a clip whose id it had in fact decoded. Four frames clear it
+ * (36 flips / 0.859) and eight settle it (34 / 0.867), which is also where the
+ * measurable gain stops: past eight, more frames change no outcome and cost a
+ * model run each (`vcap-spec/spec/watermark-robustness-1.0.md`, *How many
+ * frames a verifier has to read*).
+ *
+ * It is reported in the evidence because it is settable: two answers taken
+ * under different policies are not comparable.
  */
 const VIDEO_FRAMES = 8
 const SAMPLING_STRATEGY = 'uniform'
