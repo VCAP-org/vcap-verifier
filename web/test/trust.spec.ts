@@ -19,9 +19,11 @@ const corpusLog = (): string => {
   const { logs } = JSON.parse(readFileSync(join(vectors, '_trust/logs.json'), 'utf8')) as { logs: { log_id: string, spki: string }[] }
   return `${logs[0]?.log_id}:${logs[0]?.spki}`
 }
-// The label list, not the details block: `log not trusted` appears in both,
-// and a count that caught the second would pass for the wrong reason.
-const label = (page: import('@playwright/test').Page, text: string) => page.locator('.verdict > ul > li', { hasText: new RegExp(`^${text}$`) })
+// The ceilings, not the details block: `log not trusted` appears in both, and
+// a count that caught the second would pass for the wrong reason. They are
+// chips now and still the same list — the words are the specification's
+// either way, which is the part that must not move.
+const label = (page: import('@playwright/test').Page, text: string) => page.locator('.verdict .chips > li', { hasText: new RegExp(`^${text}$`) })
 
 test('names the log it ships with, and does not let it pass for a third party', async ({ page }) => {
   const { server, url } = await serve()

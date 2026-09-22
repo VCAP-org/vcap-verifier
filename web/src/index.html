@@ -35,8 +35,13 @@
   --red:   #a1121f;  --red-wash:   #fdeaec;
   --grey:  #4a4a52;  --grey-wash:  #f0f0f4;
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
-  --r-sm:8px; --r-md:12px; --r-lg:16px;
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-pill:999px;
   --shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 4px 12px rgb(0 0 0 / 5%);
+  /* One line length for prose. Panels and tables span their container; the
+     sentences inside them stop here, because a 90-character line is where a
+     reader loses the start of the next one. */
+  --measure: 68ch;
+  --control-height: 44px;
 }
 /* A second measured set, not the light one dimmed: the washes carry the
    verdict colour at low luminance and the ink on them is its light
@@ -56,117 +61,193 @@
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0 auto; padding: var(--s6) var(--s4) var(--s7);
-  max-width: 54rem;
+  margin: 0 auto; padding: var(--s6) var(--s5) var(--s7);
+  max-width: 52rem;
   font: 1rem/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text); background: var(--background);
 }
-h1 { font: 700 1.5rem/1.2 system-ui, sans-serif; margin: 0; letter-spacing: -0.01em; }
+h1 { font: 700 1.625rem/1.2 system-ui, sans-serif; margin: 0; letter-spacing: -0.015em; }
 h2 { font: 700 1.375rem/1.28 system-ui, sans-serif; margin: 0; letter-spacing: -0.01em; }
 h3 { font: 700 1rem/1.4 system-ui, sans-serif; margin: 0; }
-p { margin: var(--s3) 0 0; }
-a { color: var(--action); }
-code { font: 0.85em ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+p { margin: var(--s3) 0 0; max-width: var(--measure); }
+a { color: var(--action); text-underline-offset: 2px; }
+/* `break-all` split short words mid-letter — `logs.json` came out as
+   "l / ogs.json". Long values still have to wrap somewhere, so they get
+   `anywhere`, which only breaks when a line cannot otherwise fit. */
+code { font: 0.875em ui-monospace, SFMono-Regular, Menlo, monospace; word-break: normal; overflow-wrap: anywhere; }
 .muted { color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
+ul { max-width: var(--measure); }
 
-/* The masthead says what the page answers, not what it is called. Somebody
-   arrives here holding a photo, not looking for a product. */
+/* ── Controls ──────────────────────────────────────────────────────────────
+   One idiom, everywhere. The page had two: a designed button beside the
+   browser's own "Choose file / no file selected", in four different places,
+   which is what made it look assembled rather than drawn. Every file input is
+   now the same pair — a visually hidden input that does the work and still
+   answers to a keyboard and a screen reader, and a label that looks like the
+   button it is — with the chosen name printed beside it. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--control-height); padding: 0 var(--s4);
+  font: inherit; font-size: 0.9375rem; font-weight: 600; text-align: center;
+  border-radius: var(--r-sm); border: 1px solid transparent; cursor: pointer;
+  color: var(--on-action); background: var(--action);
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:active { filter: brightness(0.94); }
+/* Secondary: everything that is not the one thing a screen is for. Outlined
+   rather than filled, so two controls in a row cannot both look primary. */
+.btn.secondary { color: var(--action); background: transparent; border-color: var(--border); }
+.btn.secondary:hover { background: var(--surface); filter: none; }
+.btn.big { padding: 0 var(--s5); font-size: 1rem; min-height: 48px; }
+
+.file-input {
+  position: absolute; width: 1px; height: 1px; padding: 0;
+  margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.file { display: inline-flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.file-name { font-size: 0.875rem; color: var(--muted); }
+.file-name:empty::before { content: 'no file chosen'; font-style: italic; }
+.file-input:focus-visible + .btn { outline: 2px solid var(--action); outline-offset: 2px; }
+
+input[type=text] {
+  font: inherit; font-size: 0.9375rem; color: var(--text); background: var(--background);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 0 var(--s3); height: var(--control-height); width: 100%;
+}
+input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--action); margin: 0; }
+:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+/* A field is a label on its own line, the control under it, help under that.
+   Labels used to sit inline with their control, which is why nothing on the
+   page lined up with anything else. */
+.field { margin-top: var(--s4); }
+.field > .label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: var(--s2); }
+.field-row { display: flex; gap: var(--s3); align-items: flex-start; flex-wrap: wrap; }
+.field-row input[type=text] { flex: 1 1 22rem; }
+
+/* ── Masthead ─────────────────────────────────────────────────────────── */
 header { margin-bottom: var(--s6); }
 header .brand { font-size: 0.8125rem; font-weight: 700; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--muted); margin: 0 0 var(--s2); }
-header .claim { margin-top: var(--s3); max-width: 42rem; }
 
-/* Dropzone — the one thing on this page with a job, sized like it. */
+/* ── Dropzone ─────────────────────────────────────────────────────────── */
 .drop {
-  margin-top: var(--s4);
+  margin-top: var(--s5);
   border: 2px dashed var(--border); border-radius: var(--r-lg);
   padding: var(--s7) var(--s5); text-align: center; background: var(--surface);
   transition: background-color .12s ease, border-color .12s ease;
 }
 .drop.over { border-color: var(--action); background: var(--grey-wash); }
-.drop .call { font: 700 1.125rem/1.4 system-ui, sans-serif; margin: 0; }
-.drop input[type=file] { display: block; margin: var(--s4) auto 0; max-width: 100%; }
-.drop .muted { margin-top: var(--s2); }
-
-/* The file control: the input does the work, the label is what a person sees.
-   `sr-only` rather than `display:none` — a hidden input is still the thing a
-   keyboard and a screen reader operate, and hiding it outright would take the
-   page's only job away from both. */
-.choose {
-  display: inline-block; margin-top: var(--s4); cursor: pointer;
-  font-weight: 600; color: var(--on-action); background: var(--action);
-  border-radius: var(--r-sm); padding: var(--s3) var(--s5); min-height: 44px;
-}
-#file {
-  position: absolute; width: 1px; height: 1px; padding: 0;
-  margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
-}
-#file:focus-visible + .choose, .choose:has(+ #file:focus-visible) { outline: 2px solid var(--action); outline-offset: 2px; }
-.drop .chosen { margin-top: var(--s3); font-weight: 600; }
-
+.drop .call { font: 700 1.25rem/1.3 system-ui, sans-serif; margin: 0; max-width: none; }
+.drop .muted { margin-top: var(--s1); max-width: none; }
+.drop .btn { margin-top: var(--s4); }
+.drop .chosen { margin-top: var(--s3); font-weight: 600; font-size: 0.9375rem; max-width: none; }
 /* Once there is a file the answer matters more than the invitation, so the
    dropzone gives up its height rather than pushing the verdict down a screen. */
-body.has-file .drop { padding: var(--s4); }
-body.has-file .drop .call { font-size: 1rem; }
+body.has-file .drop { padding: var(--s4) var(--s5); }
+body.has-file .drop .call { font-size: 1.0625rem; }
 body.has-file .drop .muted { display: none; }
-body.has-file .choose { margin-top: var(--s3); padding: var(--s2) var(--s4); }
+body.has-file .drop .btn { margin-top: var(--s3); min-height: 38px; }
 
-/* Capability bar: what the page can check, next to the thing it checks. */
+/* ── Capability bar ───────────────────────────────────────────────────────
+   What the page can check, next to the thing it checks. A grid, so the mark,
+   the text and the actions hold their columns instead of drifting as the
+   state changes. */
 .capability {
   margin-top: var(--s4); border: 1px solid var(--border); border-radius: var(--r-md);
-  padding: var(--s4); background: var(--background);
-  display: flex; flex-wrap: wrap; gap: var(--s4);
-  align-items: center; justify-content: space-between;
+  padding: var(--s4) var(--s5); background: var(--background);
+  display: grid; grid-template-columns: auto 1fr; gap: 0 var(--s3);
+  align-items: start;
 }
-.capability-head { display: flex; gap: var(--s3); align-items: flex-start; }
-.capability .mark { font-size: 1.25rem; line-height: 1.2; color: var(--muted); }
+.capability .mark {
+  font-size: 1rem; line-height: 1.4; width: 1.25rem; text-align: center;
+  color: var(--muted);
+}
 .capability h3 { font-size: 0.9375rem; }
-.capability .muted { margin-top: var(--s1); max-width: 34rem; }
-.capability-actions { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; }
+.capability .muted { margin-top: var(--s1); }
+.capability-actions {
+  grid-column: 2; display: flex; gap: var(--s3) var(--s4);
+  align-items: center; flex-wrap: wrap; margin-top: var(--s4);
+}
+.capability-actions .file { gap: var(--s2); }
 .capability.ready { border-color: var(--green); background: var(--green-wash); }
 .capability.ready .mark { color: var(--green); }
 .capability.working { border-color: var(--action); }
 .capability.working .mark { color: var(--action); }
 .capability.ready .capability-actions { display: none; }
 
-/* The two extra files are a disclosure: most readers have one file, and three
-   file pickers at once is the page asking a question nobody came with. */
+/* ── Disclosures ──────────────────────────────────────────────────────────
+   The browser's triangle is the one piece of chrome a reader is guaranteed to
+   have seen somewhere else, drawn in somebody else's style. */
+summary { cursor: pointer; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary > .chev {
+  display: inline-block; width: 1em; color: var(--muted);
+  transition: transform .12s ease;
+}
+details[open] > summary > .chev { transform: rotate(90deg); }
+
 .more { margin-top: var(--s4); }
 .more > summary {
-  cursor: pointer; font-weight: 600; padding: var(--s3) var(--s4);
-  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface);
+  font-weight: 600; font-size: 0.9375rem; padding: var(--s3) var(--s4);
+  border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--surface);
 }
-.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-.more .drop.sidecar {
-  margin-top: 0; border-style: dotted; border-width: 1px; border-radius: 0;
-  padding: var(--s4); text-align: left;
+.more > summary:hover { border-color: var(--border); }
+.more[open] > summary { border-radius: var(--r-md) var(--r-md) 0 0; }
+.more .extra {
+  border: 1px solid var(--rule); border-top: 0;
+  border-radius: 0 0 var(--r-md) var(--r-md); padding: var(--s5);
+  display: grid; gap: var(--s5);
 }
-.more .drop.sidecar:last-child { border-bottom-left-radius: var(--r-md); border-bottom-right-radius: var(--r-md); }
-.more .drop.sidecar .call { font-size: 1rem; }
+.more .extra h4 { font: 700 0.9375rem/1.4 system-ui, sans-serif; margin: 0; }
+.more .extra .muted { margin-top: var(--s1); }
+.more .extra .file { margin-top: var(--s3); }
+/* The two extra files still accept a drop, so they still have to show one. */
+.more .extra > div.over { outline: 2px dashed var(--action); outline-offset: var(--s3); border-radius: var(--r-sm); }
 
-/* Verdict — the only element allowed to be large, because it is the answer. */
+/* ── Verdict ──────────────────────────────────────────────────────────────
+   The only element allowed to be large, because it is the answer. */
 .verdict {
   margin-top: var(--s5); border-radius: var(--r-lg);
-  padding: var(--s5); border: 1px solid var(--border);
+  padding: var(--s5) var(--s5) var(--s5) calc(var(--s5) - 5px);
+  border: 1px solid var(--border); border-left-width: 6px;
   background: var(--surface); box-shadow: var(--shadow);
-  border-left-width: 6px;
 }
 .verdict .lede {
-  font: 700 2rem/1.2 system-ui, sans-serif; margin: 0 0 var(--s2);
-  letter-spacing: -0.02em;
+  font: 700 2rem/1.15 system-ui, sans-serif; margin: 0;
+  letter-spacing: -0.025em; max-width: 24ch;
 }
-.verdict h2 { font-size: 1.0625rem; font-weight: 600; color: var(--muted); }
-.verdict .muted { margin-top: var(--s2); }
-.verdict ul { margin: var(--s4) 0 0; padding-left: 1.1rem; }
-.verdict li { margin-top: var(--s1); }
-.verdict .position { margin-top: var(--s3); font-weight: 600; }
-.green { background: var(--green-wash); border-left-color: var(--green); }
+.verdict h2 { font-size: 1rem; font-weight: 600; color: var(--muted); margin-top: var(--s3); }
+.verdict .file-line { margin-top: var(--s1); font-size: 0.875rem; color: var(--muted); }
+.verdict .position { margin-top: var(--s4); font-weight: 600; }
+/* The ceilings. They are the specification's words and they stay them — but a
+   bullet list of seven grey phrases inside a green card reads as a list of
+   faults, which is the opposite of what a ceiling is. As chips under a line
+   that names them, they read as the edge of what was checked. */
+.verdict .limits { margin-top: var(--s5); }
+.verdict .limits-head {
+  margin: 0 0 var(--s2); font-size: 0.75rem; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+}
+.chips { display: flex; flex-wrap: wrap; gap: var(--s2); list-style: none; margin: 0; padding: 0; max-width: none; }
+.chips li {
+  font-size: 0.8125rem; line-height: 1.35; color: var(--muted);
+  background: var(--background); border: 1px solid var(--rule);
+  border-radius: var(--r-pill); padding: 5px var(--s3);
+}
+.chips li code { font-size: 0.95em; }
+.verdict details.tech { margin-top: var(--s5); border-top: 1px solid var(--rule); padding-top: var(--s3); }
+details.tech > summary { color: var(--muted); font-size: 0.875rem; font-weight: 600; }
+details.tech ul { margin: var(--s3) 0 0; padding-left: 1.1rem; font-size: 0.875rem; color: var(--muted); }
+details.tech li { margin-top: var(--s1); }
+
+.green { background: var(--green-wash); border-color: var(--green); }
 .green .lede { color: var(--green); }
-.amber, .traced { background: var(--amber-wash); border-left-color: var(--amber); }
+.amber, .traced { background: var(--amber-wash); border-color: var(--amber); }
 .amber .lede, .traced .lede { color: var(--amber); }
-.red { background: var(--red-wash); border-left-color: var(--red); }
+.red { background: var(--red-wash); border-color: var(--red); }
 .red .lede { color: var(--red); }
-.grey { background: var(--grey-wash); border-left-color: var(--grey); }
+.grey { background: var(--grey-wash); border-color: var(--border); }
 .grey .lede { color: var(--text); }
 
 /* Two verdicts side by side where there is room, stacked where there is not.
@@ -177,11 +258,7 @@ body.has-file .choose { margin-top: var(--s3); padding: var(--s2) var(--s4); }
 /* A mark read from a file with no proof: a fact about pixels, deliberately
    not wearing any colour of the verdict palette. */
 .panel.mark { margin-top: var(--s4); border-left: 6px solid var(--border); }
-.panel.mark h3 { font-size: 1.0625rem; }
-.panel.mark code { font-size: 0.9em; }
-
-details.tech { margin-top: var(--s4); }
-details.tech > summary { cursor: pointer; color: var(--muted); font-size: 0.875rem; }
+.panel.mark h3 { font-size: 1.0625rem; margin-bottom: var(--s2); }
 
 .compare { margin-top: var(--s5); border-collapse: collapse; width: 100%; font-size: 0.875rem; }
 .compare caption { text-align: left; font-weight: 700; padding-bottom: var(--s2); }
@@ -193,42 +270,60 @@ details.tech > summary { cursor: pointer; color: var(--muted); font-size: 0.875r
 .compare tr.differs { background: var(--amber-wash); }
 .absent { color: var(--muted); font-style: italic; }
 
-/* What the page trusts. Demoted under the verdict but never hidden: that this
-   set is visible and switchable is part of what the page claims, so it is a
-   section with a rule above it and not a drawer. */
+/* ── What this page trusts ────────────────────────────────────────────────
+   Demoted under the verdict but never hidden: that this set is visible and
+   switchable is part of what the page claims, so it is a section with a rule
+   above it and not a drawer. */
 .settings { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: var(--s5); }
-.settings > h3 { font-size: 0.8125rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.settings > .section-label {
+  margin: 0; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
 .panel {
   margin-top: var(--s4); border: 1px solid var(--rule); border-radius: var(--r-md);
-  padding: var(--s4); background: var(--surface);
+  padding: var(--s5); background: var(--surface);
 }
-.panel h3 { margin-bottom: var(--s2); }
-.panel ul { margin: var(--s3) 0 0; padding-left: 1.1rem; font-size: 0.875rem; }
-.panel label { display: inline-block; margin-top: var(--s2); }
-.panel input[type=text] { min-width: 18rem; max-width: 100%; }
-input[type=text], input[type=file] {
-  font: inherit; font-size: 0.9375rem; color: var(--text); background: var(--background);
-  border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--s2) var(--s3);
+/* The trusted logs and authorities: rows, not prose with a bullet in front.
+   The description hangs under the label rather than under the checkbox, so
+   the block has one left edge instead of two. */
+.panel > ul { list-style: none; margin: var(--s4) 0 0; padding: 0; display: grid; gap: var(--s3); max-width: none; }
+.panel > ul > li {
+  border: 1px solid var(--rule); border-radius: var(--r-sm);
+  background: var(--background); padding: var(--s3) var(--s4);
 }
-input[type=file] { padding: var(--s2); }
-button {
-  font: inherit; font-weight: 600; cursor: pointer;
-  color: var(--on-action); background: var(--action);
-  border: 1px solid transparent; border-radius: var(--r-sm);
-  padding: var(--s2) var(--s4); min-height: 44px;
+.panel > ul > li > label {
+  display: flex; align-items: center; gap: var(--s3);
+  font-weight: 600; font-size: 0.9375rem; cursor: pointer;
 }
-button:hover { background: var(--action); filter: brightness(1.08); }
-:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.panel > ul > li > .muted { margin-top: var(--s2); padding-left: calc(18px + var(--s3)); }
+.panel > ul > li > .muted + .muted { margin-top: var(--s1); }
+.panel > ul > li ul { margin-top: var(--s2); padding-left: 1.1rem; font-size: 0.875rem; color: var(--muted); }
+.panel > ul > li.absent { border-style: dashed; font-style: normal; padding: var(--s4); }
+.panel .state { margin-top: var(--s3); }
+.panel .state:empty { display: none; }
 
 footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: var(--s4);
-  font-size: 0.8125rem; line-height: 1.55; color: var(--muted); }
+  font-size: 0.8125rem; line-height: 1.6; color: var(--muted); }
+
+@media (max-width: 34rem) {
+  body { padding: var(--s5) var(--s4) var(--s6); }
+  .drop { padding: var(--s5) var(--s4); }
+  .verdict { padding: var(--s4) var(--s4) var(--s4) calc(var(--s4) - 5px); }
+  .verdict .lede { font-size: 1.625rem; }
+  .panel, .capability { padding: var(--s4); }
+  .capability { grid-template-columns: 1fr; }
+  .capability .mark { display: none; }
+  .capability-actions { grid-column: 1; }
+  .btn { width: 100%; }
+  .file { width: 100%; }
+}
 </style>
 </head>
 <body>
 <header>
   <p class="brand">vcap verifier</p>
   <h1>Is this photo or video real?</h1>
-  <p class="claim">Drop the file below and this page tells you whether it was signed by the camera that took it, and whether anything changed since. <strong>The file never leaves your browser</strong> — no upload, no account, no server of ours.</p>
+  <p>Drop the file below and this page tells you whether it was signed by the camera that took it, and whether anything changed since. <strong>The file never leaves your browser</strong> — no upload, no account, no server of ours.</p>
 </header>
 
 <main>
@@ -238,8 +333,8 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
   <!-- The native control is the input; the label is what a person sees and
        clicks. A bare "Choose file / no file selected" is the browser's idea of
        a form, not an invitation, and this page's whole job starts here. -->
-  <label class="choose" for="file">Choose a file</label>
-  <input type="file" id="file" multiple>
+  <input type="file" id="file" class="file-input" multiple>
+  <label class="btn big" for="file">Choose a file</label>
 </div>
 
 <!-- What this page can and cannot check right now, said where the reader is
@@ -248,32 +343,44 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
      not evaluated" with the remedy three screens below it reads as a page that
      does not work. It is a statement of capability, not a setting. -->
 <div class="capability" id="detector-bar">
-  <div class="capability-head">
-    <span class="mark" aria-hidden="true">○</span>
-    <div>
-      <h3 id="detector-title">Invisible watermark: not checked</h3>
-      <p class="muted" id="detector-state">Reading a mark out of pixels needs a model of about 34 MB. This page never downloads it on its own and never keeps it.</p>
-    </div>
+  <span class="mark" aria-hidden="true">○</span>
+  <div>
+    <h3 id="detector-title">Invisible watermark: not checked</h3>
+    <p class="muted" id="detector-state">Reading a mark out of pixels needs a model of about 34 MB. This page never downloads it on its own and never keeps it.</p>
   </div>
   <div class="capability-actions">
-    <button type="button" id="load-detector">Load the detector · 34 MB</button>
-    <label class="muted">or use a detection you already have <input type="file" id="evidence" accept=".json,application/json"></label>
+    <button type="button" class="btn" id="load-detector">Load the detector · 34 MB</button>
+    <span class="file">
+      <input type="file" id="evidence" class="file-input" accept=".json,application/json">
+      <label class="btn secondary" for="evidence">Use a detection you have</label>
+      <span class="file-name" data-name-for="evidence"></span>
+    </span>
   </div>
 </div>
 
 <!-- Two more files help in two specific situations, and neither is the common
      one. Behind a disclosure so the page asks one question at a time. -->
 <details class="more" id="more">
-  <summary>I also have the original, or a <code>.vcap</code> file</summary>
-  <div class="drop sidecar" id="original-drop">
-    <p class="call"><label for="original">The original</label></p>
-    <p class="muted">A copy that came back re-compressed, cropped or through a social network has usually lost its proof. Next to the original, this page can show what it lost and what it kept.</p>
-    <input type="file" id="original">
-  </div>
-  <div class="drop sidecar" id="sidecar-drop">
-    <p class="call"><label for="sidecar">A sidecar file</label></p>
-    <p class="muted">When the proof travels beside the file rather than inside it (<code>&lt;filename&gt;.vcap</code>). It is read here, not looked for anywhere.</p>
-    <input type="file" id="sidecar" accept=".vcap,application/json">
+  <summary><span class="chev" aria-hidden="true">›</span> I also have the original, or a <code>.vcap</code> file</summary>
+  <div class="extra">
+    <div id="original-drop">
+      <h4>The original</h4>
+      <p class="muted">A copy that came back re-compressed, cropped or through a social network has usually lost its proof. Next to the original, this page can show what it lost and what it kept.</p>
+      <span class="file">
+        <input type="file" id="original" class="file-input">
+        <label class="btn secondary" for="original">Choose the original</label>
+        <span class="file-name" data-name-for="original"></span>
+      </span>
+    </div>
+    <div id="sidecar-drop">
+      <h4>A sidecar file</h4>
+      <p class="muted">When the proof travels beside the file rather than inside it (<code>&lt;filename&gt;.vcap</code>). It is read here, not looked for anywhere.</p>
+      <span class="file">
+        <input type="file" id="sidecar" class="file-input" accept=".vcap,application/json">
+        <label class="btn secondary" for="sidecar">Choose the sidecar</label>
+        <span class="file-name" data-name-for="sidecar"></span>
+      </span>
+    </div>
   </div>
 </details>
 
@@ -281,7 +388,7 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
 </main>
 
 <section class="settings">
-  <h3>What this page trusts</h3>
+  <p class="section-label">What this page trusts</p>
   <p class="muted">Every check below can be switched off, and switching one off never turns a verdict into an error — it turns a line of evidence into <em>not evaluated</em>, which is a weaker answer and an honest one.</p>
 
   <div class="panel" id="trust">
@@ -289,9 +396,22 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
     <p class="muted">A sealed file can prove its signing key was published in a transparency log before the capture. Checking that needs the log's public key, so this page ships with a set — visible here, switchable, replaceable with your own. The same set is published beside this page as <a href="logs.json"><code>logs.json</code></a>: fetch it, recompute each <code>log_id</code> from its key, and decide for yourself.</p>
     <ul id="trust-logs"></ul>
     <p class="muted">A proof naming a log you do not follow reads <em>log not trusted</em>. The rest of the verdict is unchanged.</p>
-    <p><label>Your own trust document <input type="file" id="trust-file" accept=".json,application/json"></label></p>
-    <p><label>or one log, as <code>&lt;log_id&gt;:&lt;base64 spki&gt;</code> <input type="text" id="trust-line" size="40" spellcheck="false"></label> <button type="button" id="trust-add">Trust it</button></p>
-    <p class="muted" id="trust-state"></p>
+    <div class="field">
+      <span class="label">Your own trust document</span>
+      <span class="file">
+        <input type="file" id="trust-file" class="file-input" accept=".json,application/json">
+        <label class="btn secondary" for="trust-file">Choose a JSON file</label>
+        <span class="file-name" data-name-for="trust-file"></span>
+      </span>
+    </div>
+    <div class="field">
+      <label class="label" for="trust-line">Or one log, as <code>&lt;log_id&gt;:&lt;base64 spki&gt;</code></label>
+      <div class="field-row">
+        <input type="text" id="trust-line" spellcheck="false" autocomplete="off">
+        <button type="button" class="btn secondary" id="trust-add">Trust it</button>
+      </div>
+    </div>
+    <p class="muted state" id="trust-state"></p>
   </div>
 
   <div class="panel" id="tsa">
@@ -299,15 +419,28 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
     <p class="muted">A sealed file can carry an RFC 3161 token binding its proof to an instant. Checking it needs that authority's root certificate, so this page ships with a set, published beside it as <a href="tsa.json"><code>tsa.json</code></a>. Unlike the logs above these authorities are run by other people — which is what makes a token worth having, and why what it proves has to be stated narrowly.</p>
     <ul id="tsa-roots"></ul>
     <p class="muted">With all of them off, a timestamp reads <em>trusted time not evaluated</em> and certificates are validated at the instant the device claims instead.</p>
-    <p><label>Your own TSA trust document <input type="file" id="tsa-file" accept=".json,application/json"></label></p>
-    <p><label>or one root, as <code>&lt;sha256 fingerprint&gt;:&lt;base64 certificate&gt;</code> <input type="text" id="tsa-line" size="40" spellcheck="false"></label> <button type="button" id="tsa-add">Trust it</button></p>
-    <p class="muted" id="tsa-state"></p>
+    <div class="field">
+      <span class="label">Your own TSA trust document</span>
+      <span class="file">
+        <input type="file" id="tsa-file" class="file-input" accept=".json,application/json">
+        <label class="btn secondary" for="tsa-file">Choose a JSON file</label>
+        <span class="file-name" data-name-for="tsa-file"></span>
+      </span>
+    </div>
+    <div class="field">
+      <label class="label" for="tsa-line">Or one root, as <code>&lt;sha256 fingerprint&gt;:&lt;base64 certificate&gt;</code></label>
+      <div class="field-row">
+        <input type="text" id="tsa-line" spellcheck="false" autocomplete="off">
+        <button type="button" class="btn secondary" id="tsa-add">Trust it</button>
+      </div>
+    </div>
+    <p class="muted state" id="tsa-state"></p>
   </div>
-
 </section>
 
 <footer>
-  <p>What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated here yet. A position is never “guaranteed”: the page names the level it reaches — declared by the device, or corroborated by a registry it trusts. The log it ships with is run by the same people who publish this page: it proves a key was in our log, never that we are honest. The timestamping authorities are run by other people: a token proves a hash existed before an instant, never who made the file.</p>
+  <p>What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated here yet. A position is never “guaranteed”: the page names the level it reaches — declared by the device, or corroborated by a registry it trusts.</p>
+  <p>The log it ships with is run by the same people who publish this page: it proves a key was in our log, never that we are honest. The timestamping authorities are run by other people: a token proves a hash existed before an instant, never who made the file.</p>
   <p>This build: bundle <code id="bundle-hash">{{bundle_sha256}}</code>, from commit <a href="https://github.com/VCAP-org/vcap-verifier/commit/{{commit}}"><code id="commit">{{commit_short}}</code></a>, esbuild {{esbuild}} — <a href="hashes.json">every shipped file, hashed</a>. Offline: <span id="offline">needs a browser with service workers</span>. Rebuild that commit yourself to check them: the <a href="https://github.com/VCAP-org/vcap-verifier#reproducing-the-published-build">README</a> says how.</p>
 </footer>
 <script type="module" src="verifier.js"></script>
