@@ -1,6 +1,6 @@
 {
   "document": "vcap/1.0/trusted-logs",
-  "updated": "2026-09-14",
+  "updated": "2026-09-22",
   "about": "The transparency logs the verifiers in this repository trust unless the reader says otherwise. A log's key here is what lets a verifier check the `registry` attachment of vcap-spec §6.2: the proof that a device's sealing key was a leaf of that log under a signed tree head. Without a key for the log a proof names, the verdict carries *log not trusted* and nothing is lost but that one check.",
   "how_to_replace": "This document is data, not code. The page publishes it verbatim as `logs.json` next to itself, the CLI reads this file and takes `--trust <file>`, `--log <id>:<spki>` and `--no-default-logs`, and every verifier here can be run against a set that does not contain any of these logs. Verifying without them is the supported case, not a degraded one.",
   "log_id_is": "base64url(SHA-256(spki)), as in Certificate Transparency. Recompute it from `spki` before trusting this file: the two fields check each other.",
@@ -14,10 +14,10 @@
       "operator": "the vcap project — the same party that writes this verifier, runs the platform that appends to this log, and publishes this page",
       "independent": false,
       "proves": "that the sealing key was a leaf of this log under a tree head this log signed, and that the leaf carries the same key the proof was signed with",
-      "does_not_prove": "that the operator of this log is honest. A log this platform runs is not a third party: it corroborates nothing on its own, and a capture whose `registry` verifies is a capture whose key we say we had seen. Independent corroboration would need a log somebody else runs, or a mirror somebody else keeps — neither exists today.",
+      "does_not_prove": "that the operator of this log is honest. A log this platform runs is not a third party: it corroborates nothing on its own, and a capture whose `registry` verifies is a capture whose key we say we had seen. Independent corroboration would need a log somebody else runs, or a mirror somebody else keeps — neither exists today, and the read API does not change that: it lets a reader audit the tree for self-consistency, not for having been shown to everybody else.",
       "caveats": [
         "Development, not production: the key lives on a development server, it has no hardware protection, and it may be replaced without notice. Rotating it changes `log_id`, so proofs that cite this one keep citing it.",
-        "Not yet publicly readable: the log's read API and its mirrors are not deployed. Nobody outside the project can currently download the leaves and rebuild the tree, which is the check that makes a transparency log worth the name. Until they can, this entry publishes an identity, not an audit."
+        "Readable by anybody, and no mirror yet. The read API is deployed and needs no credential: the signed tree head, the RFC 6962 inclusion and consistency proofs, and the leaves in pages, under /api/v1/log/ on the platform that appends to this log. So the leaves can be downloaded and the tree rebuilt — the check that makes a transparency log worth the name — and this entry is no longer only an identity. What is still missing is a mirror somebody else keeps: reading the log from the party that writes it detects a tree that contradicts itself, never a tree that was quietly replaced for one reader."
       ]
     }
   ]
