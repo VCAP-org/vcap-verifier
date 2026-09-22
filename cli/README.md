@@ -35,11 +35,15 @@ named set of them:
 --log <log_id>:<base64 spki>   a transparency log to trust
 --trust <path.json>            a trust document, shaped like trust/logs.json
 --no-default-logs              do not trust the logs this tool ships with
---show-trust                   print the logs this run would trust
+--show-trust                   print the logs and the authorities this run would trust
 --tsa-root <path.pem>          a TSA root to pin
+--no-default-tsa               do not trust the authorities this tool ships with
 ```
 
-Google's attestation roots are pinned in the library.
+Two sets, two switches, because they are two decisions: `trust/logs.json` is
+ours and `trust/tsa.json` is somebody else's (`trust/README.md`). Refusing the
+log we run must not also drop a third party's clock. Google's attestation roots
+are pinned in the library.
 
 ## The one log it ships trusting
 
@@ -128,9 +132,9 @@ in unchanged:
   "decoded": "00112233445566778899aabbccddeeff",
   "corrected_bits": 4,
   "frames_sampled": 1,
-  "sampling": { "frames": 24, "strategy": "uniform" },
+  "sampling": { "frames": 8, "strategy": "uniform" },
   "agreement": 0.94,
-  "model_version": "videoseal-y256b-3"
+  "model_version": "videoseal-y256b-1"
 }
 ```
 
@@ -146,6 +150,14 @@ detection that carries its own verdict word is not read.
 | `null` | *watermark not recovered*, with whatever figure the layout defines |
 | an unreadable payload, an unknown layout, no file at all | *watermark not evaluated* |
 | a different id, decoded | **red**: *tampered*, with the reason and no labels (§8) |
+
+For `video-rep-v1` the table is reached only after the layout's agreement
+floor: the id is read when `agreement` is present and at least **0.85**, and
+below that the answer is *watermark not recovered* with the figure and no id —
+never a match and never a contradiction. Eight bits of CRC over a 24-bit id
+pass by chance about once in 256, and device recordings have resolved wrong ids
+at 0.738 and 0.789, so an unbelievable id is refused rather than printed
+(`core/README.md`). A detection with no `agreement` figure is *not evaluated*.
 
 Without `--watermark` a declared watermark is *watermark not evaluated*, which
 is what this tool has always said and is a weaker verdict, never an error.

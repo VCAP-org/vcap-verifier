@@ -37,9 +37,12 @@ people who write this verifier and publish the page. That is stated in the
 document, printed by `vcap-verify --show-trust`, and shown on the page next to
 the log. It matters because it is the one thing a list of operators invites a
 reader to get wrong: this is a pin, not corroboration. It proves a key was in
-*our* log. It does not prove we are honest, and until the log is publicly
-readable and mirrored by somebody else, nobody outside the project can check
-that it is append-only at all.
+*our* log. It does not prove we are honest. The log is readable without an
+account — the signed tree head, the RFC 6962 proofs and the leaves in pages,
+under `/api/v1/log/` — so anyone can download the leaves and rebuild the tree.
+What is missing is a mirror somebody else keeps: reading a log from the party
+that writes it catches a tree that contradicts itself, never one quietly
+replaced for a single reader.
 
 ## Replacing it
 
