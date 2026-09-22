@@ -215,18 +215,18 @@ export const crc8 = (value: number): number => {
 }
 
 /**
- * `video-rep-v1`: (24-bit mark id ‖ crc8) repeated eight times. The copies are
- * summed as soft votes rather than majority-counted, so a bit the model was
- * sure about outweighs seven it was not.
+ * `video-rep-v1` without the floor: (24-bit mark id ‖ crc8) repeated eight
+ * times, the copies summed as soft votes rather than majority-counted, so a
+ * bit the model was sure about outweighs seven it was not. The CRC is the only
+ * gate here, and `markId` is what the block says — not yet what a reader may
+ * be told.
  *
- * Two gates, not one: the CRC, and `VIDEO_AGREEMENT_FLOOR`. Eight bits of
- * checksum admit one word in 256 by chance and every word they admit is a
- * legal id, so on real recordings the CRC alone handed back ids the pixels had
- * never carried. Below the floor this returns no id and keeps the figure — the
- * core reads that as *watermark not recovered*, which is what a reader can
- * honestly be told: a mark may be there and its id did not resolve.
+ * It is separate from `decodeVideo` because §8 asks two different questions of
+ * the same arithmetic. Naming an id to a reader needs the floor; *agreeing*
+ * with an id the aggregate already resolved does not, and a frame is only ever
+ * asked the second question (`decodeClip`).
  */
-export const decodeVideo = (soft: ArrayLike<number>): VideoPayload => {
+const decodeBlock = (soft: ArrayLike<number>): VideoPayload => {
   const combined = new Float64Array(BLOCK_BITS)
   for (let rep = 0; rep < REPS; rep++) {
     for (let i = 0; i < BLOCK_BITS; i++) combined[i]! += soft[rep * BLOCK_BITS + i]!
@@ -244,9 +244,29 @@ export const decodeVideo = (soft: ArrayLike<number>): VideoPayload => {
   const markId = Math.floor(block / 256)
   const crc = block % 256
   if (markId === 0 || crc8(markId) !== crc) return { markId: null, agreement, refused: false }
-  if (agreement < VIDEO_AGREEMENT_FLOOR) return { markId: null, agreement, refused: true }
   return { markId, agreement, refused: false }
 }
+
+/**
+ * The floor applied to a block decode, in the one place that applies it: the
+ * gate between a block that decoded and an id a reader may be told.
+ */
+const floored = (block: VideoPayload): VideoPayload =>
+  block.markId !== null && block.agreement < VIDEO_AGREEMENT_FLOOR
+    ? { markId: null, agreement: block.agreement, refused: true }
+    : block
+
+/**
+ * A `video-rep-v1` decode a verifier may report an id from.
+ *
+ * Two gates, not one: the CRC, and `VIDEO_AGREEMENT_FLOOR`. Eight bits of
+ * checksum admit one word in 256 by chance and every word they admit is a
+ * legal id, so on real recordings the CRC alone handed back ids the pixels had
+ * never carried. Below the floor this returns no id and keeps the figure — the
+ * core reads that as *watermark not recovered*, which is what a reader can
+ * honestly be told: a mark may be there and its id did not resolve.
+ */
+export const decodeVideo = (soft: ArrayLike<number>): VideoPayload => floored(decodeBlock(soft))
 
 /**
  * What a clip's sampled frames say. `markId`, `agreement` and `refused` are
@@ -286,27 +306,52 @@ export interface ClipPayload extends VideoPayload {
  * (`vcap-spec/spec/watermark-robustness-1.0.md`, *The severe result needs no
  * model at all*).
  *
- * The floor gates both, and the aggregate gates the count: frames are counted
- * only against an id the aggregated decode was allowed to report, and a frame
- * counts only when its own decode clears the CRC and the floor by itself
- * (`decodeVideo` returns no id otherwise). So per-frame decoding can never
- * name an id the clip's own answer refused, and the two readings can never
- * report different ids.
+ * **The floor gates the id and not the count** (§8, *Which sampled frames
+ * count*). The aggregate is held to it, so the id exists at all; a frame is
+ * then only asked whether its own block decodes to that same id, and its own
+ * agreement is never compared to 0.85. A chance CRC pass is not a free count —
+ * it must also land on the one value in 2²⁴ the clip already resolved — so
+ * equality against an already-floored id supplies exactly what the floor
+ * supplied. Applying the floor twice cost real counts for nothing: on the int8
+ * build this page ships, a clip marked throughout reads 39 flipped bits from
+ * one frame (0.848, under the floor) and 35 from eight (0.863, reportable), so
+ * it reported *0 of 8* while one spliced frame reported *1 of 8* — the count
+ * ranked the genuine recording below the forgery, which is the one comparison
+ * it exists to make (`vcap-ml/reports/frames-to-recover.md`).
+ *
+ * Per-frame decoding still never becomes a second answer: frames are counted
+ * only against the id the aggregate reported, so a frame that resolves some
+ * other id carries nothing here and is never named, and a clip whose own
+ * decode the floor refused reports no id and no count.
  *
  * It costs no model runs. The frames were already inferred one at a time —
  * averaging happened after the detector, not inside it — so this is one extra
- * `decodeVideo` per frame: a vote and a CRC over 256 numbers.
+ * block decode per frame: a vote and a CRC over 256 numbers.
  */
 export const decodeClip = (frames: ReadonlyArray<ArrayLike<number>>): ClipPayload => {
   const averaged = new Float64Array(BLOCK_BITS * REPS)
   for (const frame of frames) {
     for (let i = 0; i < averaged.length; i++) averaged[i]! += frame[i]! / frames.length
   }
-  const clip = decodeVideo(averaged)
+  return readClip(decodeBlock(averaged), frames.map(decodeBlock))
+}
+
+/**
+ * §8's reading rule for a clip, over decodes that have already happened.
+ *
+ * Split out from `decodeClip` because it is what `vcap-spec`'s
+ * `vectors/_watermark/clip-reading.json` pins: those cases are readings — an
+ * id, an agreement, a CRC verdict per frame — and not pixels, so the gate can
+ * only reach the rule if the rule is reachable without a detector.
+ *
+ * `aggregate` and `frames` are block decodes, neither of them floored. The
+ * floor is applied here and to the aggregate alone, which is also what makes
+ * the aggregate own the reported `agreement`: the figure beside an id is the
+ * one produced by the decode that produced the id, never a mean over the
+ * frames that carried it (§8, *Which agreement is reported*).
+ */
+export const readClip = (aggregate: VideoPayload, frames: ReadonlyArray<VideoPayload>): ClipPayload => {
+  const clip = floored(aggregate)
   if (clip.markId === null) return { ...clip, framesWithId: null }
-  let framesWithId = 0
-  for (const frame of frames) {
-    if (decodeVideo(frame).markId === clip.markId) framesWithId++
-  }
-  return { ...clip, framesWithId }
+  return { ...clip, framesWithId: frames.filter((frame) => frame.markId === clip.markId).length }
 }

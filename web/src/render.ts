@@ -125,14 +125,14 @@ const figures = (w: WatermarkOutcome): string => {
  * The count says **where** the mark is, never **whether** it is: whether is
  * the clip's own decode, which already answered. Hence three sentences and not
  * two, because zero is not a small number here but a different statement.
- * Every frame is held to the same 0.85 floor the clip's answer was held to,
- * and on the build this page ships the hardest surviving chain is under that
- * floor from one frame and over it from eight — so a genuine, wholly marked
- * clip can legitimately have no frame that resolved alone
- * (`vcap-ml/reports/frames-to-recover.md`). Reading zero as evidence of a
- * splice would convict exactly those clips, and for the same reason the count
- * is never a floor of its own: requiring one frame to pass individually would
- * refuse the clips averaging exists for.
+ * A frame counts when its own decode yields the clip's id; the 0.85 floor
+ * gates the id and not the count (§8, *Which sampled frames count*). Zero is
+ * still reachable and still not an accusation: a clip can resolve on the
+ * average while no single frame's checksum holds, which is what heavy
+ * re-compression does. Reading zero as evidence of a splice would convict
+ * exactly those clips, and for the same reason the count is never a floor of
+ * its own: requiring one frame to resolve on its own would refuse the clips
+ * averaging exists for.
  */
 const carriedNote = (w: { frames_with_id?: number | null, frames_sampled?: number | null }): string => {
   const carried = w.frames_with_id
