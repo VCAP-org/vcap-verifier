@@ -15,7 +15,8 @@ API and the libraries import: `core/` verifies the signature layer of vcap/1.0
 and passes every conformance vector of `vcap-spec`, evaluates RFC 3161 tokens
 against injected TSA roots and Android attestation chains against the pinned
 Google roots (the §7 proven level and ceiling); `web/` is a first static page
-over it, still without TSA roots (so it labels *trusted time not evaluated*).
+over it, carrying both trust sets — `trust/logs.json` and `trust/tsa.json` are
+bundled into the build and published unchanged beside the page.
 Both revocation questions §7 asks are implemented as *injected* lookups, because
 this core contacts nothing: the chain's status list and the log's signed answer
 about the device key. Given neither, a verdict says *chain revocation not
@@ -78,7 +79,7 @@ differ, and CI runs both.
 git submodule update --init      # the spec and its vectors
 npm ci
 npm run typecheck && npm test    # core: the spec vectors, attachments, evidence; web: the layout ports
-npm run build --workspace web    # web/dist: index.html, verifier.js, detector.js, detector-runtime.js, the engine's wasm, detector.json, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon
+npm run build --workspace web    # web/dist: index.html, verifier.js (+ .sha256), detector.js, detector-runtime.js, the engine's wasm, detector.json, logs.json, tsa.json, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon
 npm run test:e2e --workspace web # Playwright against web/dist: offline use and the side-by-side (needs `npx playwright install chromium` once)
 npm run dev --workspace web      # serves the page with a watcher (no service worker: dev builds are not cached)
 ```
@@ -173,8 +174,8 @@ derived from their hashes, so a new deploy replaces the old cache and an old
 one never serves a new page's request. Once the footer says *available
 offline*, the page verifies files with no network at all — which is the
 product invariant made literal. It never fetches anything else: no
-analytics, no roots, no logs: the trusted logs are shipped **in** the build and
-hashed like the rest, and TSA roots will be, when the page gains them.
+analytics, no roots, no logs fetched: the trusted logs and the TSA roots are
+shipped **in** the build and hashed like the rest.
 
 This is tested, not asserted: `web/test/offline.spec.ts` (Playwright, the
 `offline` job in CI, run against the same `web-dist` artifact the
@@ -352,8 +353,12 @@ about a link, not about the host, and it is why the page streams the download
 with a progress figure instead of blocking on it. A second click costs nothing:
 the engine revalidates to a 304 and the model is served `immutable`. That is
 why detection is **progressive**: every frame reports as it lands and the
-payload is shown as soon as it decodes, which for `video-rep-v1` is usually the
-first frame (`vcap-ml/reports/frames-to-recover.md`).
+payload is shown as soon as it decodes — for `video-rep-v1` often on the first
+frame, since the eight copies inside one message already do the work
+aggregation was expected to do (`vcap-ml/reports/frames-to-recover.md`, one
+clip with no motion; the page samples eight uniform frames anyway, as that
+report recommends). An id under the agreement floor is never shown, partially
+or otherwise.
 
 A detection can still come from a file the user already holds instead: the
 `watermark` block of a `/v1/verify` response, or what `vcap-verify --watermark`
@@ -378,16 +383,29 @@ page needs:
   correction floor.
 
 Both were measured on three images and one synthetic clip, on re-encode recipes
-named after sharing services but not produced by them. And the one number an
-evaluator asks for that nobody has: **the detector's false-positive rate on
-unmarked content has not been measured**, so nothing here says what a recovered
-`mark_id` implies on its own.
+named after sharing services but not produced by them.
+
+**And a clip's `mark_id` is refused below 0.85 agreement, even when its
+checksum passes.** `video-rep-v1` protects a 24-bit id with eight bits of CRC,
+so a word with no structure left in it passes by chance about once in 256: on
+unmarked content the measured rate is 15 passes in 4 329 trials — 0.35 %, on
+top of CRC-8's own 1/256 — while `photo-bch-v3` produced no id at all
+(`vcap-ml/reports/false-positives.md`). Two device recordings resolved an id
+the pixels had never carried, at 0.738 and 0.789, so the verifier applies the
+layout's floor (`VIDEO_AGREEMENT_FLOOR`, and
+`vcap-spec/spec/watermark-layouts-1.0.md`): under 0.85 it reports **no id and
+the agreement figure**, never the id it refused. It is a refusal band and not a
+separator — correct ids have been observed at 0.727, below a wrong one at
+0.738 — so true answers are refused along with false ones, and that cost is the
+rule rather than a flaw in it. Above the floor, a recovered `mark_id` taken
+**alone** still says little: 24 bits collide by design, and it is the
+signature, not the mark, that identifies a capture.
 
 None of which changes a verdict, because it cannot: a mark that is read is
-*origin traced* and a mark that is not is *watermark not recovered*, and the
-verdict card keeps the colour the signature layer gave it either way. The
-failure of a detector is a weaker answer, never an error and never a red
-verdict.
+*origin traced*, a mark that is not — including one the floor refused — is
+*watermark not recovered*, and the verdict card keeps the colour the signature
+layer gave it either way. The failure of a detector is a weaker answer, never an
+error and never a red verdict.
 
 #### Running the end-to-end detector tests
 
@@ -458,8 +476,8 @@ Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 1.1.0, 85
-vectors** (manifest `a1e9715514df7be2…`), the last of them an iOS video sealed
+and the claim is only worth what it names. Today that is **corpus 1.2.0, 85
+vectors** (manifest `29fd346eda9206bb…`), the last of them an iOS video sealed
 on a device, whose segment chain a Secure Enclave signed:
 
 | Runner | Vectors | Corpus |
@@ -485,14 +503,9 @@ the submodule still runs the vectors — but never *no* vectors.
 
 ## Project documentation
 
-This repository is code only. Plan, specification, decisions and market context
-live in the project workspace, outside this repo:
-
-- `Doc/01-piattaforma-build-spec.md` — components, epics, estimates, sequence
-- `Doc/05-decisioni.md` — decision log (read before proposing an architectural change)
-- `Doc/06-fase1-avvio.md` — phase 1 work order
-- `AGENT.md` — workspace rules, naming conventions, product invariants
-- `CHECKLIST.md` — the single work list; tick your line in the same commit
+This repository is code only. The plan, the decision log and the product
+context live in the project workspace, outside this repo and not public;
+`AGENTS.md` here carries everything a contributor to *this* repository needs.
 
 ## Product invariants
 
@@ -510,23 +523,7 @@ These hold for every line of code in every repository:
 - Location is never "guaranteed": the reached level is declared
   (declared, corroborated, authenticated).
 
-## Naming
-
-`vcap` (verified capture) is the internal codename and the only name allowed in
-identifiers: package names, bundle ids, trailer magic, proof version string,
-database schemas, log prefixes. The product brand is provisional and must never
-appear in anything expensive to rename — it lives only in UI strings (single
-localization file) and store metadata. Full table in the workspace `AGENT.md`.
-
-## Definition of done
-
-In main, tested, conformance vectors passing in CI, and documented where the next
-person needs it. Not "works on my branch".
-
-## Language
-
-Code, comments, README and commit messages in English. Project documentation in
-`Doc/` is in Italian.
+Naming, the definition of done and the language rule are in `AGENTS.md`, once.
 
 ## License
 

@@ -10,6 +10,12 @@ part of correctness:
 - A missing timestamp is **no trusted time**, not a failure.
 - An unknown minor version means the unknown parts are **not evaluated**, and the
   verifier says which.
+- A `video-rep-v1` id decoded below **0.85** agreement is not reported at all:
+  *watermark not recovered*, with the figure and never the id that was refused.
+  Eight bits of CRC over a 24-bit id admit a wrong one about once in 256, and a
+  wrong `mark_id` points a reader at somebody else's capture. The floor is
+  `VIDEO_AGREEMENT_FLOOR` in the core, exported for the surfaces that apply it
+  before they report — never re-derived, never printed alongside the refused id.
 - The verifier must be able to say **no proof found** without embarrassment. One
   that cannot does not deserve trust.
 

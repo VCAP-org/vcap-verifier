@@ -59,10 +59,11 @@ await verify(bytes, {
     layout: 'photo-bch-v3',
     decoded: '00112233445566778899aabbccddeeff',  // null when nothing decoded
     corrected_bits: 4,                            // photo-bch-v3
-    agreement: 0.94,                              // video-rep-v1
-    frames_sampled: 24,
-    sampling: { frames: 24, strategy: 'uniform' },
-    model_version: 'videoseal-y256b-3'
+    agreement: 0.94,                              // video-rep-v1, required
+    frames_sampled: 8,
+    frames_with_id: 8,                            // video-rep-v1
+    sampling: { frames: 8, strategy: 'uniform' },
+    model_version: 'videoseal-y256b-1'
   })
 })
 ```
@@ -84,7 +85,20 @@ carries the detail and the figures:
 | unknown layout, unreadable payload, no lookup | *watermark not evaluated* | unchanged |
 | `decoded` is a **different** id | — | **tampered**, with its reason and no labels |
 
-Three things are deliberate and are the reason this is not a thin passthrough.
+Four things are deliberate and are the reason this is not a thin passthrough.
+
+**`video-rep-v1` has a floor, and it comes before the comparison.** The layout
+protects a 24-bit id with eight bits of CRC, which a structureless word passes
+about once in 256 — measured at 0.35 % on unmarked content, and twice on real
+recordings at agreement 0.738 and 0.789 with an id the pixels never carried. So
+an id from that layout is read only when `agreement` is present and at least
+`VIDEO_AGREEMENT_FLOOR` (0.85, `watermark-layouts-1.0.md`). Below it the
+outcome is *not recovered* with `id_refused: true` and the figure, and the
+refused id is never named; without an `agreement` figure at all the outcome is
+*not evaluated*. Both come **before** the comparison on purpose: an id that may
+not be reported as a match may not be held against the proof as a contradiction
+either. `photo-bch-v3` has no such floor — BCH either corrects the block or it
+does not.
 
 **The comparison is never the caller's.** The evidence says only what came out
 of the pixels; the id it is compared against is read from the signed core —
@@ -144,7 +158,7 @@ difference.
 | `parseTrailer`, `canonicalBytes`, `detectContainer` | §3 and §4.1 on their own |
 | `verifyChain`, `segmentMessage`, `recomputeSegments` | §5 at message level and from a container |
 | `verifyRegistry`, `verifyKeyStatus`, `verifyAnchor`, `validateTimestamp`, `verifyIntegrity` | the §6.2 attachments, individually |
-| `evaluateWatermark`, `captureIdHex` | §8's watermark table on its own, for a caller holding a detection and no file |
+| `evaluateWatermark`, `captureIdHex`, `VIDEO_AGREEMENT_FLOOR` | §8's watermark table on its own, for a caller holding a detection and no file — and the floor, so a detector can apply it before it reports |
 | `leafHash`, `nodeHash`, `verifyInclusion`, `verifyConsistency` | RFC 6962, shared by the log and the anchor |
 | `validateAndroidAttestation`, `googleRoots`, `parseCertificate` | §7's proven level |
 
