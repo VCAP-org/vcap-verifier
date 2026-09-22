@@ -176,7 +176,8 @@ export const bareMark = (decoded: string | null, layout: string | null | undefin
     <h3>An invisible mark is still in these pixels</h3>
     <p><strong>This is not a verdict of authenticity.</strong> No signature covers these bytes, so nothing here says the picture is unedited or that it is the file that was sealed. What the pixels carry is an identifier, and that is all.</p>
     <p>It reads <code>${escape(decoded)}</code>${layout ? ` in <code>${escape(layout)}</code>` : ''}.</p>
-    <p class="muted">Two things can be done with it. Drop the <strong>original</strong> above, and this page will compare the two itself, here, with nothing leaving your browser. Or look the identifier up in the registry that issued it — <a href="${escape(traceUrl)}">${escape(traceUrl)}</a> — which is a request to somebody's server, and the only one this page will ever suggest.</p>
+    <p class="muted">Two things can be done with it. Drop the <strong>original</strong> above, and this page will compare the two itself, here, with nothing leaving your browser. Or look the identifier up in the registry that issued it, which is a request to somebody's server and the only one this page will ever suggest.</p>
+    <p><a class="btn secondary" href="${escape(traceUrl)}/${escape(decoded)}" rel="noreferrer">Look this identifier up in the registry</a></p>
   </div>`
 }
 

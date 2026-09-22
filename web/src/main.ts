@@ -44,11 +44,19 @@ const inputs = {
   evidence: document.getElementById('evidence') as HTMLInputElement
 }
 /**
- * The registry a capture id can be looked up in. The only server this page
- * ever names: verification itself needs none, and this is offered to a reader
- * holding a stripped copy as a thing they may choose to do, never as a step.
+ * The registry a capture id can be looked up in, as a path the id is appended
+ * to. The only server this page ever names: verification itself needs none,
+ * and this is offered to a reader holding a stripped copy as a thing they may
+ * choose to do, never as a step.
+ *
+ * It links straight at the identifier rather than at the form. This page
+ * prints the mark as hex, because that is what a 128-bit payload looks like
+ * coming out of a model, while a proof spells the same sixteen bytes in
+ * base64url — and for a while the conversion between our own two surfaces was
+ * the reader's job: paste what this page printed, and the registry answered
+ * "not found" about a capture it had.
  */
-const TRACE_URL = 'https://console.vcap.gregoriogalante.com/trace'
+const TRACE_URL = 'https://console.vcap.gregoriogalante.com/t'
 
 const out = document.getElementById('out') as HTMLDivElement
 const chosen = document.createElement('p')
