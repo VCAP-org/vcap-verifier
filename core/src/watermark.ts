@@ -126,6 +126,9 @@ export interface WatermarkEvidence {
    * of a clean recovery (measured, 0.996). `agreement` does not catch that
    * and must never be presented as if it did — this does, and a verifier that
    * has it says "n of m" instead of an unqualified recovery.
+   *
+   * It is read only beside `frames_sampled`, and only when it is no larger:
+   * "n of m" is one claim, and half of it is not a weaker one.
    */
   frames_with_id?: number | null
   /** Which frames were chosen and how — reported, because it is settable. */
@@ -236,12 +239,19 @@ export const evaluateWatermark = (evidence: unknown, claim: WatermarkClaim): Wat
     return notEvaluated(`the detection is about ${JSON.stringify(said)} and the proof declares ${JSON.stringify(layout)}`, { layout })
   }
 
+  const sampled = num(evidence.frames_sampled, 0, 1e6)
+  // A count needs its denominator: "n of m" is the whole claim, and a caller's
+  // count that is larger than the frames it was taken from — or has no frame
+  // count beside it at all — is not a weaker statement, it is an unreadable
+  // one. Dropped rather than repaired: a number this cannot read is not a
+  // number to guess at.
+  const withId = num(evidence.frames_with_id, 0, sampled ?? -1)
   const shown: Partial<WatermarkOutcome> = {
     layout,
     ...(num(evidence.agreement, 0, 1) !== undefined ? { agreement: num(evidence.agreement, 0, 1) } : {}),
     ...(num(evidence.corrected_bits, 0, 4096) !== undefined ? { corrected_bits: num(evidence.corrected_bits, 0, 4096) } : {}),
-    ...(num(evidence.frames_sampled, 0, 1e6) !== undefined ? { frames_sampled: num(evidence.frames_sampled, 0, 1e6) } : {}),
-    ...(num(evidence.frames_with_id, 0, 1e6) !== undefined ? { frames_with_id: num(evidence.frames_with_id, 0, 1e6) } : {}),
+    ...(sampled !== undefined ? { frames_sampled: sampled } : {}),
+    ...(withId !== undefined ? { frames_with_id: withId } : {}),
     ...(text(evidence.model_version, 128) !== undefined ? { model_version: text(evidence.model_version, 128) } : {}),
     ...sampling(evidence.sampling)
   }

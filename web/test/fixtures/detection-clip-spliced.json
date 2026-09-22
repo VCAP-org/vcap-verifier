@@ -1,0 +1,9 @@
+{
+  "layout": "video-rep-v1",
+  "decoded": "9627292",
+  "agreement": 0.996,
+  "frames_sampled": 8,
+  "frames_with_id": 1,
+  "sampling": { "frames": 8, "strategy": "uniform" },
+  "model_version": "videoseal-y256b-1-detector_int8"
+}

@@ -226,7 +226,7 @@ export const crc8 = (value: number): number => {
  * core reads that as *watermark not recovered*, which is what a reader can
  * honestly be told: a mark may be there and its id did not resolve.
  */
-export const decodeVideo = (soft: Float32Array | number[]): VideoPayload => {
+export const decodeVideo = (soft: ArrayLike<number>): VideoPayload => {
   const combined = new Float64Array(BLOCK_BITS)
   for (let rep = 0; rep < REPS; rep++) {
     for (let i = 0; i < BLOCK_BITS; i++) combined[i]! += soft[rep * BLOCK_BITS + i]!
@@ -246,4 +246,67 @@ export const decodeVideo = (soft: Float32Array | number[]): VideoPayload => {
   if (markId === 0 || crc8(markId) !== crc) return { markId: null, agreement, refused: false }
   if (agreement < VIDEO_AGREEMENT_FLOOR) return { markId: null, agreement, refused: true }
   return { markId, agreement, refused: false }
+}
+
+/**
+ * What a clip's sampled frames say. `markId`, `agreement` and `refused` are
+ * the aggregated decode — the clip's one answer — and `framesWithId` is how
+ * many of the sampled frames decoded to that id on their own.
+ */
+export interface ClipPayload extends VideoPayload {
+  /**
+   * Null when there is no id to count against: a count of frames carrying
+   * nothing is not a number, and reporting 0 there would read as a clip whose
+   * frames disagreed rather than as a clip that gave no id at all.
+   */
+  framesWithId: number | null
+}
+
+/**
+ * A clip, decoded the two ways §8 needs, because neither one answers the
+ * other's question.
+ *
+ * **The id comes from the aggregate**, the logits of every sampled frame
+ * averaged and decoded once. That is not a shortcut: averaging is what lets a
+ * mark survive on a chain where no single frame carries it cleanly, and the
+ * measurements say the difference is real on the only build browsers get. On
+ * `detector_int8`, crf 36 at 640 px reads 39 flipped bits from one frame
+ * (agreement 0.848, under the floor) and 35 from eight (0.863, reportable) —
+ * so a page that decoded frames individually and reported an id only when a
+ * frame passed on its own would refuse a clip it recovers today
+ * (`vcap-ml/reports/frames-to-recover.md`).
+ *
+ * **The count comes from decoding each frame separately**, and it is the only
+ * thing that separates a marked recording from one genuine frame spliced into
+ * foreign footage. An unmarked frame does not vote against the mark, it
+ * abstains — mean absolute message logit 11.3 marked against 0.131 unmarked —
+ * so the average is set by any single marked frame, and a splice reports the
+ * real id at the agreement of a clean recovery, measured at 0.996. Agreement
+ * cannot see that and must never be shown as if it could
+ * (`vcap-spec/spec/watermark-robustness-1.0.md`, *The severe result needs no
+ * model at all*).
+ *
+ * The floor gates both, and the aggregate gates the count: frames are counted
+ * only against an id the aggregated decode was allowed to report, and a frame
+ * counts only when its own decode clears the CRC and the floor by itself
+ * (`decodeVideo` returns no id otherwise). So per-frame decoding can never
+ * name an id the clip's own answer refused, and the two readings can never
+ * report different ids.
+ *
+ * It costs no model runs. The frames were already inferred one at a time —
+ * averaging happened after the detector, not inside it — so this is one extra
+ * `decodeVideo` per frame: a vote and a CRC over 256 numbers.
+ */
+export const decodeClip = (frames: ReadonlyArray<ArrayLike<number>>): ClipPayload => {
+  const averaged = new Float64Array(BLOCK_BITS * REPS)
+  for (const frame of frames) {
+    for (let i = 0; i < averaged.length; i++) averaged[i]! += frame[i]! / frames.length
+  }
+  const clip = decodeVideo(averaged)
+  if (clip.markId === null) return { ...clip, framesWithId: null }
+  let framesWithId = 0
+  for (const frame of frames) {
+    if (decodeVideo(frame).markId === clip.markId) framesWithId++
+  }
+  return { ...clip, framesWithId }
 }

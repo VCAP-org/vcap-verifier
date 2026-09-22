@@ -55,7 +55,11 @@ Options
   --no-recompute            do not recompute segment hashes from the container (§5)
   --watermark <path.json>   a detection of the declared watermark, as JSON (single file only):
                             layout, decoded, agreement, corrected_bits, frames_sampled,
-                            sampling {frames, strategy}, model_version (§8). This tool runs no
+                            frames_with_id, sampling {frames, strategy}, model_version (§8).
+                            For a clip, frames_with_id is how many of the sampled frames
+                            decoded to that id on their own — the figure that separates a
+                            marked recording from one marked frame spliced into other
+                            footage, which agreement cannot. This tool runs no
                             detector: "decoded" is what somebody else's read out of the pixels
   --log <id>:<spki>         a transparency log to trust: log_id and its base64 DER SPKI
   --trust <path.json>       a trust document to add, in the shape of trust/logs.json; repeatable

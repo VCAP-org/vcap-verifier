@@ -159,6 +159,16 @@ pass by chance about once in 256, and device recordings have resolved wrong ids
 at 0.738 and 0.789, so an unbelievable id is refused rather than printed
 (`core/README.md`). A detection with no `agreement` figure is *not evaluated*.
 
+For a clip, add `frames_with_id`: how many of the `frames_sampled` frames
+decoded to that id **on their own**, which a verifier reporting one answer for
+several frames MUST report (§8). It is the only figure that separates a marked
+recording from one genuine frame spliced into foreign footage — an unmarked
+frame abstains rather than dissenting, so a decode taken over averaged frames
+is set by any single marked one and a splice reports the real id at the
+agreement of a clean recovery. `agreement` does not answer that question and is
+never presented as if it did. A count with no `frames_sampled` beside it, or
+larger than it, is dropped: "n of m" is one claim.
+
 Without `--watermark` a declared watermark is *watermark not evaluated*, which
 is what this tool has always said and is a weaker verdict, never an error.
 

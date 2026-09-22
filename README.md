@@ -371,6 +371,24 @@ and eight settle it (0.867), which is also where the measurable gain stops: a
 ninth frame changes no outcome and costs another model run. An id under the
 agreement floor is never shown, partially or otherwise.
 
+**Those eight frames are also decoded one by one, and the page says how many
+carried the id.** The id itself still comes from the aggregate, for the reason
+above; the count comes from the same frames decoded separately, which costs no
+model run because they were inferred separately anyway. It is the only figure
+that separates a marked recording from **one genuine frame spliced into
+foreign footage**: an unmarked frame abstains rather than dissenting — mean
+absolute message logit 0.131 against 11.3 for a marked one — so the averaged
+decode is set by any single marked frame and a splice reports the real id at
+the agreement of a clean recovery, 0.996 measured. Agreement cannot see that
+and is never shown as if it could (§8; `vcap-spec/spec/watermark-robustness-1.0.md`).
+
+Every frame is held to the same 0.85 floor, so the count can never name an id
+the clip's own answer refused — and it can legitimately be **zero**. On the
+int8 build the hardest surviving chain clears the floor over eight frames and
+not over one, so a genuine, wholly marked clip may have no frame that resolved
+alone. The page says that in those words rather than treating a zero as
+evidence of a splice.
+
 A detection can still come from a file the user already holds instead: the
 `watermark` block of a `/v1/verify` response, or what `vcap-verify --watermark`
 takes. Nothing signs a detection (D18), so it is worth exactly what the hand

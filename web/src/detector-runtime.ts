@@ -11,9 +11,10 @@
  *
  * `detect` says what came out of the pixels — the layout it read, the id the
  * payload decoded to, how unanimous the copies were, how many frames it looked
- * at — and stops there. The comparison against the ids the device signed is
- * the core's (`evaluateWatermark`), against the signed bytes rather than
- * against anything this module chose to say. So a mark found here is never a
+ * at and how many of them carried the id — and stops there. The comparison
+ * against the ids the device signed is the core's (`evaluateWatermark`),
+ * against the signed bytes rather than against anything this module chose to
+ * say. So a mark found here is never a
  * verdict, and a payload that does not decode is `decoded: null`, which the
  * core reads as *watermark not recovered*: the normal outcome of a
  * re-compressed copy, and never an error.
@@ -42,7 +43,8 @@
  */
 import * as ort from 'onnxruntime-web'
 import type { WatermarkClaim, WatermarkEvidence } from 'vcap-verify-core'
-import { decodePhoto, decodeVideo } from './layouts.js'
+import { decodeClip, decodePhoto } from './layouts.js'
+import { SAMPLING_STRATEGY, VIDEO_FRAMES } from './sampling.js'
 
 /** Detection is slow enough that silence would read as a hang. */
 export interface DetectProgress {
@@ -62,30 +64,6 @@ export interface Detector {
   backend: string
   detect (media: Uint8Array, claim: WatermarkClaim, onProgress?: (p: DetectProgress) => void): Promise<WatermarkEvidence>
 }
-
-/**
- * Frames a clip is sampled at, and eight is what the measurements ask for
- * rather than a round number.
- *
- * `vcap-ml/reports/frames-to-recover.md` finds the payload coming back from
- * the **first** frame on all seven sharing chains, which used to read here as
- * "eight is margin, not necessity". That was a statement about what the code
- * corrects, not about what a decoder may report, and the 0.85 floor separates
- * the two. On `detector_int8` — the only build published for browsers, so the
- * one this file runs — the hardest chain that survives at all, crf 36 at
- * 640 px, costs **39 flipped bits aggregated over a single frame: agreement
- * 0.848, under the floor**. A one-frame page would answer *watermark not
- * recovered* on a clip whose id it had in fact decoded. Four frames clear it
- * (36 flips / 0.859) and eight settle it (34 / 0.867), which is also where the
- * measurable gain stops: past eight, more frames change no outcome and cost a
- * model run each (`vcap-spec/spec/watermark-robustness-1.0.md`, *How many
- * frames a verifier has to read*).
- *
- * It is reported in the evidence because it is settable: two answers taken
- * under different policies are not comparable.
- */
-const VIDEO_FRAMES = 8
-const SAMPLING_STRATEGY = 'uniform'
 
 /**
  * The longest side a frame is scaled to before it reaches the graph. The graph
@@ -236,30 +214,35 @@ export const createDetector = async (model: Uint8Array, modelVersion: string, pr
     const report = (p: DetectProgress): void => onProgress?.(p)
 
     if (claim.layout === 'video-rep-v1') {
-      const summed = new Float32Array(MESSAGE_BITS)
-      let frames = 0
+      // Every frame's logits are kept, not summed away. The clip's id still
+      // comes from their average — that is what recovers a mark no single
+      // frame carries cleanly — and keeping them is what lets the same frames
+      // be decoded one by one for the count §8 requires, at no extra model
+      // run (`decodeClip`). Eight frames of 256 floats is 8 KB.
+      const collected: Float32Array[] = []
       for await (const frame of videoFrames(media, claim.mime)) {
         const started = performance.now()
-        const logits = await messageLogits(session, frame)
-        for (let i = 0; i < MESSAGE_BITS; i++) summed[i] = summed[i]! + logits[i]!
-        frames++
+        // Copied out of the session's own output buffer, which the runtime is
+        // free to reuse on the next call.
+        collected.push((await messageLogits(session, frame)).slice())
         // The aggregate so far, decoded: a clip that recovers on frame two
         // should show it on frame two rather than after the last seek.
-        const soFar = decodeVideo(summed.map((v) => v / frames))
-        report({ done: frames, total: VIDEO_FRAMES, partial: soFar.markId === null ? null : String(soFar.markId), frameMs: performance.now() - started })
+        const soFar = decodeClip(collected)
+        report({ done: collected.length, total: VIDEO_FRAMES, partial: soFar.markId === null ? null : String(soFar.markId), frameMs: performance.now() - started })
       }
-      if (frames === 0) throw new Error('no frame could be decoded out of this clip')
-      // Every frame carries the same message, so the logits are averaged and
-      // the repetition layout is decoded once, on the aggregate — the same
-      // thing `robustness.py` does on the server side.
-      const { markId, agreement, refused } = decodeVideo(summed.map((v) => v / frames))
+      if (collected.length === 0) throw new Error('no frame could be decoded out of this clip')
+      const { markId, agreement, refused, framesWithId } = decodeClip(collected)
       return evidenceOf('video-rep-v1', markId === null ? null : String(markId), {
         agreement,
         // The layout refused an id here; the core needs to know that to write
         // "a mark may be present" instead of "nothing came back". It cannot
         // change the outcome — both are *watermark not recovered*.
         ...(refused ? { id_refused: true } : {}),
-        frames_sampled: frames,
+        frames_sampled: collected.length,
+        // Omitted rather than zeroed when no id was reported: there is nothing
+        // to have carried, and "0 of 8" would read as a clip whose frames
+        // disagreed about an id that was never named.
+        ...(framesWithId === null ? {} : { frames_with_id: framesWithId }),
         sampling: { frames: VIDEO_FRAMES, strategy: SAMPLING_STRATEGY },
         model_version: modelVersion
       })

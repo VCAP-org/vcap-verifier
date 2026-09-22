@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { VIDEO_AGREEMENT_FLOOR, crc8, decodePhoto, decodeVideo } from '../src/layouts.js'
+import { VIDEO_AGREEMENT_FLOOR, crc8, decodeClip, decodePhoto, decodeVideo } from '../src/layouts.js'
 import { VIDEO_AGREEMENT_FLOOR as CORE_FLOOR } from 'vcap-verify-core'
 
 /**
@@ -136,5 +136,107 @@ describe('video-rep-v1', () => {
     const decoded = decodeVideo(soft)
     expect(decoded.markId).toBeNull()
     expect(decoded.agreement).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * A clip, and the question a single decode cannot answer: how much of it
+ * carried the mark.
+ *
+ * The id still comes from the frames averaged together, because that is what
+ * recovers a mark no single frame carries cleanly. The count comes from
+ * decoding them one by one, because an unmarked frame **abstains** rather than
+ * dissenting — measured at mean absolute logit 0.131 against 11.3 for a marked
+ * one — so the average is set by any single marked frame and a spliced frame
+ * reports the real id at the agreement of a clean recovery
+ * (`vcap-spec/spec/watermark-robustness-1.0.md`).
+ */
+describe('video-rep-v1, over the frames of a clip', () => {
+  const marked = (index = 1): Float32Array => logits(vectors['video-rep-v1'].cases[index]!.message)
+  const markIdOf = (index = 1): number => vectors['video-rep-v1'].cases[index]!.mark_id
+
+  /** An unmarked frame: the detector's near-zero logits, not noise with an opinion. */
+  const abstaining = (seed: number): Float32Array => {
+    const soft = new Float32Array(vectors.message_bits)
+    let state = seed
+    for (let i = 0; i < soft.length; i++) {
+      state = (state * 1103515245 + 12345) & 0x7fffffff
+      soft[i] = ((state % 2000) / 1000 - 1) * 0.131
+    }
+    return soft
+  }
+
+  /** `count` consecutive positions flipped from `start`, so each frame errs somewhere else. */
+  const flipRun = (soft: Float32Array, start: number, count: number): Float32Array => {
+    const out = soft.slice()
+    for (let i = 0; i < count; i++) {
+      const at = (start + i) % out.length
+      out[at] = -out[at]!
+    }
+    return out
+  }
+
+  it('counts every frame of a wholly marked clip', () => {
+    const clip = decodeClip(Array.from({ length: 8 }, () => marked()))
+    expect(clip.markId).toBe(markIdOf())
+    expect(clip.framesWithId).toBe(8)
+  })
+
+  /**
+   * The defence this count exists for. Both clips below report the same id at
+   * the same agreement, and before the count a verifier could not tell them
+   * apart — which is exactly the splice `threat-model.md` §5.8 describes: one
+   * genuine frame in foreign footage, no model needed.
+   */
+  it('tells one spliced frame from a wholly marked clip', () => {
+    const spliced = decodeClip([marked(), ...Array.from({ length: 7 }, (_, i) => abstaining(i + 1))])
+    const whole = decodeClip(Array.from({ length: 8 }, () => marked()))
+
+    // Indistinguishable on everything a verifier had before this.
+    expect(spliced.markId).toBe(whole.markId)
+    expect(spliced.agreement).toBeGreaterThanOrEqual(VIDEO_AGREEMENT_FLOOR)
+    expect(spliced.agreement).toBe(whole.agreement)
+    // And distinguishable now.
+    expect(spliced.framesWithId).toBe(1)
+    expect(whole.framesWithId).toBe(8)
+  })
+
+  /**
+   * Why the id is not taken frame by frame. On the int8 build the browser
+   * ships, the hardest chain that survives at all reads 39 flipped bits from
+   * one frame — agreement 0.848, under the floor — and 35 from eight
+   * (`vcap-ml/reports/frames-to-recover.md`). A page that required a frame to
+   * pass on its own would refuse that clip; averaging still recovers it, and
+   * the count honestly says no frame resolved alone.
+   */
+  it('still recovers a clip no single frame could report, and says so with a zero', () => {
+    const frames = Array.from({ length: 8 }, (_, i) => flipRun(marked(), i * 32, 39))
+    for (const frame of frames) {
+      const alone = decodeVideo(frame)
+      expect(alone.markId).toBeNull()
+      expect(alone.agreement).toBeLessThan(VIDEO_AGREEMENT_FLOOR)
+    }
+    const clip = decodeClip(frames)
+    expect(clip.markId).toBe(markIdOf())
+    expect(clip.agreement).toBeGreaterThanOrEqual(VIDEO_AGREEMENT_FLOOR)
+    expect(clip.framesWithId).toBe(0)
+  })
+
+  /** No id to count against is not a count of zero: nothing was reported to carry. */
+  it('reports no count at all when the clip yields no id', () => {
+    const clip = decodeClip(Array.from({ length: 8 }, (_, i) => abstaining(i + 1)))
+    expect(clip.markId).toBeNull()
+    expect(clip.framesWithId).toBeNull()
+  })
+
+  /**
+   * Per-frame decoding may never become a second answer. Frames are counted
+   * against the id the aggregate was allowed to report, so a frame carrying a
+   * different one is not counted and its id is never named.
+   */
+  it('counts only the id the clip itself reported', () => {
+    const clip = decodeClip([marked(0), ...Array.from({ length: 7 }, () => marked(1))])
+    expect(clip.markId).toBe(markIdOf(1))
+    expect(clip.framesWithId).toBe(7)
   })
 })
