@@ -240,9 +240,13 @@ export const createDetector = async (model: Uint8Array, modelVersion: string, pr
       // Every frame carries the same message, so the logits are averaged and
       // the repetition layout is decoded once, on the aggregate — the same
       // thing `robustness.py` does on the server side.
-      const { markId, agreement } = decodeVideo(summed.map((v) => v / frames))
+      const { markId, agreement, refused } = decodeVideo(summed.map((v) => v / frames))
       return evidenceOf('video-rep-v1', markId === null ? null : String(markId), {
         agreement,
+        // The layout refused an id here; the core needs to know that to write
+        // "a mark may be present" instead of "nothing came back". It cannot
+        // change the outcome — both are *watermark not recovered*.
+        ...(refused ? { id_refused: true } : {}),
         frames_sampled: frames,
         sampling: { frames: VIDEO_FRAMES, strategy: SAMPLING_STRATEGY },
         model_version: modelVersion

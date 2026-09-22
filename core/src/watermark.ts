@@ -40,6 +40,24 @@
  */
 import { type Bytes, fromBase64, toHex } from './bytes.js'
 
+/**
+ * `video-rep-v1`'s agreement floor: below it a decode is **no id**, whatever
+ * the CRC said (`watermark-layouts-1.0.md`, *The agreement floor*).
+ *
+ * The layout's checksum is eight bits over a 24-bit id, so it passes by chance
+ * about one word in 256, and every value it admits is a legal `mark_id` — no
+ * filter stood between "CRC passed" and "resolve this id". On 38 recordings
+ * from real hardware two clips resolved an id the pixels had never carried, at
+ * 0.738 and 0.789, and a wrong `mark_id` is not a weak answer: it points a
+ * reader at somebody else's capture.
+ *
+ * The floor is above every wrong id observed and below every chain measured to
+ * recover (0.87), and it is a **refusal band, not a separator**: correct ids
+ * appear at 0.727, under a wrong one at 0.738, so this refuses true answers
+ * with the false ones. That cost is the rule, not a flaw in it.
+ */
+export const VIDEO_AGREEMENT_FLOOR = 0.85
+
 /** The layouts §8 names an id for. An unknown one is *watermark not evaluated*. */
 export const WATERMARK_LAYOUTS = ['photo-bch-v3', 'video-rep-v1'] as const
 export type WatermarkLayout = (typeof WATERMARK_LAYOUTS)[number]
@@ -75,8 +93,25 @@ export interface WatermarkEvidence {
    * of heavy re-compression, not a failure.
    */
   decoded?: string | null
-  /** `video-rep-v1`: how unanimous the eight copies were, 0…1. Shown next to *not recovered*. */
+  /**
+   * `video-rep-v1`: how unanimous the eight copies were, 0…1. Shown next to
+   * *not recovered*, and required before any id may be reported at all —
+   * a detection without it cannot be held to `VIDEO_AGREEMENT_FLOOR`, so it
+   * reads as *watermark not evaluated* rather than as a match.
+   */
   agreement?: number | null
+  /**
+   * `video-rep-v1`: the detector decoded a block and its own floor refused it,
+   * so `decoded` is null although something came back.
+   *
+   * A hint about wording and nothing else. It cannot move an outcome — with or
+   * without it a null `decoded` is *watermark not recovered* — which is why
+   * taking it from an untrusted caller costs nothing. A detector that applies
+   * the floor itself (the page's does, so no unbelievable id ever reaches a
+   * progress line) is the only one that still knows the difference between
+   * "nothing decoded" and "something decoded and was refused".
+   */
+  id_refused?: boolean | null
   /** `photo-bch-v3`: bits the block code corrected. */
   corrected_bits?: number | null
   /** Frames the decode was averaged over; 1 for a still. */
@@ -118,6 +153,16 @@ export interface WatermarkOutcome {
   /** The id that came back, when one did. */
   decoded?: string
   agreement?: number
+  /**
+   * *Not recovered* because an id was decoded and refused, rather than because
+   * nothing decoded. The two are one outcome on purpose — neither licenses a
+   * claim about an id — but they are not the same sentence to a reader: one
+   * says the mark did not survive, the other that a mark may be there and its
+   * id could not be resolved. An interface that cannot tell them apart has to
+   * pick one of those and be wrong half the time, so the distinction is
+   * carried here rather than re-derived from the figure by every surface.
+   */
+  id_refused?: true
   corrected_bits?: number
   frames_sampled?: number
   /** Of those frames, how many carried the id — the claim, for a clip. */
@@ -136,6 +181,17 @@ const text = (v: unknown, max: number): string | undefined =>
   typeof v === 'string' && v.length > 0 && v.length <= max ? v : undefined
 
 const MARK_ID_MAX = (1 << 24) - 1
+
+/**
+ * The sentence for a refused id, which never names the id that was refused:
+ * printing it would invite the reader to use it, and using it is the failure
+ * this rule exists to remove.
+ */
+const refusedDetail = (agreement?: number): string =>
+  'a mark may be present and its id is not resolvable' +
+  (agreement === undefined
+    ? ': the decode did not reach the agreement the layout requires'
+    : `: agreement ${agreement.toFixed(3)} is below the ${VIDEO_AGREEMENT_FLOOR} the layout requires`)
 
 /** Both halves or neither: a frame count with no strategy says nothing about comparability. */
 const sampling = (v: unknown): { sampling?: { frames: number, strategy: string } } => {
@@ -206,6 +262,11 @@ export const evaluateWatermark = (evidence: unknown, claim: WatermarkClaim): Wat
   // outcome of heavy re-compression, and it weakens nothing — a watermark is
   // not part of what `sig` covers.
   if (decoded === null || decoded === undefined) {
+    // A detector that applied the floor itself reports no id and says so; the
+    // sentence differs, the outcome does not.
+    if (layout === 'video-rep-v1' && evidence.id_refused === true) {
+      return { result: 'not_recovered', detail: refusedDetail(shown.agreement), ...withIds, id_refused: true }
+    }
     return { result: 'not_recovered', detail: 'the payload did not decode', ...withIds }
   }
   const readable = typeof decoded === 'string' && (layout === 'photo-bch-v3'
@@ -215,6 +276,25 @@ export const evaluateWatermark = (evidence: unknown, claim: WatermarkClaim): Wat
     return notEvaluated(`the reported payload is not a ${layout} id`, withIds)
   }
   const normalized = layout === 'photo-bch-v3' ? decoded.toLowerCase() : String(Number(decoded))
+  if (layout === 'video-rep-v1') {
+    // The layout decides what counts as a decode, and for this one the CRC is
+    // not enough. Both answers below come before the comparison on purpose:
+    // an id that may not be reported may not be reported as a *match* and may
+    // not be held against the proof as a *contradiction* either.
+    if (shown.agreement === undefined) {
+      return notEvaluated('the detection reports no agreement figure, which is the only thing that tells a decode from a lucky checksum', withIds)
+    }
+    if (shown.agreement < VIDEO_AGREEMENT_FLOOR) {
+      return {
+        result: 'not_recovered',
+        // No id in the sentence: printing the one that was refused invites a
+        // reader to use it, which is the whole failure this rule removes.
+        detail: refusedDetail(shown.agreement),
+        ...withIds,
+        id_refused: true
+      }
+    }
+  }
   if (normalized === declared) {
     // For a clip, the count is part of the sentence and not a field beside
     // it: "the payload carries the declared mark id" over one spliced frame

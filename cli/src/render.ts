@@ -43,7 +43,10 @@ const MEANING: Record<string, string> = {
   // label and never a verdict: the verdict still comes from `sig`, and a mark
   // with no valid signature is *origin traced*, never authentic.
   'watermark matched': 'a detector read the declared id out of the pixels; the verdict still comes from the signature',
-  'watermark not recovered': 'the payload did not decode — the normal outcome of heavy re-compression, and it weakens nothing',
+  // One label, two ways to get there: nothing decoded, or something decoded
+  // below the agreement `video-rep-v1` requires before an id may be believed.
+  // Neither licenses a claim about an id, and neither weakens the signature.
+  'watermark not recovered': 'the payload did not decode, or its id was refused as unresolvable — the normal outcome of heavy re-compression, and it weakens nothing',
   'segment content not recomputed': 'the segment hashes were taken from the proof, not recomputed from the file',
   'inconsistent claim': 'the device claims a stronger level than its evidence proves',
   'registered after the declared capture': 'the key was registered after the time this capture claims',

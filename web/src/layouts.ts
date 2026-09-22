@@ -28,11 +28,20 @@ export interface PhotoPayload {
   correctedBits: number
 }
 
-/** A decoded video payload. `markId` is null when the CRC rejected the vote. */
+/**
+ * A decoded video payload. `markId` is null when the CRC rejected the vote —
+ * or when the copies agreed too little for the vote to be believed.
+ */
 export interface VideoPayload {
   markId: number | null
   /** How unanimous the eight copies were, 0…1. Meaningful even when the CRC fails. */
   agreement: number
+  /**
+   * A block passed the CRC and the floor refused it — as against nothing
+   * decoding at all. Both are *no id*; they are not the same thing to tell a
+   * reader, and this is the only place that still knows which happened.
+   */
+  refused: boolean
 }
 
 // --- GF(2^8), the field BCH(255,131) is built over -------------------------
@@ -168,6 +177,16 @@ export const decodePhoto = (soft: Float32Array | number[]): PhotoPayload | null 
 // --- video-rep-v1 ----------------------------------------------------------
 const BLOCK_BITS = 32
 const REPS = 8
+/**
+ * The agreement floor of `watermark-layouts-1.0.md`.
+ *
+ * Spelled out here rather than imported: this file is the detector's own
+ * artifact, kept free of the core so the bundle the browser fetches on a click
+ * stays the layout port and nothing else. `test/layouts.test.ts` pins it equal
+ * to the core's `VIDEO_AGREEMENT_FLOOR`, which is the value that decides a
+ * verdict — a detection from anywhere else reaches the same gate there.
+ */
+export const VIDEO_AGREEMENT_FLOOR = 0.85
 
 /** CRC-8/ATM (poly 0x07, init 0x00) over the three id bytes, MSB first. */
 export const crc8 = (value: number): number => {
@@ -183,6 +202,13 @@ export const crc8 = (value: number): number => {
  * `video-rep-v1`: (24-bit mark id ‖ crc8) repeated eight times. The copies are
  * summed as soft votes rather than majority-counted, so a bit the model was
  * sure about outweighs seven it was not.
+ *
+ * Two gates, not one: the CRC, and `VIDEO_AGREEMENT_FLOOR`. Eight bits of
+ * checksum admit one word in 256 by chance and every word they admit is a
+ * legal id, so on real recordings the CRC alone handed back ids the pixels had
+ * never carried. Below the floor this returns no id and keeps the figure — the
+ * core reads that as *watermark not recovered*, which is what a reader can
+ * honestly be told: a mark may be there and its id did not resolve.
  */
 export const decodeVideo = (soft: Float32Array | number[]): VideoPayload => {
   const combined = new Float64Array(BLOCK_BITS)
@@ -201,6 +227,7 @@ export const decodeVideo = (soft: Float32Array | number[]): VideoPayload => {
   for (let i = 0; i < BLOCK_BITS; i++) block = block * 2 + (combined[i]! > 0 ? 1 : 0)
   const markId = Math.floor(block / 256)
   const crc = block % 256
-  if (markId === 0 || crc8(markId) !== crc) return { markId: null, agreement }
-  return { markId, agreement }
+  if (markId === 0 || crc8(markId) !== crc) return { markId: null, agreement, refused: false }
+  if (agreement < VIDEO_AGREEMENT_FLOOR) return { markId: null, agreement, refused: true }
+  return { markId, agreement, refused: false }
 }
