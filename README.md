@@ -227,9 +227,12 @@ repository, and whoever has that disk can sign — which is exactly why the clai
 is kept this small. [`signing/README.md`](signing/README.md) spells out both
 halves, the by-hand checks with `openssl`, and what a rotation looks like.
 
-The signature is **detached and outside `dist/`** on purpose: a signature
-shipped inside the tree would change the tree it certifies, so the build would
-stop reproducing the moment it was signed.
+The signature is **detached and outside the manifest it certifies** — not
+outside `dist/`. `bin/sign-build.mjs` writes it to `web/dist/hashes.json.sig`,
+so publishing a build copies one directory and not two; what keeps the build
+reproducible is that `hashes.json` does not list it and the two clean builds CI
+diffs never carry one. A signature inside the *manifest* would change the tree
+it certifies.
 
 What still makes the hashes worth something is not the signature — it is that
 anyone can reproduce them:

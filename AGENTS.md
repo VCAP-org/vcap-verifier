@@ -103,8 +103,10 @@ part of correctness:
   toolchain. CI builds twice from clean checkouts and fails if the trees differ.
   Every shipped file is listed in `hashes.json`, and that manifest is signed
   with a **detached** Ed25519 signature (`bin/sign-build.mjs`, key in `Ops/`,
-  never in a repo). The signature never enters `dist/` — it would change the
-  tree it certifies — and it claims **continuity, not identity**: no legal
+  never in a repo). It lands at `dist/hashes.json.sig`, which is safe because
+  the manifest does not list it and the builds CI diffs are unsigned: what must
+  never happen is the signature entering the bytes it signs. It claims
+  **continuity, not identity**: no legal
   entity, no certificate, no KMS. Write that limit wherever the signature is
   mentioned, the way the evidence report prints its own (D40), and never let a
   verdict come to depend on it: this is the provenance of the page, not of a

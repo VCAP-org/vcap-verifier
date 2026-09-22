@@ -86,15 +86,19 @@ Ed25519, deterministic (like the evidence report's signature, D40), so the same
 manifest always yields the same 64 bytes and a second signing run is a no-op
 rather than a second record.
 
-The signature lives in two places, both **outside** the reproducible tree:
+The signature lives in two places, both **outside the manifest** they are about:
 
-- `hashes.json.sig` — 64 raw bytes, published next to `hashes.json` on the host;
+- `hashes.json.sig` — 64 raw bytes, written by `sign-build.mjs` into
+  `web/dist/` next to `hashes.json` and published from there, so a publish
+  copies one directory and not two;
 - `manifests.jsonl` — one line per published manifest, append-only, in this
   repository: `{commit, build_id, manifest_sha256, key_sha256, sig}`.
 
-It is outside `web/dist` on purpose. A signature inside the tree would change
-the tree it certifies, so the build would stop reproducing the moment it was
-signed — the signature would invalidate its own premise.
+Sitting in `dist/` costs the build nothing, and the reason is worth stating
+rather than assuming: `hashes.json` does not list the signature, and the two
+clean builds CI diffs are unsigned, so the signed bytes never contain the
+signature. A signature the manifest *listed* would change the tree it
+certifies and would invalidate its own premise.
 
 ## Verifying by hand, without running anything of ours
 
