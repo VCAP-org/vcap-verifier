@@ -142,6 +142,11 @@ attached, and a reader told only what passed will assume it was all there.
 `level.ceiling` is green, amber or red, and is bounded by the weakest link —
 green needs a proven hardware level, the key in the log before the capture, and
 its revocation actually asked.
+The ceiling is the verdict's light (§7), and a surface colours by it, not by
+`outcome`: *authentic* under an amber ceiling is not green. `ceilingLabels(verdict)`
+returns the §7 labels that set it, from `labels` in the core's words — the
+revocation on red, the missing evidence on amber, the proven hardware on green
+(*sealed in the TEE*) — so a surface can say why without a list of its own.
 
 `validated_at` says which instant every certificate path was checked at and
 **where that instant came from**: an RFC 3161 timestamp, a block on a public

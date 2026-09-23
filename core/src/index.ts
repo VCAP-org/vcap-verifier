@@ -1,4 +1,5 @@
 export { verify, coreHashOf, extractCore } from './verify.js'
+export { ceilingLabels } from './ceiling.js'
 export type { Verdict, VerifyOptions, Outcome } from './verify.js'
 export { parseTrailer, buildTrailer, replaceTrailer } from './trailer.js'
 export type { Trailer, Replacement } from './trailer.js'
