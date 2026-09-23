@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { dist, fixtures, serve, stop, vectors } from './serve.js'
+import { dist, fixtures, serve, stop } from './serve.js'
 
 /**
  * The detector, end to end, against a real model and real marked pixels.
@@ -15,13 +15,11 @@ import { dist, fixtures, serve, stop, vectors } from './serve.js'
  * What is checked here is what cannot be checked by reading the source: that
  * the pinned digest refuses a model that is not the pinned one, that the page
  * without a detector is the page it always was, and that a mark read out of an
- * unsigned copy lands as *origin traced* and never as a verdict.
+ * unsigned copy lands as an identifier beside the verdict and never as one.
  */
 const model = join(dist, 'models/detector-videoseal-y256b-1-int8.onnx')
 const photo = join(fixtures, 'marked-photo.jpg')
 const clip = join(fixtures, 'marked-clip.mp4')
-const original = join(vectors, '01-jpeg-sealed/input.jpg')
-const videoOriginal = join(vectors, '33-mp4-video-sealed/input.mp4')
 
 /** Wall clock, reported: a page nobody timed is a page nobody can size. */
 const took = (from: number): string => `${((Date.now() - from) / 1000).toFixed(1)} s`
@@ -32,7 +30,7 @@ test.describe('with the published detector build', () => {
   // is a statement about a fast page, and this is not that page.
   test.setTimeout(180_000)
 
-  test('reads the mark out of an unsigned copy and calls it origin traced', async ({ page }) => {
+  test('reads the mark out of an unsigned copy and prints it as an identifier, not a verdict', async ({ page }) => {
     const { server, url } = await serve()
     await page.goto(url)
 
@@ -41,8 +39,7 @@ test.describe('with the published detector build', () => {
     const asked: string[] = []
     page.on('request', (request) => asked.push(request.url()))
     await page.setInputFiles('#file', photo)
-    await page.setInputFiles('#original', original)
-    await expect(page.locator('.pair .verdict h2').first()).toHaveText('No proof found')
+    await expect(page.locator('.verdict h2')).toHaveText('No proof found')
     expect(asked.filter((u) => u.includes('.onnx'))).toHaveLength(0)
     await expect(page.locator('#detector-state')).not.toContainText('runs in this page')
 
@@ -53,15 +50,15 @@ test.describe('with the published detector build', () => {
     console.log(`[timing] photo — 34.2 MB downloaded, hashed and a session opened in ${took(clicked)}`)
     await expect(page.locator('#detector-state')).toContainText('videoseal-y256b-1')
 
-    const traced = page.locator('.verdict.traced')
-    await expect(traced.locator('h2')).toContainText('Origin traced', { timeout: 120_000 })
+    const mark = page.locator('.panel.mark')
+    await expect(mark.locator('h3')).toHaveText('An invisible mark is still in these pixels', { timeout: 120_000 })
     console.log(`[timing] photo — one frame detected and the verdict redrawn in ${took(loaded)}`)
-    await expect(traced).toContainText('the payload carries the declared capture id')
-    await expect(traced).toContainText('This is not a verdict of authenticity')
+    await expect(mark).toContainText('This is not a verdict of authenticity')
+    await expect(mark.locator('a', { hasText: 'Look this identifier up' })).toHaveCount(1)
     // The signature layer decides the colour, and it said nothing: a mark is
     // never why a file verifies.
-    await expect(page.locator('.pair .verdict').first()).toHaveClass(/grey/)
-    await expect(page.locator('.pair .verdict h2').first()).toHaveText('No proof found')
+    await expect(page.locator('.verdict')).toHaveClass(/grey/)
+    await expect(page.locator('.verdict h2')).toHaveText('No proof found')
 
     await stop(server)
   })
@@ -72,15 +69,14 @@ test.describe('with the published detector build', () => {
     const { server, url } = await serve({ corrupt: /\.onnx$/ })
     await page.goto(url)
     await page.setInputFiles('#file', photo)
-    await page.setInputFiles('#original', original)
     await page.click('#load-detector')
 
     await expect(page.locator('#detector-state')).toContainText('no detector:', { timeout: 120_000 })
     await expect(page.locator('#detector-state')).toContainText('the manifest pins')
     // Refused, and the page is exactly as useful as it was: the watermark is
     // not evaluated, which is a weaker verdict and not a failure.
-    await expect(page.locator('.verdict.traced')).toHaveCount(0)
-    await expect(page.locator('.pair .verdict h2').first()).toHaveText('No proof found')
+    await expect(page.locator('.panel.mark a')).toHaveCount(0)
+    await expect(page.locator('.verdict h2')).toHaveText('No proof found')
     await expect(page.locator('#load-detector')).toBeEnabled()
 
     await stop(server)
@@ -91,7 +87,6 @@ test.describe('with the published detector build', () => {
     const { server, url } = await serve()
     await page.goto(url)
     await page.setInputFiles('#file', clip)
-    await page.setInputFiles('#original', videoOriginal)
 
     const clicked = Date.now()
     await page.click('#load-detector')
@@ -101,15 +96,11 @@ test.describe('with the published detector build', () => {
     // Progressive: the eight frames are reported as they land, because six
     // seconds of silence reads as a hang and the reader has no other signal.
     await expect(page.locator('#detector-state')).toContainText(/frame \d of 8/, { timeout: 120_000 })
-    // Not the *traced* block: nothing was traced. A proof that declares a
-    // layout and binds no id has nothing to compare a payload against.
-    const traced = page.locator('.verdict h2', { hasText: 'Watermark not evaluated' })
-    await expect(traced).toBeVisible({ timeout: 180_000 })
+    // The clip carries no proof, so what comes back is the mark on its own:
+    // an identifier, or the page saying why it names none.
+    await expect(page.locator('.panel.mark')).toBeVisible({ timeout: 180_000 })
     console.log(`[timing] clip — 8 frames decoded, detected and reported in ${took(loaded)} (load ${took(clicked)})`)
-    // Vector 33 declares `video-rep-v1` and binds no `mark_id`, so there is
-    // nothing to compare a payload against: the label is *not evaluated*, and
-    // it is a weaker answer rather than an error.
-    await expect(traced.locator('..')).toContainText('no mark id')
+    await expect(page.locator('.verdict h2')).toHaveText('No proof found')
     await stop(server)
   })
 })

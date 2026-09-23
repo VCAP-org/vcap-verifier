@@ -268,99 +268,9 @@ export const bareMark = (evidence: WatermarkEvidence, traceUrl: string): string 
     <p><strong>This is not a verdict of authenticity.</strong> No signature covers these bytes, so nothing here says the picture is unedited or that it is the file that was sealed. What the pixels carry is an identifier, and that is all.</p>
     <p>It reads <code>${escape(decoded)}</code>${layout ? ` in <code>${escape(layout)}</code>` : ''}.</p>
     ${carriedParagraph(evidence)}
-    <p class="muted">Two things can be done with it. Drop the <strong>original</strong> above, and this page will compare the two itself, here, with nothing leaving your browser. Or look the identifier up in the registry that issued it, which is a request to somebody's server and the only one this page will ever suggest.</p>
+    <p class="muted">The registry that issued it can turn it back into the proof. Looking it up is a request to somebody's server, and the only one this page will ever suggest.</p>
     <p><a class="btn" href="${escape(traceUrl)}/${escape(decoded)}" rel="noreferrer">Look this identifier up in the registry</a></p>
   </div>`
-}
-
-/**
- * The side-by-side table: one row per piece of evidence, read out of each
- * verdict. A row exists when at least one of the two files has something to
- * say about it, so what is missing from the copy is visible next to what the
- * original carried — which is the whole point of putting them side by side.
- */
-const SIGNATURE: Record<Verdict['outcome'], string> = {
-  authentic: 'verifies over the signed core',
-  verified_clip: 'verifies over the signed core',
-  tampered: 'does not verify: these are not the signed bytes',
-  nested_proof: 'verifies, for an outer proof that is not authoritative',
-  corrupted_proof: 'not reached: the trailer is damaged',
-  no_proof_found: 'nothing to check: no proof in the file',
-  unsupported_format_version: 'not reached: this verifier does not implement the format version'
-}
-
-/** Named, because the side-by-side treats this one row differently. */
-const WATERMARK_FIELD = 'watermark (§8)'
-
-interface Field {
-  name: string
-  read: (v: Verdict) => string | null
-}
-
-const FIELDS: Field[] = [
-  { name: 'verdict', read: (v) => v.outcome },
-  { name: 'signature', read: (v) => SIGNATURE[v.outcome] },
-  // The identity of the proof: two files carrying the same core hash carry the
-  // same signed claim, and a copy that carries none carries no claim at all.
-  { name: 'proof identity', read: (v) => v.core_hash ?? null },
-  { name: 'declared capture time', read: (v) => v.device_clock ? new Date(v.device_clock).toISOString() : null },
-  // Evidence only, never the label that says a field is absent. *No trusted
-  // time* on both sides would otherwise print as something the copy lost,
-  // when neither file ever had it; what each file is missing is on its own
-  // card, where it belongs.
-  { name: 'trusted time', read: (v) => v.timestamp?.detail ?? null },
-  { name: 'transparency log', read: (v) => v.registry?.detail ?? null },
-  { name: 'hardware attestation', read: (v) => v.attestation?.detail ?? null },
-  { name: WATERMARK_FIELD, read: (v) => v.watermark ? watermarkLine(v.watermark) : null },
-  { name: 'position level', read: (v) => v.location && v.location.level !== 'none' ? `${v.location.level} — ${coordinates(v)}` : null },
-  { name: 'proof level (§7)', read: (v) => v.level ? `claimed ${v.level.claimed}, proven ${v.level.proven}, ceiling ${v.level.ceiling}` : null }
-]
-
-/**
- * What happened to a piece of evidence between the original and the copy.
- *
- * `sameProof` is the distinction that keeps this honest: when both files carry
- * the same `core_hash` they carry the same signed claim, and a field missing
- * from the copy's verdict was not lost by the file — the verdict stopped
- * before reaching it, which is what *tampered* does. Calling that "lost" would
- * report a second failure where there is one.
- */
-const change = (copy: string | null, original: string | null, sameProof: boolean): { word: string, css: string } => {
-  if (copy !== null && original !== null) return copy === original ? { word: 'unchanged', css: 'kept' } : { word: 'differs', css: 'differs' }
-  if (original !== null) return sameProof ? { word: 'not reported', css: '' } : { word: 'lost', css: 'lost' }
-  return { word: 'only in the copy', css: 'differs' }
-}
-
-export const comparison = (copy: { name: string, verdict: Verdict }, original: { name: string, verdict: Verdict }, traced: WatermarkOutcome | null = null): string => {
-  // The same signed claim on both sides: what the copy's verdict does not
-  // report was not lost with the bytes.
-  const sameProof = copy.verdict.core_hash !== undefined && copy.verdict.core_hash === original.verdict.core_hash
-  const rows = FIELDS.map((field) => {
-    // A copy with no proof of its own declares no watermark, so §8 never runs
-    // inside its verdict. What was read out of its pixels was read against the
-    // *original's* ids, and the row says which — otherwise the table would
-    // report a mark as lost while the block below it reports the same mark as
-    // found.
-    const against = traced !== null && field.name === WATERMARK_FIELD
-    const mine = against ? watermarkLine(traced) : field.read(copy.verdict)
-    const theirs = field.read(original.verdict)
-    if (mine === null && theirs === null) return ''
-    const { word, css } = against
-      ? { word: 'read against the original', css: traced.result === 'matched' ? 'kept' : 'differs' }
-      : change(mine, theirs, sameProof)
-    return `<tr class="${css}">
-      <th scope="row">${escape(field.name)}</th>
-      <td>${mine === null ? `<span class="absent">${sameProof ? 'not evaluated' : 'absent'}</span>` : `<code>${escape(mine)}</code>`}</td>
-      <td>${theirs === null ? '<span class="absent">absent</span>' : `<code>${escape(theirs)}</code>`}</td>
-      <td class="change"><span class="badge">${word}</span></td>
-    </tr>`
-  }).filter(Boolean)
-  // Scrolls sideways inside its own box on a phone rather than pushing the page wider.
-  return `<div class="table-wrap"><table class="compare">
-    <caption>What the copy still carries, next to what the original carries</caption>
-    <thead><tr><th scope="col">evidence</th><th scope="col">${escape(copy.name)}</th><th scope="col">${escape(original.name)}</th><th scope="col">change</th></tr></thead>
-    <tbody>${rows.join('')}</tbody>
-  </table></div>`
 }
 
 /**
@@ -382,44 +292,4 @@ const frameNote = (w: { frames_sampled?: number | null }): string => {
   return frames >= VIDEO_FRAMES
     ? ` Reading more of the clip would not change this: ${frames} frames were averaged, and past ${VIDEO_FRAMES} the measurements show no further gain.`
     : ` Reading more of the clip could change this: only ${frames === 1 ? 'one frame was' : `${frames} frames were`} averaged, and this model needs about four before the hardest clip that survives at all clears the floor.`
-}
-
-/**
- * The watermark read against the **original's** signed ids, for a copy whose
- * own signature no longer says anything. This is the piece that holds when the
- * signature does not — a re-compressed file loses the trailer and keeps the
- * pixels — and it is also the piece most easily read backwards, so the wording
- * is fixed: a mark without a valid signature is **origin traced**, never
- * authentic. The verdict card above it stays exactly what the signature layer
- * said, and this block never changes its colour.
- *
- * The comparison itself is the core's (`evaluateWatermark` against the claim
- * the original's signed core produced), so the ids come from bytes a device
- * signed and not from anything the detection chose to call itself.
- */
-export const trace = (outcome: WatermarkOutcome): string => {
-  const headline: Record<WatermarkOutcome['result'], string> = {
-    matched: 'Origin traced — the copy\'s pixels carry the id the original declares',
-    contradicted: 'A different id — the pixels carry a mark, and it is not the original\'s',
-    // Both are *not recovered* to the specification, and they are two different
-    // things to a reader: nothing came back, against something came back that
-    // may not be believed. Neither says anything about an id.
-    not_recovered: outcome.id_refused === true
-      ? 'A mark may be present — its id could not be resolved'
-      : 'Nothing recovered — the watermark did not survive either',
-    not_evaluated: 'Watermark not evaluated against the original'
-  }
-  const css: Record<WatermarkOutcome['result'], string> = {
-    matched: 'traced', contradicted: 'red', not_recovered: 'grey', not_evaluated: 'grey'
-  }
-  const caveat = outcome.result === 'matched'
-    ? `<p><strong>This is not a verdict of authenticity.</strong> No valid signature covers these bytes, so nothing here says the pixels are unedited or that the file is the one that was sealed — only that a mark the original declares came back out of them.</p>${carriedLine(outcome)}`
-    : outcome.id_refused === true
-      ? `<p><strong>This is not a wrong id — it is no id.</strong> Something came back out of the pixels and the copies of it disagreed too much to name one, so the page says nothing rather than risk pointing you at somebody else's recording.${frameNote(outcome)}</p>`
-      : ''
-  return `<div class="verdict ${css[outcome.result]}">
-    <h2>${statusHeading(headline[outcome.result])}</h2>
-    <p>${escape(`${outcome.result.replace(/_/g, ' ')} — ${outcome.detail}${figures(outcome)}`)}</p>
-    ${caveat}
-  </div>`
 }

@@ -163,9 +163,9 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--fg); margi
   border: 1px solid var(--border); color: var(--fg-muted); background: var(--bg);
 }
 .badge::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.green > h2 .badge, .compare tr.kept .badge { color: var(--success); background: var(--success-bg); border-color: transparent; }
-.amber > h2 .badge, .traced > h2 .badge, .compare tr.differs .badge { color: var(--warning); background: var(--warning-bg); border-color: transparent; }
-.red > h2 .badge, .compare tr.lost .badge { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
+.green > h2 .badge { color: var(--success); background: var(--success-bg); border-color: transparent; }
+.amber > h2 .badge { color: var(--warning); background: var(--warning-bg); border-color: transparent; }
+.red > h2 .badge { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
 
 /* ── File drop ────────────────────────────────────────────────────────── */
 .drop {
@@ -219,7 +219,7 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 .more .extra { padding: 16px; display: grid; gap: 20px; }
 .more .extra .muted { margin-top: 4px; }
 .more .extra .file { margin-top: 12px; }
-/* The two extra files still accept a drop, so they still have to show one. */
+/* The sidecar still accepts a drop, so it still has to show one. */
 .more .extra > div.over { outline: 1px dashed var(--fg); outline-offset: 8px; border-radius: var(--radius); }
 
 /* ── Verdict ──────────────────────────────────────────────────────────────
@@ -262,27 +262,12 @@ details.tech .reason { margin: 0 20px 12px; font-size: 13px; }
 .kv dt { color: var(--fg-muted); }
 .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
-/* Two verdicts side by side where there is room, stacked where there is not.
-   The copy is always first: it is the file the reader came to ask about. */
-.pair { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: start; margin-top: 24px; }
-.pair .verdict { margin-top: 0; }
-@media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
-
 /* A mark read from a file with no proof: a fact about pixels, deliberately
    not wearing any colour of the verdict palette. */
 .panel.mark { margin-top: 16px; }
 .panel.mark h3 { margin-bottom: 4px; }
 .panel.mark p { font-size: 13px; }
 
-/* ── The side-by-side table ───────────────────────────────────────────── */
-.table-wrap { margin-top: 24px; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); }
-.compare { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 13px; }
-.compare caption { text-align: left; font-weight: 600; font-size: 14px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
-.compare th, .compare td { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
-.compare tbody tr:last-child > * { border-bottom: 0; }
-.compare thead th { font-weight: 500; font-size: 12px; color: var(--fg-muted); background: var(--bg-subtle); }
-.compare tbody th { font-weight: 500; white-space: nowrap; }
-.compare .change { white-space: nowrap; }
 .absent { color: var(--fg-subtle); font-style: italic; }
 
 /* ── What this page trusts ────────────────────────────────────────────────
@@ -319,7 +304,6 @@ footer p { max-width: none; }
   details.tech .reason { margin: 0 16px 12px; }
   .kv { grid-template-columns: 1fr; gap: 2px 0; padding: 4px 16px 16px; }
   .kv dd { margin-bottom: 8px; }
-  .compare tbody th { white-space: normal; }
   .panel { padding: 16px; }
   .capability { grid-template-columns: 1fr; }
   .capability .mark { display: none; }
@@ -370,23 +354,13 @@ footer p { max-width: none; }
   </div>
 </div>
 
-<!-- Two more files help in two specific situations, and neither is the common
-     one. Behind a disclosure so the page asks one question at a time. -->
+<!-- The sidecar helps in one specific situation, not the common one. Behind a
+     disclosure so the page asks one question at a time. -->
 <details class="more" id="more">
-  <summary><span class="chev" aria-hidden="true">›</span> I also have the original, or a <code>.vcap</code> file</summary>
+  <summary><span class="chev" aria-hidden="true">›</span> The proof came as a separate <code>.vcap</code> file</summary>
   <div class="extra">
-    <div id="original-drop">
-      <h4>The original</h4>
-      <p class="muted">A copy that came back re-compressed, cropped or through a social network has usually lost its proof. Next to the original, this page can show what it lost and what it kept.</p>
-      <span class="file">
-        <input type="file" id="original" class="file-input">
-        <label class="btn" for="original">Choose the original</label>
-        <span class="file-name" data-name-for="original"></span>
-      </span>
-    </div>
     <div id="sidecar-drop">
-      <h4>A sidecar file</h4>
-      <p class="muted">When the proof travels beside the file rather than inside it (<code>&lt;filename&gt;.vcap</code>). It is read here, not looked for anywhere.</p>
+      <p class="muted">When the proof travels beside the file rather than inside it (<code>&lt;filename&gt;.vcap</code>). It is read here, not looked for anywhere. Dropping both files on the zone above works too.</p>
       <span class="file">
         <input type="file" id="sidecar" class="file-input" accept=".vcap,application/json">
         <label class="btn" for="sidecar">Choose the sidecar</label>
