@@ -3,7 +3,7 @@
 ## moto-g75-android16.json
 
 Android key attestation chain minted by real hardware (moto g75 5G, Android 16,
-KeyMint 300, TEE, Remote Key Provisioning), dumped by `SDK-Android/tools/attest-dump`.
+KeyMint 300, TEE, Remote Key Provisioning), dumped from the phone with a small key-attestation tool.
 
 ## sealed.mp4, sealed-hevc.mp4 (+ `*-segments.json`)
 
