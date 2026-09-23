@@ -41,11 +41,11 @@ test.describe('with the published detector build', () => {
     await page.setInputFiles('#file', photo)
     await expect(page.locator('.verdict h2')).toHaveText('No proof found')
     expect(asked.filter((u) => u.includes('.onnx'))).toHaveLength(0)
-    await expect(page.locator('#detector-state')).not.toContainText('runs in this page')
+    await expect(page.locator('#detector-state')).not.toContainText('running on')
 
     const clicked = Date.now()
     await page.click('#load-detector')
-    await expect(page.locator('#detector-state')).toContainText('runs in this page', { timeout: 120_000 })
+    await expect(page.locator('#detector-state')).toContainText('running on', { timeout: 120_000 })
     const loaded = Date.now()
     console.log(`[timing] photo — 34.2 MB downloaded, hashed and a session opened in ${took(clicked)}`)
     await expect(page.locator('#detector-state')).toContainText('videoseal-y256b-1')
@@ -71,7 +71,7 @@ test.describe('with the published detector build', () => {
     await page.setInputFiles('#file', photo)
     await page.click('#load-detector')
 
-    await expect(page.locator('#detector-state')).toContainText('no detector:', { timeout: 120_000 })
+    await expect(page.locator('#detector-state')).toContainText('The detector did not load', { timeout: 120_000 })
     await expect(page.locator('#detector-state')).toContainText('the manifest pins')
     // Refused, and the page is exactly as useful as it was: the watermark is
     // not evaluated, which is a weaker verdict and not a failure.
@@ -90,12 +90,13 @@ test.describe('with the published detector build', () => {
 
     const clicked = Date.now()
     await page.click('#load-detector')
-    await expect(page.locator('#detector-state')).toContainText('runs in this page', { timeout: 120_000 })
-    const loaded = Date.now()
-
     // Progressive: the eight frames are reported as they land, because six
     // seconds of silence reads as a hang and the reader has no other signal.
+    // They arrive before the ready line, which the page prints once the clip
+    // is done — so the frames are awaited first.
     await expect(page.locator('#detector-state')).toContainText(/frame \d of 8/, { timeout: 120_000 })
+    const loaded = Date.now()
+    await expect(page.locator('#detector-state')).toContainText('running on', { timeout: 120_000 })
     // The clip carries no proof, so what comes back is the mark on its own:
     // an identifier, or the page saying why it names none.
     await expect(page.locator('.panel.mark')).toBeVisible({ timeout: 180_000 })
