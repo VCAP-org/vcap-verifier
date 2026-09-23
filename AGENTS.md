@@ -94,7 +94,7 @@ part of correctness:
   cannot conclude.
 - Keep the page usable offline and archivable.
 - The page is published on a host of ours (`verify.vcap.gregoriogalante.com`,
-  configured in `vcap-platform`), by hand, from a clean checkout. Nothing in
+  configured on the platform's host), by hand, from a clean checkout. Nothing in
   this repository may come to depend on that: every URL the build produces is
   relative, the e2e suite runs at a root and under a sub-path, and a verdict
   still needs no request of any kind. The host serves bytes whose hashes are
@@ -121,7 +121,7 @@ part of correctness:
   never happen is the signature entering the bytes it signs. It claims
   **continuity, not identity**: no legal
   entity, no certificate, no KMS. Write that limit wherever the signature is
-  mentioned, the way the evidence report prints its own (D40), and never let a
+  mentioned, the way the evidence report prints its own, and never let a
   verdict come to depend on it: this is the provenance of the page, not of a
   proof.
 
@@ -147,7 +147,17 @@ These hold for every line of code in every repository:
 identifiers: package names, bundle ids, trailer magic, proof version string,
 database schemas, log prefixes. The product brand is provisional and must never
 appear in anything expensive to rename — it lives only in UI strings (single
-localization file) and store metadata. Full table in the workspace `AGENT.md`.
+localization file) and store metadata.
+
+## Public repository
+
+This repository is public and the rest of the project is not. Never name a
+private repository, a path inside one, a command that only runs there, the
+internal project docs or an internal decision/task code (`D17`, `P11`, ...):
+say what the thing is in words ("our model pipeline, which is not public", "the
+platform's host", "an internal measurement"). `vcap-spec` is public and may be
+named. The one exception is `core/vectors/`, a byte-for-byte mirror of the
+published corpus, which is never edited here.
 
 ## Definition of done
 
@@ -156,5 +166,4 @@ person needs it. Not "works on my branch".
 
 ## Language
 
-Code, comments, README and commit messages in English. Project documentation in
-`Doc/` is in Italian.
+Code, comments, README and commit messages in English.

@@ -1,7 +1,7 @@
 name: pages-mirror
 # A **mirror** of the public verifier page, not the primary.
 #
-#   primary  https://verify.vcap.gregoriogalante.com/   (vcap-platform, by hand)
+#   primary  https://verify.vcap.gregoriogalante.com/   (our own host, by hand)
 #   mirror   https://vcap-org.github.io/vcap-verifier/  (this workflow)
 #
 # Two hosts serving the same bytes ask a reader to trust *less*, not more: they
@@ -14,15 +14,15 @@ name: pages-mirror
 #
 #  1. **The same bytes.** The artifact published here is the one `build-web.yml`
 #     reproduced — two clean checkouts of this commit, byte-identical or red —
-#     which is the same artifact `bin/push-verifier` puts on the primary. No
+#     which is the same artifact the primary is filled with by hand. No
 #     build of this workflow's own enters `dist/`.
-#  2. **The same signature.** The private key never reaches a runner (D59). The
+#  2. **The same signature.** The private key never reaches a runner. The
 #     detached signature published here is the one the key holder already made
 #     by hand and recorded in `signing/manifests.jsonl`; `bin/mirror-signature`
 #     only decodes it, and fails when this commit has no entry — so the mirror
 #     can never run ahead of the primary.
 #  3. **By hand.** `workflow_dispatch` only, never a push to `main`. Publishing a
-#     public verification page stays a deliberate gesture (D30), on both hosts.
+#     public verification page stays a deliberate gesture, on both hosts.
 on:
   workflow_dispatch:
     inputs:

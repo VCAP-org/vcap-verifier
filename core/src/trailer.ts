@@ -51,7 +51,7 @@ export type Replacement =
  * move, so `media.hash` covers the same bytes; the caller's payload must carry
  * the same §6.1 core and the same `sig`, so the device's signature covers the
  * same core hash — the attachments are outside `CORE_KEYS` by construction
- * (§6, P10), which is the whole reason they can be added by somebody who
+ * (§6), which is the whole reason they can be added by somebody who
  * cannot sign. **This function does not check that**: it works on bytes and
  * has no opinion about JSON, so the caller compares the cores before calling
  * it, and `verify` is the judge afterwards either way.

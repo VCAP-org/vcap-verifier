@@ -1,8 +1,8 @@
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
-// The conformance vectors live in vcap-spec, a private repository until D4.
-// A snapshot is committed here so CI needs no cross-repository token; the
+// The conformance vectors live in vcap-spec (the `spec/` submodule). A
+// snapshot is committed here so the core's tests run without it; the
 // submodule is the source of truth and this script keeps the snapshot equal to
 // it. `--check` fails when they differ, which is how CI notices a stale copy
 // whenever the submodule is available.

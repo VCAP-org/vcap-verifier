@@ -64,7 +64,7 @@ export const serve = (options: { corrupt?: RegExp, absent?: RegExp } = {}): Prom
       res.writeHead(200, {
         'content-type': TYPES[extname(name)] ?? 'application/octet-stream',
         'cache-control': 'no-store',
-        // The headers the real host sends (vcap-platform, infra/verifier/nginx.conf).
+        // The headers the real host sends (our own host's nginx configuration).
         // They are what gives the page `SharedArrayBuffer`, and therefore
         // multi-threaded WASM in the detector: a suite that ran without them
         // would be measuring and testing a different page from the live one.

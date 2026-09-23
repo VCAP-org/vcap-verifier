@@ -5,7 +5,7 @@ jobs:
     name: verification core against the vcap-spec vectors
     runs-on: ubuntu-latest
     steps:
-      # vcap-spec is public (D4, MIT): the submodule clones with the default
+      # vcap-spec is public (MIT): the submodule clones with the default
       # token, the vectors run from it, and the committed snapshot is checked
       # against it so a stale copy fails here.
       - uses: actions/checkout@v4
@@ -47,14 +47,14 @@ jobs:
       matrix:
         include:
           # The primary: served at the root, cross-origin isolated, as
-          # vcap-platform's nginx serves it.
+          # our own host's nginx serves it.
           - shape: primary host
             base: /
             isolation: 'on'
           # The GitHub Pages mirror: a sub-path, and no COOP/COEP — a host whose
           # headers are not ours to set. The page loses WASM threads there and
           # nothing else, and that is checked here rather than asserted in a
-          # README (D30: "anybody can host it" stays proved).
+          # README ("anybody can host it" stays proved).
           - shape: mirror shape, sub-path and no COOP/COEP
             base: /vcap-verifier/
             isolation: 'off'

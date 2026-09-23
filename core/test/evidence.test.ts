@@ -266,7 +266,7 @@ describe('verdict with evidence attachments', async () => {
 })
 
 describe('what the platform needs from the core', () => {
-  // Two additions made for `vcap-platform`'s data plane, so it can stop
+  // Two additions made for the platform's data plane, so it can stop
   // carrying its own copies. Both are a *reader's* checks, which is the
   // argument for their living here: the party that would benefit from a split
   // view is the log, so the verification cannot live only in the log's code.

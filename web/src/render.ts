@@ -159,8 +159,8 @@ const carriedLine = (w: WatermarkOutcome | undefined): string =>
 
 export const card = (name: string, v: Verdict): string => {
   // The ceilings, and they keep the specification's words: these are what the
-  // verdict does **not** reach, and a paraphrase would be a different claim
-  // (D20). What changes is only how they are set — as chips under a line that
+  // verdict does **not** reach, and a paraphrase would be a different claim.
+  // What changes is only how they are set — as chips under a line that
   // names them, rather than a bullet list of seven grey phrases inside a green
   // card, which read as a list of faults and is the opposite of a ceiling.
   const lines = [

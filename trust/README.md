@@ -94,8 +94,8 @@ file is a valid timestamp over a forged file.
 ### The authority in here is not ours
 
 Unlike the log above, FreeTSA is a genuine third party — which is the whole
-reason a token is worth more than our word, and the reason D69 puts
-timestamping at **level 1**: once the token is in the file, it is checkable
+reason a token is worth more than our word, and the reason timestamping
+sits at **level 1**: once the token is in the file, it is checkable
 without us, forever. The caveats are in the document and printed everywhere it
 is: a free community service with **no SLA and no contractual liability**, not
 a qualified trust service under eIDAS, and no presumption of accuracy in court.

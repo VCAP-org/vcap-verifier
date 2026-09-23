@@ -27,13 +27,13 @@ by itself get the key.
 
 ## What it does not prove
 
-- **Not identity.** There is no legal entity behind this key (R4, still open),
-  no certificate (D2), and no key-management service (D16). The signature says
+- **Not identity.** There is no legal entity behind this key (still an open
+  question), no certificate, and no key-management service. The signature says
   "the same key as last time" and cannot say "us", because there is no "us"
   that a third party could check against any register.
 - **Not a qualified signature.** It is not eIDAS of any kind, not an advanced
   electronic signature, not a timestamped seal. Same discipline as the evidence
-  report (D40): the limits are printed on the document rather than left to be
+  report: the limits are printed on the document rather than left to be
   discovered.
 - **Not the first key.** Continuity starts at the first entry of
   `manifests.jsonl`. Anyone reading it for the first time is trusting a key they
@@ -50,8 +50,7 @@ by itself get the key.
 
 The private key is `Ops/verifier-signing/ed25519-private.pem` in the project
 workspace — a folder that is **not a repository** and never becomes one, and
-that already holds the deploy SSH key and the environment secrets (workspace
-`AGENT.md` rule 6, `Ops/README.md`). It is a bare Ed25519 key with no
+that already holds the deploy SSH key and the environment secrets. It is a bare Ed25519 key with no
 passphrase, on one machine, backed up by hand with the rest of `Ops/`.
 
 Stated plainly rather than dressed up: **whoever gets that machine's disk can
@@ -82,7 +81,7 @@ be rebuilt by hand:
 vcap/1.0/verifier-build\n<sha256 hex of hashes.json>\n<commit>\n
 ```
 
-Ed25519, deterministic (like the evidence report's signature, D40), so the same
+Ed25519, deterministic (like the evidence report's signature), so the same
 manifest always yields the same 64 bytes and a second signing run is a no-op
 rather than a second record.
 
@@ -172,8 +171,7 @@ rebuild is the one thing this signature must not cover.
 npm ci && npm run build --workspace web
 node bin/sign-build.mjs                       # reads the key from Ops/
 node bin/verify-build.mjs web/dist            # check before publishing
-cd ../Platform && bin/push-verifier --dist ../Verifier/web/dist \
-  --sig ../Verifier/web/dist/hashes.json.sig
+# then upload web/dist, hashes.json.sig included, to the primary host
 ```
 
 Then commit the new line in `manifests.jsonl`. The log is the public half of

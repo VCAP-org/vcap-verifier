@@ -43,7 +43,7 @@ where enrolment puts it), a page that actually reaches a log or a status list
   chains are checked from data carried in the file or fetched from public
   endpoints; if there is no network the verdict degrades and says so.
 - **The detector is an explicit download, and the page is whole without it.**
-  Distillation under 10 MB was dropped (decision D17): what exists is the full
+  Distillation under 10 MB was dropped: what exists is the full
   model at 34.2 MB, so it is never fetched on load, never precached, and its
   absence is *watermark not evaluated* — a weaker verdict, not an error. The
   verifier states which model looked.
@@ -87,9 +87,8 @@ npm run dev --workspace web      # serves the page with a watcher (no service wo
 ## Public page
 
 The page is served at **https://verify.vcap.gregoriogalante.com/**, from a host
-of ours: stock nginx over a directory, configured in `vcap-platform`
-(`infra/verifier/nginx.conf`, a Kamal accessory in `config/deploy.yml`) and
-filled by `bin/push-verifier` with a `web/dist` built here. It was on GitHub
+of ours: stock nginx over a directory on the platform's host, filled by hand
+with a `web/dist` built here. It was on GitHub
 Pages until September 2026; three things moved it, none of them about trust —
 and all three are still why Pages is the *mirror* below and not the primary:
 
@@ -114,8 +113,8 @@ CI is unchanged and is still the gate: typecheck, the core against the spec
 vectors, the double clean build with one set of hashes (`build-web.yml`), and
 the offline suite against that same artifact, run twice — once shaped like the
 primary and once like the mirror below. Neither host is published by a push to
-`main`: `bin/push-verifier` from the platform checkout, and `pages-mirror.yml`
-by hand, are both a deliberate hand on a public page.
+`main`: the upload to our host and `pages-mirror.yml` are both run by hand,
+a deliberate gesture on a public page.
 
 ### Mirror on GitHub Pages
 
@@ -142,7 +141,7 @@ URL it emits is absolute, and CI runs the whole end-to-end suite under
 `/vcap-verifier/` with no COOP/COEP to keep that proved rather than asserted.
 
 `hashes.json.sig` is served there too, and it is the **same** signature, not a
-second one. The private key never reaches a runner (D59): `bin/mirror-signature.mjs`
+second one. The private key never reaches a runner: `bin/mirror-signature.mjs`
 restores the 64 bytes from [`signing/manifests.jsonl`](signing/manifests.jsonl),
 where the key holder recorded them when they published by hand, and **refuses**
 when this manifest has no entry — so the mirror can never run ahead of the
@@ -152,7 +151,7 @@ Two things the mirror does not have, said rather than discovered — it serves
 `MIRROR.md` next to the page saying the same:
 
 - **no detector**: the 34.2 MB model lives next to the primary, outside git and
-  outside the manifest (P11). The engine is mirrored, the model is not, so a
+  outside the manifest. The engine is mirrored, the model is not, so a
   click on the detector there finds nothing. The page stays whole — *watermark
   not evaluated*, every other verdict unchanged.
 - **no cross-origin isolation**: GitHub Pages does not send COOP/COEP, so no
@@ -219,8 +218,8 @@ the page in front of them with `hashes.json` and with the CI run for that commit
 was signed by the key in [`signing/public-key.pem`](signing/public-key.pem),
 the same key that signed every earlier manifest in
 [`signing/manifests.jsonl`](signing/manifests.jsonl). It does **not** say who
-holds that key: there is no legal entity behind it (R4), no certificate (D2)
-and no key-management service (D16), so it is not eIDAS, not an advanced
+holds that key: there is no legal entity behind it, no certificate
+and no key-management service, so it is not eIDAS, not an advanced
 electronic signature, and not a claim about a person or a company. The key
 lives on one machine, in the workspace's `Ops/` folder outside every
 repository, and whoever has that disk can sign — which is exactly why the claim
@@ -293,7 +292,7 @@ can most easily let someone read backwards. Three rules hold it in place:
 
 ### The detector
 
-Reading a mark out of pixels needs the model, and the model is 34.2 MB (D17).
+Reading a mark out of pixels needs the model, and the model is 34.2 MB.
 It is therefore **three artifacts and not one**, none of them in the bundle and
 none of them precached:
 
@@ -313,8 +312,8 @@ The model's url is **relative**, so it is served from wherever the page is —
 today that is `models/` next to the page on our own host, which is what makes
 the download same-origin and spares it CORS entirely. Nobody has to fetch it
 from us all the same: the digest is what makes the file trustworthy, not the
-host, and `vcap-ml`'s `browser-build` prints the same digest from the artifact
-it produces. The verification path is unchanged either way — the download is an
+host, and our model pipeline (not public) reproduces the same bytes, and so
+the same digest, from the same pinned inputs. The verification path is unchanged either way — the download is an
 explicit act of the user's, the page is whole without it, and no verdict
 depends on it.
 
@@ -323,7 +322,7 @@ first session that initialises wins, so a browser with no WebGPU falls back to
 WASM SIMD without the reader noticing. The published int8 build asks for
 `wasm` alone, because it has no WebGPU kernels for this graph and round-trips
 to the CPU inside the session: 1016 ms a frame there against 211–456 ms on
-WASM (`vcap-ml/reports/detector-in-the-browser.md`). Which backend ran is
+WASM (an internal measurement). Which backend ran is
 printed, **with its thread count**, because multi-threaded WASM needs
 cross-origin isolation (COOP/COEP) and a timing nobody can place is not a
 measurement. The page asks for threads only when the browser admits them —
@@ -358,8 +357,8 @@ the engine revalidates to a 304 and the model is served `immutable`. That is
 why detection is **progressive**: every frame reports as it lands and the
 payload is shown as soon as it decodes — for `video-rep-v1` often on the first
 frame, since the eight copies inside one message already do much of the work
-aggregation was expected to do (`vcap-ml/reports/frames-to-recover.md`, one
-clip with no motion).
+aggregation was expected to do (an internal measurement, on one clip with no
+motion).
 
 **The page reads eight uniformly spaced frames, and on the hardest chain that
 survives it needs them.** That count used to be described here as margin; it is
@@ -398,7 +397,7 @@ than treating a zero as evidence of a splice.
 
 A detection can still come from a file the user already holds instead: the
 `watermark` block of a `/v1/verify` response, or what `vcap-verify --watermark`
-takes. Nothing signs a detection (D18), so it is worth exactly what the hand
+takes. Nothing signs a detection, so it is worth exactly what the hand
 that dropped it is worth — which is what it was worth anyway, since the same
 hand dropped the media bytes.
 
@@ -445,7 +444,7 @@ checksum passes.** `video-rep-v1` protects a 24-bit id with eight bits of CRC,
 so a word with no structure left in it passes by chance about once in 256: on
 unmarked content the measured rate is 15 passes in 4 329 trials — 0.35 %, on
 top of CRC-8's own 1/256 — while `photo-bch-v3` produced no id at all
-(`vcap-ml/reports/false-positives.md`). Two device recordings resolved an id
+(an internal measurement). Two device recordings resolved an id
 the pixels had never carried, at 0.738 and 0.789, so the verifier applies the
 layout's floor (`VIDEO_AGREEMENT_FLOOR`, and
 `vcap-spec/spec/watermark-layouts-1.0.md`): under 0.85 it reports **no id and
@@ -465,22 +464,24 @@ error and never a red verdict.
 #### Running the end-to-end detector tests
 
 They skip unless the model and the marked media are in place, because neither
-is in git — the model is a release asset (`vcap-ml`, P11) and the media is
-generated by the embedder there:
+is in git. The model is published next to the primary page, under the url
+`web/src/detector.json` names, and pinned there by SHA-256, so a copy from
+anywhere is as good as ours once it hashes to that digest. The marked media
+(`web/test/fixtures/marked-*`) is generated by our embedder, which is not
+public: without it the detector suite skips, model or not.
 
 ```
-# in vcap-ml
-python -m vcap_ml quantize && python -m vcap_ml browser-build
-# here
+npm run build --workspace web
 mkdir -p web/dist/models
-cp ../vcap-ml/models/detector_int8.onnx web/dist/models/detector-videoseal-y256b-1-int8.onnx
+curl -o web/dist/models/detector-videoseal-y256b-1-int8.onnx \
+  https://verify.vcap.gregoriogalante.com/models/detector-videoseal-y256b-1-int8.onnx
+shasum -a 256 web/dist/models/detector-videoseal-y256b-1-int8.onnx   # must match detector.json
 npm run test:e2e --workspace web
 ```
 
 A host serving these files must send `application/wasm` for the engine's binary
 and a JavaScript type for its `.mjs` glue; the test server does, our own host
-declares both rather than inheriting them (`vcap-platform`,
-`infra/verifier/nginx.conf`), and a static host that does not will fail to
+declares both rather than inheriting them, and a static host that does not will fail to
 start a session with no error the user can read. Sending COOP/COEP as well is
 optional and worth 2.3–2.6× (above).
 
@@ -583,6 +584,6 @@ Naming, the definition of done and the language rule are in `AGENTS.md`, once.
 ## License
 
 MIT (`LICENSE`), like `vcap-spec`: a verifier anyone can audit, run and embed
-is the promise. Copyright holder "the vcap authors" until decision D1 names the
-legal entity.
+is the promise. Copyright holder "the vcap authors" until a legal
+entity exists to hold it.
 

@@ -18,11 +18,11 @@
 // the bytes it signs.
 //
 // What the signature is worth is written in signing/README.md and repeated by
-// `bin/verify-build.mjs`: there is no legal entity (R4) and no certificate
-// (D2) behind this key, so it proves **continuity, not identity**.
+// `bin/verify-build.mjs`: there is no legal entity and no certificate behind
+// this key, so it proves **continuity, not identity**.
 //
 // The private key lives in `Ops/verifier-signing/ed25519-private.pem`, outside
-// every repository (workspace AGENT.md rule 6). It is never read from the
+// every repository. It is never read from the
 // repository and never written to it.
 import { execFileSync } from 'node:child_process'
 import { createPrivateKey, createPublicKey, sign } from 'node:crypto'
