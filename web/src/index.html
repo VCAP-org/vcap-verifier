@@ -163,9 +163,9 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--fg); margi
   border: 1px solid var(--border); color: var(--fg-muted); background: var(--bg);
 }
 .badge::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.green > h2 .badge { color: var(--success); background: var(--success-bg); border-color: transparent; }
-.amber > h2 .badge { color: var(--warning); background: var(--warning-bg); border-color: transparent; }
-.red > h2 .badge { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
+.green > h2 .badge, .green > .ceiling .badge { color: var(--success); background: var(--success-bg); border-color: transparent; }
+.amber > h2 .badge, .amber > .ceiling .badge { color: var(--warning); background: var(--warning-bg); border-color: transparent; }
+.red > h2 .badge, .red > .ceiling .badge { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
 
 /* ── File drop ────────────────────────────────────────────────────────── */
 .drop {
@@ -230,6 +230,12 @@ details[open] > summary > .chev { transform: rotate(90deg); }
 .verdict h2 { margin-top: 12px; font-size: 13px; font-weight: 400; line-height: 1.55; color: var(--fg-muted); }
 .verdict h2 .badge { vertical-align: 1px; }
 .verdict h2 .rest { margin-left: 2px; }
+/* The §7 light in words, beside the title it qualifies: the colour, then the
+   labels that set it. Small and muted like the title, because the colour of
+   the card already said it and this says why. */
+.verdict .ceiling { margin-top: 6px; font-size: 13px; line-height: 1.55; color: var(--fg-muted); max-width: none; }
+.verdict .ceiling .badge { vertical-align: 1px; }
+.verdict .ceiling .rest { margin-left: 2px; }
 .verdict > h2:first-child { margin-top: 0; }
 .verdict > p { font-size: 14px; }
 .verdict .file-line { margin-top: 8px; font-family: var(--mono); font-size: 12.5px; color: var(--fg-muted); overflow-wrap: anywhere; }

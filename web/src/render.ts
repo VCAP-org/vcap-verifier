@@ -1,3 +1,4 @@
+import { ceilingLabels } from 'vcap-verify-core'
 import type { Verdict, WatermarkEvidence, WatermarkOutcome } from 'vcap-verify-core'
 // The sampling policy, not a second copy of it: the page explains a refusal by
 // the same count `detector-runtime.ts` samples at, and importing the runtime
@@ -14,9 +15,28 @@ import { VIDEO_FRAMES } from './sampling.js'
 export const escape = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
 
+/**
+ * The colour each outcome allows at most. It is a cap and not the answer:
+ * §7 gives the verdict its light as `level.ceiling`, and an *authentic* file
+ * whose key is a session key is amber there, never green.
+ */
 export const COLOR: Record<Verdict['outcome'], string> = {
   authentic: 'green', verified_clip: 'amber', tampered: 'red', nested_proof: 'amber',
   corrupted_proof: 'red', no_proof_found: 'grey', unsupported_format_version: 'grey'
+}
+const STRICTNESS: Record<string, number> = { green: 0, amber: 1, red: 2 }
+
+/**
+ * The card's colour: the stricter of the outcome's cap and the §7 ceiling, so
+ * the page never paints greener than the core allows. Grey outcomes carry no
+ * level — the core stops before §7 — and stay grey; so does every outcome the
+ * core returns before §7 (tampered, corrupted, nested), with its own colour.
+ */
+export const colour = (v: Verdict): string => {
+  const cap = COLOR[v.outcome]
+  const ceiling = v.level?.ceiling
+  if (ceiling === undefined || STRICTNESS[cap] === undefined) return cap
+  return (STRICTNESS[ceiling] as number) > (STRICTNESS[cap] as number) ? ceiling : cap
 }
 /**
  * The answer to the question the reader arrived with, in the words they would
@@ -39,6 +59,33 @@ export const PLAIN: Record<Verdict['outcome'], string> = {
   no_proof_found: 'This file carries no proof.',
   unsupported_format_version: 'This page cannot read a proof of this version.'
 }
+/**
+ * The plain line when the card is not the outcome's own colour, so the largest
+ * words on the card never contradict its light. "Yes" belongs to green only:
+ * an authentic file under an amber ceiling is intact and something behind the
+ * seal is unproven, and one under a red ceiling was sealed by a revoked key.
+ * `TITLE` stays the spec's words beside it either way.
+ */
+const PLAIN_BELOW: Record<string, string> = {
+  amber: 'Intact, not fully proven — unchanged since it was sealed, but not everything behind the seal is proven.',
+  red: 'Do not rely on it — the file has not changed since it was sealed, but a key behind the seal was revoked.'
+}
+const plain = (v: Verdict): string => {
+  const shown = colour(v)
+  return shown === COLOR[v.outcome] ? PLAIN[v.outcome] : PLAIN_BELOW[shown] ?? PLAIN[v.outcome]
+}
+
+/**
+ * The ceiling in words, beside the title: the colour, then the §7 labels that
+ * set it, as the core wrote them. Only for a verdict that reached §7 — a
+ * tampered file's reason is its title already.
+ */
+const ceilingLine = (v: Verdict): string => {
+  if (!v.level) return ''
+  const why = ceilingLabels(v)
+  return `<p class="ceiling"><span class="badge">${escape(colour(v))}</span>${why.length ? `<span class="rest"> ${why.map(escape).join(' · ')}</span>` : ''}</p>`
+}
+
 export const TITLE: Record<Verdict['outcome'], string> = {
   authentic: 'Authentic — signed at capture, file complete',
   verified_clip: 'Verified clip — signed frames of a longer original',
@@ -208,9 +255,10 @@ export const card = (name: string, v: Verdict): string => {
   // The core's own sentence for why the verdict stopped where it did: it names
   // no field, so it is a line above the list rather than a row of it.
   const reason = v.reason ? `<p class="reason">${escape(v.reason)}</p>` : ''
-  return `<div class="verdict ${COLOR[v.outcome]}">
-    <p class="lede">${escape(PLAIN[v.outcome])}</p>
+  return `<div class="verdict ${colour(v)}">
+    <p class="lede">${escape(plain(v))}</p>
     <h2>${statusHeading(TITLE[v.outcome])}</h2>
+    ${ceilingLine(v)}
     <div class="file-line">${escape(name)}</div>
     ${position(v)}
     ${carriedLine(v.watermark)}

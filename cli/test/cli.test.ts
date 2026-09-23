@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { run, type Streams } from '../src/main.js'
+import { render } from '../src/render.js'
+import { vectorVerdict } from '../../core/test/vector-verdict.js'
 // The corpus locator the core's own suite uses: same source of truth, same
 // refusal to run against an empty directory.
 import { corpus } from '../../core/test/corpus.js'
@@ -384,5 +386,33 @@ describe('trust set', () => {
     const refused = capture()
     expect(await run(['--trust', bad, inputOf(REGISTRY)], refused.io)).toBe(64)
     expect(refused.err()).toContain('is not the SHA-256 of its own spki')
+  })
+})
+
+/**
+ * The ceiling line names what set it (§7's "label shown"), not only a colour
+ * over every label the verdict carries — most of which move nothing. Green and
+ * red need inputs the CLI cannot take (a key status, the corpus's attestation
+ * root), so those render the verdict the conformance runner produces.
+ */
+describe('the ceiling line', () => {
+  const ceiling = (text: string): string | undefined => text.split('\n').find((l) => l.startsWith('  ceiling'))
+
+  it('names a session key outside the log as amber (vector 01)', async () => {
+    const { io, out } = capture()
+    await run([...trustArgs(), '--no-recompute', inputOf('01-jpeg-sealed')], io)
+    expect(ceiling(out())).toBe('  ceiling   amber — origin not hardware-attested, key not in transparency log')
+  })
+
+  it('names the hardware on green (vector 54)', async () => {
+    expect(ceiling(render('photo.jpg', await vectorVerdict('54-jpeg-registry-green')))).toBe('  ceiling   green — sealed in the TEE')
+  })
+
+  it('names the revocation on red, and nothing else (vector 44)', async () => {
+    expect(ceiling(render('photo.jpg', await vectorVerdict('44-jpeg-attestation-revoked-before-capture')))).toBe('  ceiling   red — attestation key revoked')
+  })
+
+  it('prints no ceiling for a tampered file, which never reached §7 (vector 11)', async () => {
+    expect(ceiling(render('photo.jpg', await vectorVerdict('11-jpeg-pixels-edited')))).toBeUndefined()
   })
 })

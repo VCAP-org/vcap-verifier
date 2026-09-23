@@ -69,7 +69,7 @@ Options
   --tsa-root <path.pem>     a timestamping authority root to pin, on top of the shipped
                             ones; repeatable
   --no-default-tsa          do not trust the timestamping authorities this tool ships with
-  --require-green           exit 1 unless the ceiling is green
+  --require-green           exit 2 unless the ceiling is green
   --at <iso8601>            the instant to verify at, instead of now
   -h, --help                this
 

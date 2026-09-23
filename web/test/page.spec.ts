@@ -129,3 +129,33 @@ test('a clip says how many of its sampled frames carried the mark', async ({ pag
   await expect(page.locator('.verdict .carried')).not.toContainText('cut into it')
   await stop(server)
 })
+
+/**
+ * The card's light is §7's ceiling, not the outcome. Vector 01 is *authentic*
+ * with a session key the log never saw — "amber, never green" — and it used to
+ * be painted green with its limits as grey chips underneath. The spec's title
+ * stays; the plain line and the colour stop contradicting the ceiling.
+ */
+test('an authentic file under an amber ceiling is an amber card that says why', async ({ page }) => {
+  const { server, url } = await serve()
+  await page.goto(url)
+
+  await page.setInputFiles('#file', sealed)
+  const verdict = page.locator('.verdict')
+  await expect(verdict.locator('h2')).toHaveText('Authentic — signed at capture, file complete')
+  await expect(verdict).toHaveClass(/\bamber\b/)
+  await expect(verdict).not.toHaveClass(/\bgreen\b/)
+  await expect(verdict.locator('.ceiling')).toHaveText('amber origin not hardware-attested · key not in transparency log')
+  await expect(verdict.locator('.lede')).toContainText('Intact, not fully proven')
+  await expect(verdict.locator('.lede')).not.toContainText('Yes')
+  // The chips and the detail list are still there.
+  await expect(verdict.locator('.chips > li', { hasText: /^no trusted time$/ })).toHaveCount(1)
+  await expect(verdict.locator('details.tech')).toHaveCount(1)
+
+  // A tampered file stays red, and has no ceiling line: it never reached §7.
+  await page.setInputFiles('#file', join(vectors, '11-jpeg-pixels-edited/input.jpg'))
+  await expect(verdict).toHaveClass(/\bred\b/)
+  await expect(verdict.locator('h2')).toContainText('Tampered')
+  await expect(verdict.locator('.ceiling')).toHaveCount(0)
+  await stop(server)
+})
