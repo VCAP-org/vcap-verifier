@@ -22,7 +22,9 @@ const TYPES: Record<string, string> = {
   '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.sha256': 'text/plain',
   // The engine's binary and the model. `application/wasm` is not decoration:
   // without it the browser cannot compile the module while it streams.
-  '.wasm': 'application/wasm', '.onnx': 'application/octet-stream'
+  '.wasm': 'application/wasm', '.onnx': 'application/octet-stream',
+  // The typefaces and their licence, as stock nginx and GitHub Pages type them.
+  '.woff2': 'font/woff2', '.txt': 'text/plain'
 }
 
 // Cross-origin isolation. Everything the page loads is same-origin, so

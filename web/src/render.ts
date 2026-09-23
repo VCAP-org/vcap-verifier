@@ -84,6 +84,19 @@ const position = (v: Verdict): string => {
   return `<p class="position"><strong>${POSITION[v.location.level] ?? escape(v.location.level)}</strong> — ${said}the device signed ${coordinates(v)}${alone}.</p>`
 }
 
+/**
+ * A heading whose first clause is the status word, set as a badge. The text is
+ * the same string, character for character — only the clause before the first
+ * dash is wrapped, so the colour that marks the status always sits on a word
+ * and a reader copying the heading copies exactly what was written.
+ */
+const statusHeading = (text: string): string => {
+  const cut = text.indexOf(' — ')
+  return cut === -1
+    ? `<span class="badge">${escape(text)}</span>`
+    : `<span class="badge">${escape(text.slice(0, cut))}</span><span class="rest">${escape(text.slice(cut))}</span>`
+}
+
 /** The §8 outcome in the spec's own spelling, with the sentence the core wrote for it. */
 const watermarkLine = (w: WatermarkOutcome): string =>
   `${w.result.replace(/_/g, ' ')} — ${w.detail}${figures(w)}`
@@ -167,39 +180,46 @@ export const card = (name: string, v: Verdict): string => {
     ...v.labels.map((l) => `<li>${escape(l)}</li>`),
     ...v.not_evaluated.map((k) => `<li>not evaluated: <code>${escape(k)}</code></li>`)
   ]
-  const details = [
-    v.claimed_secure_hw ? `<li>claimed level: <code>${escape(v.claimed_secure_hw)}</code> (attestation not evaluated by this page)</li>` : '',
-    v.device_clock ? `<li>declared capture time: ${new Date(v.device_clock).toISOString()} (device clock, not trusted time)</li>` : '',
+  // What the verdict rests on, as a description list: the name of each piece of
+  // evidence on one side, what the core said about it on the other.
+  const rows: Array<[string, string] | null> = [
+    v.claimed_secure_hw ? ['claimed level', `<code>${escape(v.claimed_secure_hw)}</code> (attestation not evaluated by this page)`] : null,
+    v.device_clock ? ['declared capture time', `${new Date(v.device_clock).toISOString()} (device clock, not trusted time)`] : null,
     // §7: which clock the certificate paths were validated at. A reader who is
     // not told cannot tell a capture time proven by a token from one the device
     // asserted about itself.
-    v.validated_at ? `<li>validated at: ${escape(v.validated_at.instant)} (${escape(SOURCE[v.validated_at.source] ?? v.validated_at.source)})</li>` : '',
-    v.segments ? `<li>segments verified: ${v.segments.verified.length ? v.segments.verified.join(', ') : 'none'}</li>` : '',
-    v.segments?.contradicted?.length ? `<li>segments whose frames are not the signed frames: ${v.segments.contradicted.join(', ')}</li>` : '',
+    v.validated_at ? ['validated at', `${escape(v.validated_at.instant)} (${escape(SOURCE[v.validated_at.source] ?? v.validated_at.source)})`] : null,
+    v.segments ? ['segments verified', v.segments.verified.length ? v.segments.verified.join(', ') : 'none'] : null,
+    v.segments?.contradicted?.length ? ['segments whose frames are not the signed frames', v.segments.contradicted.join(', ')] : null,
     // §5 recomputation either happened or did not, and the page says which:
     // "every segment verifies" means much less when nothing read the frames.
-    v.content ? `<li>segment content: ${v.content.recomputed ? 'recomputed from the container' : 'not recomputed'} (${escape(v.content.detail)})</li>` : '',
-    v.watermark ? `<li>watermark: ${escape(watermarkLine(v.watermark))}</li>` : '',
-    v.registry ? `<li>transparency log: ${escape(v.registry.detail)}</li>` : '',
-    v.attestation_status ? `<li>chain revocation: ${escape(v.attestation_status.detail)}</li>` : '',
+    v.content ? ['segment content', `${v.content.recomputed ? 'recomputed from the container' : 'not recomputed'} (${escape(v.content.detail)})`] : null,
+    v.watermark ? ['watermark', escape(watermarkLine(v.watermark))] : null,
+    v.registry ? ['transparency log', escape(v.registry.detail)] : null,
+    v.attestation_status ? ['chain revocation', escape(v.attestation_status.detail)] : null,
     // The device key's own standing, which is the one thing this page cannot
     // establish from the file: it ships with no log to ask, so it says so
     // rather than leaving the reader to assume it was checked.
-    v.key_status ? `<li>key revocation: ${escape(v.key_status.detail)}</li>` : '',
-    v.anchor ? `<li>anchor: ${escape(v.anchor.detail)}</li>` : '',
-    v.core_hash ? `<li>proof identity: <code>${v.core_hash}</code></li>` : '',
-    v.reason ? `<li>${escape(v.reason)}</li>` : ''
-  ].filter(Boolean)
+    v.key_status ? ['key revocation', escape(v.key_status.detail)] : null,
+    v.anchor ? ['anchor', escape(v.anchor.detail)] : null,
+    v.core_hash ? ['proof identity', `<code>${v.core_hash}</code>`] : null
+  ]
+  const details = rows.filter((row): row is [string, string] => row !== null)
+  // The core's own sentence for why the verdict stopped where it did: it names
+  // no field, so it is a line above the list rather than a row of it.
+  const reason = v.reason ? `<p class="reason">${escape(v.reason)}</p>` : ''
   return `<div class="verdict ${COLOR[v.outcome]}">
     <p class="lede">${escape(PLAIN[v.outcome])}</p>
-    <h2>${escape(TITLE[v.outcome])}</h2>
+    <h2>${statusHeading(TITLE[v.outcome])}</h2>
     <div class="file-line">${escape(name)}</div>
     ${position(v)}
     ${carriedLine(v.watermark)}
     ${lines.length
       ? `<div class="limits"><p class="limits-head">What this verdict does not cover</p><ul class="chips">${lines.join('')}</ul></div>`
       : ''}
-    ${details.length ? `<details class="tech"><summary><span class="chev" aria-hidden="true">›</span> Technical detail</summary><ul>${details.join('')}</ul></details>` : ''}
+    ${details.length || reason
+      ? `<details class="tech"><summary><span class="chev" aria-hidden="true">›</span> Technical detail</summary>${reason}${details.length ? `<dl class="kv">${details.map(([key, value]) => `<dt>${escape(key)}</dt><dd>${value}</dd>`).join('')}</dl>` : ''}</details>`
+      : ''}
   </div>`
 }
 
@@ -249,7 +269,7 @@ export const bareMark = (evidence: WatermarkEvidence, traceUrl: string): string 
     <p>It reads <code>${escape(decoded)}</code>${layout ? ` in <code>${escape(layout)}</code>` : ''}.</p>
     ${carriedParagraph(evidence)}
     <p class="muted">Two things can be done with it. Drop the <strong>original</strong> above, and this page will compare the two itself, here, with nothing leaving your browser. Or look the identifier up in the registry that issued it, which is a request to somebody's server and the only one this page will ever suggest.</p>
-    <p><a class="btn secondary" href="${escape(traceUrl)}/${escape(decoded)}" rel="noreferrer">Look this identifier up in the registry</a></p>
+    <p><a class="btn" href="${escape(traceUrl)}/${escape(decoded)}" rel="noreferrer">Look this identifier up in the registry</a></p>
   </div>`
 }
 
@@ -332,14 +352,15 @@ export const comparison = (copy: { name: string, verdict: Verdict }, original: {
       <th scope="row">${escape(field.name)}</th>
       <td>${mine === null ? `<span class="absent">${sameProof ? 'not evaluated' : 'absent'}</span>` : `<code>${escape(mine)}</code>`}</td>
       <td>${theirs === null ? '<span class="absent">absent</span>' : `<code>${escape(theirs)}</code>`}</td>
-      <td class="change">${word}</td>
+      <td class="change"><span class="badge">${word}</span></td>
     </tr>`
   }).filter(Boolean)
-  return `<table class="compare">
+  // Scrolls sideways inside its own box on a phone rather than pushing the page wider.
+  return `<div class="table-wrap"><table class="compare">
     <caption>What the copy still carries, next to what the original carries</caption>
     <thead><tr><th scope="col">evidence</th><th scope="col">${escape(copy.name)}</th><th scope="col">${escape(original.name)}</th><th scope="col">change</th></tr></thead>
     <tbody>${rows.join('')}</tbody>
-  </table>`
+  </table></div>`
 }
 
 /**
@@ -397,7 +418,7 @@ export const trace = (outcome: WatermarkOutcome): string => {
       ? `<p><strong>This is not a wrong id — it is no id.</strong> Something came back out of the pixels and the copies of it disagreed too much to name one, so the page says nothing rather than risk pointing you at somebody else's recording.${frameNote(outcome)}</p>`
       : ''
   return `<div class="verdict ${css[outcome.result]}">
-    <h2>${escape(headline[outcome.result])}</h2>
+    <h2>${statusHeading(headline[outcome.result])}</h2>
     <p>${escape(`${outcome.result.replace(/_/g, ' ')} — ${outcome.detail}${figures(outcome)}`)}</p>
     ${caveat}
   </div>`

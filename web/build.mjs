@@ -104,9 +104,16 @@ const ortDist = dirname(createRequire(import.meta.url).resolve('onnxruntime-web'
 // only when somebody clicks.
 const STATIC = ['manifest.webmanifest', 'icon.svg', 'detector.json']
 
+// The typefaces, served next to the page like everything else it uses: a font
+// from somebody else's host is a third party in the page, and a request the
+// offline cache would have to trust. Flat in dist/ so `sha256sum dist/*`
+// still reads every shipped file. The licence travels with the fonts (OFL).
+const FONTS = ['Geist-Variable.woff2', 'GeistMono-Variable.woff2', 'Geist-OFL.txt']
+
 rmSync('dist', { recursive: true, force: true })
 mkdirSync('dist')
 for (const name of STATIC) copyFileSync(`src/${name}`, `dist/${name}`)
+for (const name of FONTS) copyFileSync(`src/fonts/${name}`, `dist/${name}`)
 // The trust set, published verbatim beside the page. It is the same bytes the
 // bundle pinned, so a reader can fetch it, recompute each log_id from its key
 // and see exactly whom this build believes — and it is covered by hashes.json
@@ -148,7 +155,7 @@ if (serve) {
   // the old one goes; the worker itself is not in its own list (the browser
   // fetches it), nor is what is written after it — but the hash records are,
   // as URLs, so they are readable offline too.
-  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', 'logs.json', 'tsa.json', ...ORT_ASSETS, ...STATIC]
+  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', 'logs.json', 'tsa.json', ...ORT_ASSETS, ...STATIC, ...FONTS]
   // Everything shipped is cached except the detector module: it is an explicit
   // choice of the user's, it pulls a model far larger than this page, and an
   // offline page that silently held a stale detector would be worse than one

@@ -6,173 +6,201 @@
 <title>vcap verifier</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<meta name="theme-color" content="#0b4f9e">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
 <style>
 /*
- * The shared design tokens, in the only form a page like this can take them:
- * custom properties, inline, no build step, no webfont, no network. The page
- * has to work offline and its build has to be reproducible byte for byte, so
- * a font from somebody else's host is not a style decision but a third party.
+ * The product's design tokens, in the only form a page like this can take
+ * them: custom properties, inline, no build step. Same names and values as the
+ * rest of the product, so this page and the console read as one thing.
  *
- * The colours are not invented here. They come from the capture app's theme,
- * the one place in this product where contrast is *measured* rather than
- * chosen — 4.5:1 for text, 3:1 for a border, asserted by a test — and this
- * page inherits the measurement with the value; this block is its web half.
+ * Grey scale everywhere; colour appears only to say a status, always on a
+ * word (a badge, a callout), never as decoration. Light is the base; dark
+ * redefines the same names and follows the system.
+ *
+ * The typeface is Geist, served from this directory next to the page (OFL,
+ * licence in Geist-OFL.txt). A font from somebody else's host would be a third
+ * party in a page whose promise is that it depends on nobody at run time — and
+ * a request the offline cache could not vouch for.
  */
+@font-face {
+  font-family: "Geist"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("Geist-Variable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist Mono"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("GeistMono-Variable.woff2") format("woff2");
+}
 :root {
-  color-scheme: light dark;
-  --background: #ffffff;
-  --surface: #f4f4f8;
-  --text: #1b1b1f;
-  --muted: #4a4a52;
-  --border: #767680;
-  --rule: #dcdce3;
-  --action: #0b4f9e;
-  --on-action: #ffffff;
-  --green: #0f6b3d;  --green-wash: #e8f4ed;
-  --amber: #8a5300;  --amber-wash: #fff4e5;
-  --red:   #a1121f;  --red-wash:   #fdeaec;
-  --grey:  #4a4a52;  --grey-wash:  #f0f0f4;
-  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
-  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-pill:999px;
-  --shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 4px 12px rgb(0 0 0 / 5%);
-  /* One line length for prose. Panels and tables span their container; the
+  --bg: #ffffff;
+  --bg-subtle: #fafafa;
+  --bg-muted: #f2f2f2;
+  --fg: #0a0a0a;
+  --fg-muted: #5c5c5c;
+  --fg-subtle: #8a8a8a;
+  --border: #e6e6e6;
+  --border-strong: #d0d0d0;
+  --ring: #0a0a0a;
+  --primary: #0a0a0a;
+  --primary-fg: #ffffff;
+  --success: #0f7b3f;
+  --success-bg: #e9f6ee;
+  --warning: #9a5b00;
+  --warning-bg: #fdf3e2;
+  --danger: #c4231a;
+  --danger-bg: #fdecea;
+  --info: #1b5fd1;
+  --info-bg: #eaf1fd;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+
+  --font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --control-h: 36px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  /* One line length for prose. Cards and tables span their container; the
      sentences inside them stop here, because a 90-character line is where a
      reader loses the start of the next one. */
   --measure: 68ch;
-  --control-height: 44px;
+  color-scheme: light;
 }
-/* A second measured set, not the light one dimmed: the washes carry the
-   verdict colour at low luminance and the ink on them is its light
-   counterpart, so a verdict reads the same either way. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background:#131316; --surface:#1d1d21; --text:#f2f2f5; --muted:#b6b6c0;
-    --border:#8a8a94; --rule:#33333a; --action:#7fb2ee; --on-action:#0a1a2c;
-    --green:#6fd39b; --green-wash:#10281c;
-    --amber:#f0c07a; --amber-wash:#2c2011;
-    --red:#f4a0a8;   --red-wash:#2c1214;
-    --grey:#b6b6c0;  --grey-wash:#232329;
-    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 14px rgb(0 0 0 / 30%);
+    --bg: #0a0a0a; --bg-subtle: #111111; --bg-muted: #1a1a1a;
+    --fg: #ededed; --fg-muted: #a1a1a1; --fg-subtle: #737373;
+    --border: #262626; --border-strong: #3a3a3a; --ring: #ededed;
+    --primary: #ededed; --primary-fg: #0a0a0a;
+    --success: #4cc38a; --success-bg: #0f2a1c;
+    --warning: #f0b35a; --warning-bg: #2d2010;
+    --danger: #ff6b61; --danger-bg: #331412;
+    --info: #7aa7ff; --info-bg: #111f38;
+    --shadow: 0 0 0 1px #262626;
+    color-scheme: dark;
   }
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0 auto; padding: var(--s6) var(--s5) var(--s7);
-  max-width: 52rem;
-  font: 1rem/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: var(--text); background: var(--background);
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 400 14px/1.55 var(--font);
+  -webkit-font-smoothing: antialiased;
 }
-h1 { font: 700 1.625rem/1.2 system-ui, sans-serif; margin: 0; letter-spacing: -0.015em; }
-h2 { font: 700 1.375rem/1.28 system-ui, sans-serif; margin: 0; letter-spacing: -0.01em; }
-h3 { font: 700 1rem/1.4 system-ui, sans-serif; margin: 0; }
-p { margin: var(--s3) 0 0; max-width: var(--measure); }
-a { color: var(--action); text-underline-offset: 2px; }
+h1, h2, h3, h4 { margin: 0; text-wrap: balance; }
+/* The type scale: display 32, title 22, heading 14, body 14, small 13, caption 12. */
+h1 { font-size: clamp(26px, 6vw, 32px); font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; }
+h3, h4 { font-size: 14px; font-weight: 600; line-height: 1.4; }
+p { margin: 8px 0 0; max-width: var(--measure); }
+a { color: inherit; text-underline-offset: 2px; }
 /* `break-all` split short words mid-letter — `logs.json` came out as
    "l / ogs.json". Long values still have to wrap somewhere, so they get
    `anywhere`, which only breaks when a line cannot otherwise fit. */
-code { font: 0.875em ui-monospace, SFMono-Regular, Menlo, monospace; word-break: normal; overflow-wrap: anywhere; }
-.muted { color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
+code { font-family: var(--mono); font-size: 12.5px; word-break: normal; overflow-wrap: anywhere; }
+.muted { color: var(--fg-muted); font-size: 13px; }
 ul { max-width: var(--measure); }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ── Top bar ──────────────────────────────────────────────────────────────
+   The product's name and nothing else: a public page has no navigation. */
+header.top {
+  height: 52px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px;
+}
+header.top .brand { margin: 0; font-weight: 600; font-size: 14px; }
+
+.page { max-width: 880px; margin: 0 auto; padding: 40px 20px 64px; }
+.intro p { color: var(--fg-muted); font-size: 16px; margin-top: 12px; }
+.intro p strong { color: var(--fg); font-weight: 500; }
 
 /* ── Controls ──────────────────────────────────────────────────────────────
-   One idiom, everywhere. The page had two: a designed button beside the
-   browser's own "Choose file / no file selected", in four different places,
-   which is what made it look assembled rather than drawn. Every file input is
-   now the same pair — a visually hidden input that does the work and still
-   answers to a keyboard and a screen reader, and a label that looks like the
-   button it is — with the chosen name printed beside it. */
+   One idiom and one height everywhere. Every file input is the same pair — a
+   visually hidden input that does the work and still answers to a keyboard
+   and a screen reader, and a label that looks like the button it is — with
+   the chosen name printed beside it. */
 .btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-height: var(--control-height); padding: 0 var(--s4);
-  font: inherit; font-size: 0.9375rem; font-weight: 600; text-align: center;
-  border-radius: var(--r-sm); border: 1px solid transparent; cursor: pointer;
-  color: var(--on-action); background: var(--action);
+  height: var(--control-h); padding: 0 14px; border-radius: var(--radius);
+  border: 1px solid var(--border-strong); background: var(--bg); color: var(--fg);
+  font: 500 13px/1 var(--font); text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  cursor: pointer; white-space: nowrap; max-width: 100%;
 }
-.btn:hover { filter: brightness(1.08); }
-.btn:active { filter: brightness(0.94); }
-/* Secondary: everything that is not the one thing a screen is for. Outlined
-   rather than filled, so two controls in a row cannot both look primary. */
-.btn.secondary { color: var(--action); background: transparent; border-color: var(--border); }
-.btn.secondary:hover { background: var(--surface); filter: none; }
-.btn.big { padding: 0 var(--s5); font-size: 1rem; min-height: 48px; }
+.btn:hover { background: var(--bg-muted); }
+/* Primary: the one thing a screen is for, and never two in a row. */
+.btn-primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+.btn-primary:hover { background: var(--primary); opacity: .88; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
 
 .file-input {
   position: absolute; width: 1px; height: 1px; padding: 0;
   margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
-.file { display: inline-flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
-.file-name { font-size: 0.875rem; color: var(--muted); }
-.file-name:empty::before { content: 'no file chosen'; font-style: italic; }
-.file-input:focus-visible + .btn { outline: 2px solid var(--action); outline-offset: 2px; }
+.file { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.file-name { font-size: 13px; color: var(--fg-muted); }
+.file-name:empty::before { content: 'no file chosen'; color: var(--fg-subtle); }
+.file-input:focus-visible + .btn { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 input[type=text] {
-  font: inherit; font-size: 0.9375rem; color: var(--text); background: var(--background);
-  border: 1px solid var(--border); border-radius: var(--r-sm);
-  padding: 0 var(--s3); height: var(--control-height); width: 100%;
+  height: var(--control-h); width: 100%; padding: 0 10px;
+  border-radius: var(--radius); border: 1px solid var(--border-strong);
+  background: var(--bg); color: var(--fg); font: 400 13px var(--font);
 }
-input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--action); margin: 0; }
-:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+input[type=text]:focus { outline: 0; border-color: var(--fg); box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg) 12%, transparent); }
+input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--fg); margin: 0; flex: none; }
 
-/* A field is a label on its own line, the control under it, help under that.
-   Labels used to sit inline with their control, which is why nothing on the
-   page lined up with anything else. */
-.field { margin-top: var(--s4); }
-.field > .label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: var(--s2); }
-.field-row { display: flex; gap: var(--s3); align-items: flex-start; flex-wrap: wrap; }
+/* A field is a label on its own line, the control under it. */
+.field { margin-top: 16px; display: grid; gap: 6px; }
+.field > .label { font-size: 13px; font-weight: 500; }
+.field-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .field-row input[type=text] { flex: 1 1 22rem; }
 
-/* ── Masthead ─────────────────────────────────────────────────────────── */
-header { margin-bottom: var(--s6); }
-header .brand { font-size: 0.8125rem; font-weight: 700; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--muted); margin: 0 0 var(--s2); }
+/* ── Status words ─────────────────────────────────────────────────────────
+   The only place colour lives. A badge is always a word; its colour comes
+   from the block it sits in, so the status and the word cannot disagree. */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 22px; padding: 2px 8px;
+  border-radius: 999px; font-size: 12px; font-weight: 500; line-height: 1.35;
+  border: 1px solid var(--border); color: var(--fg-muted); background: var(--bg);
+}
+.badge::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.green > h2 .badge, .compare tr.kept .badge { color: var(--success); background: var(--success-bg); border-color: transparent; }
+.amber > h2 .badge, .traced > h2 .badge, .compare tr.differs .badge { color: var(--warning); background: var(--warning-bg); border-color: transparent; }
+.red > h2 .badge, .compare tr.lost .badge { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
 
-/* ── Dropzone ─────────────────────────────────────────────────────────── */
+/* ── File drop ────────────────────────────────────────────────────────── */
 .drop {
-  margin-top: var(--s5);
-  border: 2px dashed var(--border); border-radius: var(--r-lg);
-  padding: var(--s7) var(--s5); text-align: center; background: var(--surface);
+  margin-top: 28px; border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
+  padding: 40px 22px; text-align: center; display: grid; gap: 4px; justify-items: center;
+  color: var(--fg-muted); font-size: 13px;
   transition: background-color .12s ease, border-color .12s ease;
 }
-.drop.over { border-color: var(--action); background: var(--grey-wash); }
-.drop .call { font: 700 1.25rem/1.3 system-ui, sans-serif; margin: 0; max-width: none; }
-.drop .muted { margin-top: var(--s1); max-width: none; }
-.drop .btn { margin-top: var(--s4); }
-.drop .chosen { margin-top: var(--s3); font-weight: 600; font-size: 0.9375rem; max-width: none; }
+.drop.over { border-color: var(--fg); background: var(--bg-subtle); }
+.drop p { margin: 0; max-width: none; }
+.drop .call { color: var(--fg); font-size: 16px; font-weight: 500; }
+.drop .btn { margin-top: 14px; }
+.drop .chosen { margin-top: 8px; color: var(--fg); font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.drop .chosen:empty { display: none; }
 /* Once there is a file the answer matters more than the invitation, so the
-   dropzone gives up its height rather than pushing the verdict down a screen. */
-body.has-file .drop { padding: var(--s4) var(--s5); }
-body.has-file .drop .call { font-size: 1.0625rem; }
+   drop gives up its height rather than pushing the verdict down a screen. */
+body.has-file .drop { padding: 18px 22px; }
 body.has-file .drop .muted { display: none; }
-body.has-file .drop .btn { margin-top: var(--s3); min-height: 38px; }
+body.has-file .drop .btn { margin-top: 8px; }
 
-/* ── Capability bar ───────────────────────────────────────────────────────
-   What the page can check, next to the thing it checks. A grid, so the mark,
-   the text and the actions hold their columns instead of drifting as the
-   state changes. */
-.capability {
-  margin-top: var(--s4); border: 1px solid var(--border); border-radius: var(--r-md);
-  padding: var(--s4) var(--s5); background: var(--background);
-  display: grid; grid-template-columns: auto 1fr; gap: 0 var(--s3);
-  align-items: start;
+/* ── Cards ────────────────────────────────────────────────────────────────
+   Bordered, not shadowed. The capability bar, the extra files, the verdict,
+   the trust panels: one shape. */
+.capability, .verdict, .panel {
+  margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--bg); padding: 16px;
 }
-.capability .mark {
-  font-size: 1rem; line-height: 1.4; width: 1.25rem; text-align: center;
-  color: var(--muted);
-}
-.capability h3 { font-size: 0.9375rem; }
-.capability .muted { margin-top: var(--s1); }
-.capability-actions {
-  grid-column: 2; display: flex; gap: var(--s3) var(--s4);
-  align-items: center; flex-wrap: wrap; margin-top: var(--s4);
-}
-.capability-actions .file { gap: var(--s2); }
-.capability.ready { border-color: var(--green); background: var(--green-wash); }
-.capability.ready .mark { color: var(--green); }
-.capability.working { border-color: var(--action); }
-.capability.working .mark { color: var(--action); }
+
+/* What the page can check, next to the thing it checks. The mark is only a
+   glyph; the title beside it says the state in words. */
+.capability { display: grid; grid-template-columns: auto 1fr; gap: 0 12px; align-items: start; }
+.capability .mark { width: 16px; text-align: center; font-size: 14px; line-height: 1.4; color: var(--fg-subtle); }
+.capability .muted { margin-top: 2px; }
+.capability-actions { grid-column: 2; display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.capability.ready .mark { color: var(--success); }
+.capability.working .mark { color: var(--info); }
 .capability.ready .capability-actions { display: none; }
 
 /* ── Disclosures ──────────────────────────────────────────────────────────
@@ -180,156 +208,136 @@ body.has-file .drop .btn { margin-top: var(--s3); min-height: 38px; }
    have seen somewhere else, drawn in somebody else's style. */
 summary { cursor: pointer; list-style: none; }
 summary::-webkit-details-marker { display: none; }
-summary > .chev {
-  display: inline-block; width: 1em; color: var(--muted);
-  transition: transform .12s ease;
-}
+summary > .chev { display: inline-block; width: 1em; color: var(--fg-subtle); transition: transform .12s ease; }
 details[open] > summary > .chev { transform: rotate(90deg); }
 
-.more { margin-top: var(--s4); }
-.more > summary {
-  font-weight: 600; font-size: 0.9375rem; padding: var(--s3) var(--s4);
-  border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--surface);
-}
-.more > summary:hover { border-color: var(--border); }
-.more[open] > summary { border-radius: var(--r-md) var(--r-md) 0 0; }
-.more .extra {
-  border: 1px solid var(--rule); border-top: 0;
-  border-radius: 0 0 var(--r-md) var(--r-md); padding: var(--s5);
-  display: grid; gap: var(--s5);
-}
-.more .extra h4 { font: 700 0.9375rem/1.4 system-ui, sans-serif; margin: 0; }
-.more .extra .muted { margin-top: var(--s1); }
-.more .extra .file { margin-top: var(--s3); }
+.more { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.more > summary { font-weight: 500; font-size: 13px; padding: 12px 16px; border-radius: var(--radius-lg); }
+.more > summary:hover { background: var(--bg-subtle); }
+.more[open] > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.more .extra { padding: 16px; display: grid; gap: 20px; }
+.more .extra .muted { margin-top: 4px; }
+.more .extra .file { margin-top: 12px; }
 /* The two extra files still accept a drop, so they still have to show one. */
-.more .extra > div.over { outline: 2px dashed var(--action); outline-offset: var(--s3); border-radius: var(--r-sm); }
+.more .extra > div.over { outline: 1px dashed var(--fg); outline-offset: 8px; border-radius: var(--radius); }
 
 /* ── Verdict ──────────────────────────────────────────────────────────────
-   The only element allowed to be large, because it is the answer. */
-.verdict {
-  margin-top: var(--s5); border-radius: var(--r-lg);
-  padding: var(--s5) var(--s5) var(--s5) calc(var(--s5) - 5px);
-  border: 1px solid var(--border); border-left-width: 6px;
-  background: var(--surface); box-shadow: var(--shadow);
+   The plain answer is the only large text, because it is the answer. The
+   specification's title sits under it with its status word as a badge. */
+.verdict { margin-top: 24px; padding: 20px; }
+.verdict .lede { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.25; letter-spacing: -0.02em; max-width: 36ch; }
+.verdict h2 { margin-top: 12px; font-size: 13px; font-weight: 400; line-height: 1.55; color: var(--fg-muted); }
+.verdict h2 .badge { vertical-align: 1px; }
+.verdict h2 .rest { margin-left: 2px; }
+.verdict > h2:first-child { margin-top: 0; }
+.verdict > p { font-size: 14px; }
+.verdict .file-line { margin-top: 8px; font-family: var(--mono); font-size: 12.5px; color: var(--fg-muted); overflow-wrap: anywhere; }
+.verdict .position { margin-top: 16px; }
+.verdict .position strong { font-weight: 600; }
+/* How much of a clip carried the mark. A callout and not muted text:
+   "1 of 8" and "8 of 8" are two different situations, and a reader who has
+   to open a disclosure to learn which one they are in will not. */
+.verdict .carried { margin-top: 16px; max-width: none; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-subtle); font-size: 13px; }
+/* The ceilings. They are the specification's words and they stay them; as
+   neutral badges under a line that names them, they read as the edge of what
+   was checked rather than as a list of faults. */
+.verdict .limits { margin-top: 20px; }
+.verdict .limits-head, .settings > .section-label {
+  margin: 0 0 8px; font-size: 12px; font-weight: 500;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted);
 }
-.verdict .lede {
-  font: 700 2rem/1.15 system-ui, sans-serif; margin: 0;
-  letter-spacing: -0.025em; max-width: 24ch;
-}
-.verdict h2 { font-size: 1rem; font-weight: 600; color: var(--muted); margin-top: var(--s3); }
-.verdict .file-line { margin-top: var(--s1); font-size: 0.875rem; color: var(--muted); }
-.verdict .position { margin-top: var(--s4); font-weight: 600; }
-/* How much of a clip carried the mark. Not muted and not inside the technical
-   section: "1 of 8" and "8 of 8" are two different situations, and a reader
-   who has to open a disclosure to learn which one they are in will not. */
-.verdict .carried { margin-top: var(--s4); }
-/* The ceilings. They are the specification's words and they stay them — but a
-   bullet list of seven grey phrases inside a green card reads as a list of
-   faults, which is the opposite of what a ceiling is. As chips under a line
-   that names them, they read as the edge of what was checked. */
-.verdict .limits { margin-top: var(--s5); }
-.verdict .limits-head {
-  margin: 0 0 var(--s2); font-size: 0.75rem; font-weight: 700;
-  letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
-}
-.chips { display: flex; flex-wrap: wrap; gap: var(--s2); list-style: none; margin: 0; padding: 0; max-width: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; max-width: none; }
 .chips li {
-  font-size: 0.8125rem; line-height: 1.35; color: var(--muted);
-  background: var(--background); border: 1px solid var(--rule);
-  border-radius: var(--r-pill); padding: 5px var(--s3);
+  font-size: 12px; line-height: 1.35; color: var(--fg-muted); background: var(--bg-subtle);
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px;
 }
-.chips li code { font-size: 0.95em; }
-.verdict details.tech { margin-top: var(--s5); border-top: 1px solid var(--rule); padding-top: var(--s3); }
-details.tech > summary { color: var(--muted); font-size: 0.875rem; font-weight: 600; }
-details.tech ul { margin: var(--s3) 0 0; padding-left: 1.1rem; font-size: 0.875rem; color: var(--muted); }
-details.tech li { margin-top: var(--s1); }
-
-.green { background: var(--green-wash); border-color: var(--green); }
-.green .lede { color: var(--green); }
-.amber, .traced { background: var(--amber-wash); border-color: var(--amber); }
-.amber .lede, .traced .lede { color: var(--amber); }
-.red { background: var(--red-wash); border-color: var(--red); }
-.red .lede { color: var(--red); }
-.grey { background: var(--grey-wash); border-color: var(--border); }
-.grey .lede { color: var(--text); }
+.chips li code { font-size: 11.5px; }
+.verdict details.tech { margin: 20px -20px -20px; border-top: 1px solid var(--border); }
+details.tech > summary { padding: 12px 20px; color: var(--fg-muted); font-size: 13px; font-weight: 500; }
+details.tech > summary:hover { color: var(--fg); }
+details.tech .reason { margin: 0 20px 12px; font-size: 13px; }
+/* A description list: the name of each piece of evidence, what was found. */
+.kv { display: grid; grid-template-columns: 180px 1fr; gap: 8px 16px; margin: 0; padding: 4px 20px 20px; font-size: 13px; }
+.kv dt { color: var(--fg-muted); }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
 /* Two verdicts side by side where there is room, stacked where there is not.
    The copy is always first: it is the file the reader came to ask about. */
-.pair { display: grid; gap: var(--s4); grid-template-columns: 1fr; }
+.pair { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: start; margin-top: 24px; }
+.pair .verdict { margin-top: 0; }
 @media (min-width: 48rem) { .pair { grid-template-columns: 1fr 1fr; } }
 
 /* A mark read from a file with no proof: a fact about pixels, deliberately
    not wearing any colour of the verdict palette. */
-.panel.mark { margin-top: var(--s4); border-left: 6px solid var(--border); }
-.panel.mark h3 { font-size: 1.0625rem; margin-bottom: var(--s2); }
+.panel.mark { margin-top: 16px; }
+.panel.mark h3 { margin-bottom: 4px; }
+.panel.mark p { font-size: 13px; }
 
-.compare { margin-top: var(--s5); border-collapse: collapse; width: 100%; font-size: 0.875rem; }
-.compare caption { text-align: left; font-weight: 700; padding-bottom: var(--s2); }
-.compare th, .compare td { border: 1px solid var(--rule); padding: var(--s2) var(--s3); text-align: left; vertical-align: top; }
-.compare thead th { font-size: 0.8125rem; color: var(--muted); }
+/* ── The side-by-side table ───────────────────────────────────────────── */
+.table-wrap { margin-top: 24px; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.compare { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 13px; }
+.compare caption { text-align: left; font-weight: 600; font-size: 14px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.compare th, .compare td { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.compare tbody tr:last-child > * { border-bottom: 0; }
+.compare thead th { font-weight: 500; font-size: 12px; color: var(--fg-muted); background: var(--bg-subtle); }
 .compare tbody th { font-weight: 500; white-space: nowrap; }
-.compare .change { white-space: nowrap; font-size: 0.85em; }
-.compare tr.lost { background: var(--red-wash); }
-.compare tr.differs { background: var(--amber-wash); }
-.absent { color: var(--muted); font-style: italic; }
+.compare .change { white-space: nowrap; }
+.absent { color: var(--fg-subtle); font-style: italic; }
 
 /* ── What this page trusts ────────────────────────────────────────────────
    Demoted under the verdict but never hidden: that this set is visible and
    switchable is part of what the page claims, so it is a section with a rule
    above it and not a drawer. */
-.settings { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: var(--s5); }
-.settings > .section-label {
-  margin: 0; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--muted);
-}
-.panel {
-  margin-top: var(--s4); border: 1px solid var(--rule); border-radius: var(--r-md);
-  padding: var(--s5); background: var(--surface);
-}
-/* The trusted logs and authorities: rows, not prose with a bullet in front.
-   The description hangs under the label rather than under the checkbox, so
-   the block has one left edge instead of two. */
-.panel > ul { list-style: none; margin: var(--s4) 0 0; padding: 0; display: grid; gap: var(--s3); max-width: none; }
-.panel > ul > li {
-  border: 1px solid var(--rule); border-radius: var(--r-sm);
-  background: var(--background); padding: var(--s3) var(--s4);
-}
-.panel > ul > li > label {
-  display: flex; align-items: center; gap: var(--s3);
-  font-weight: 600; font-size: 0.9375rem; cursor: pointer;
-}
-.panel > ul > li > .muted { margin-top: var(--s2); padding-left: calc(18px + var(--s3)); }
-.panel > ul > li > .muted + .muted { margin-top: var(--s1); }
-.panel > ul > li ul { margin-top: var(--s2); padding-left: 1.1rem; font-size: 0.875rem; color: var(--muted); }
-.panel > ul > li.absent { border-style: dashed; font-style: normal; padding: var(--s4); }
-.panel .state { margin-top: var(--s3); }
+.settings { margin-top: 56px; border-top: 1px solid var(--border); padding-top: 24px; }
+.settings > .muted { margin-top: 0; }
+.panel { padding: 20px; }
+.panel > h3 + .muted { margin-top: 4px; }
+/* The trusted logs and authorities: rows inside the card, one left edge. */
+.panel > ul { list-style: none; margin: 16px 0 0; padding: 0; max-width: none; border: 1px solid var(--border); border-radius: var(--radius); }
+.panel > ul > li { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.panel > ul > li:last-child { border-bottom: 0; }
+.panel > ul > li > label { display: flex; align-items: center; gap: 10px; font-weight: 500; font-size: 13px; cursor: pointer; }
+.panel > ul > li > .muted { margin-top: 4px; padding-left: 26px; }
+.panel > ul > li ul { margin: 6px 0 0; padding-left: 44px; font-size: 13px; color: var(--fg-muted); }
+.panel > ul > li.absent { font-style: normal; color: var(--fg-muted); }
+.panel .state { margin-top: 12px; }
 .panel .state:empty { display: none; }
 
-footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: var(--s4);
-  font-size: 0.8125rem; line-height: 1.6; color: var(--muted); }
+footer { max-width: 880px; margin: 0 auto; padding: 20px 20px 48px; border-top: 1px solid var(--border);
+  font-size: 12px; line-height: 1.6; color: var(--fg-muted); }
+footer p { max-width: none; }
 
 @media (max-width: 34rem) {
-  body { padding: var(--s5) var(--s4) var(--s6); }
-  .drop { padding: var(--s5) var(--s4); }
-  .verdict { padding: var(--s4) var(--s4) var(--s4) calc(var(--s4) - 5px); }
-  .verdict .lede { font-size: 1.625rem; }
-  .panel, .capability { padding: var(--s4); }
+  header.top { padding: 0 16px; }
+  .page { padding: 28px 16px 48px; }
+  footer { padding: 20px 16px 40px; }
+  .drop { padding: 28px 16px; }
+  .verdict { padding: 16px; }
+  .verdict details.tech { margin: 16px -16px -16px; }
+  details.tech > summary { padding: 12px 16px; }
+  details.tech .reason { margin: 0 16px 12px; }
+  .kv { grid-template-columns: 1fr; gap: 2px 0; padding: 4px 16px 16px; }
+  .kv dd { margin-bottom: 8px; }
+  .compare tbody th { white-space: normal; }
+  .panel { padding: 16px; }
   .capability { grid-template-columns: 1fr; }
   .capability .mark { display: none; }
   .capability-actions { grid-column: 1; }
-  .btn { width: 100%; }
-  .file { width: 100%; }
 }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
-<header>
+<header class="top">
   <p class="brand">vcap verifier</p>
-  <h1>Is this photo or video real?</h1>
-  <p>Drop the file below and this page tells you whether it was signed by the camera that took it, and whether anything changed since. <strong>The file never leaves your browser</strong> — no upload, no account, no server of ours.</p>
 </header>
 
-<main>
+<main class="page">
+<div class="intro">
+  <h1>Is this photo or video real?</h1>
+  <p>Drop the file below and this page tells you whether it was signed by the camera that took it, and whether anything changed since. <strong>The file never leaves your browser</strong> — no upload, no account, no server of ours.</p>
+</div>
+
 <div class="drop" id="drop">
   <p class="call">Drop the file here</p>
   <p class="muted">a sealed photo or video</p>
@@ -337,7 +345,7 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
        clicks. A bare "Choose file / no file selected" is the browser's idea of
        a form, not an invitation, and this page's whole job starts here. -->
   <input type="file" id="file" class="file-input" multiple>
-  <label class="btn big" for="file">Choose a file</label>
+  <label class="btn btn-primary" for="file">Choose a file</label>
 </div>
 
 <!-- What this page can and cannot check right now, said where the reader is
@@ -355,7 +363,7 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
     <button type="button" class="btn" id="load-detector">Load the detector · 34 MB</button>
     <span class="file">
       <input type="file" id="evidence" class="file-input" accept=".json,application/json">
-      <label class="btn secondary" for="evidence">Use a detection you have</label>
+      <label class="btn" for="evidence">Use a detection you have</label>
       <span class="file-name" data-name-for="evidence"></span>
     </span>
   </div>
@@ -371,7 +379,7 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
       <p class="muted">A copy that came back re-compressed, cropped or through a social network has usually lost its proof. Next to the original, this page can show what it lost and what it kept.</p>
       <span class="file">
         <input type="file" id="original" class="file-input">
-        <label class="btn secondary" for="original">Choose the original</label>
+        <label class="btn" for="original">Choose the original</label>
         <span class="file-name" data-name-for="original"></span>
       </span>
     </div>
@@ -380,7 +388,7 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
       <p class="muted">When the proof travels beside the file rather than inside it (<code>&lt;filename&gt;.vcap</code>). It is read here, not looked for anywhere.</p>
       <span class="file">
         <input type="file" id="sidecar" class="file-input" accept=".vcap,application/json">
-        <label class="btn secondary" for="sidecar">Choose the sidecar</label>
+        <label class="btn" for="sidecar">Choose the sidecar</label>
         <span class="file-name" data-name-for="sidecar"></span>
       </span>
     </div>
@@ -388,7 +396,6 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
 </details>
 
 <div id="out"></div>
-</main>
 
 <section class="settings">
   <p class="section-label">What this page trusts</p>
@@ -403,7 +410,7 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
       <span class="label">Your own trust document</span>
       <span class="file">
         <input type="file" id="trust-file" class="file-input" accept=".json,application/json">
-        <label class="btn secondary" for="trust-file">Choose a JSON file</label>
+        <label class="btn" for="trust-file">Choose a JSON file</label>
         <span class="file-name" data-name-for="trust-file"></span>
       </span>
     </div>
@@ -411,7 +418,7 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
       <label class="label" for="trust-line">Or one log, as <code>&lt;log_id&gt;:&lt;base64 spki&gt;</code></label>
       <div class="field-row">
         <input type="text" id="trust-line" spellcheck="false" autocomplete="off">
-        <button type="button" class="btn secondary" id="trust-add">Trust it</button>
+        <button type="button" class="btn" id="trust-add">Trust it</button>
       </div>
     </div>
     <p class="muted state" id="trust-state"></p>
@@ -426,7 +433,7 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
       <span class="label">Your own TSA trust document</span>
       <span class="file">
         <input type="file" id="tsa-file" class="file-input" accept=".json,application/json">
-        <label class="btn secondary" for="tsa-file">Choose a JSON file</label>
+        <label class="btn" for="tsa-file">Choose a JSON file</label>
         <span class="file-name" data-name-for="tsa-file"></span>
       </span>
     </div>
@@ -434,12 +441,13 @@ footer { margin-top: var(--s7); border-top: 1px solid var(--rule); padding-top: 
       <label class="label" for="tsa-line">Or one root, as <code>&lt;sha256 fingerprint&gt;:&lt;base64 certificate&gt;</code></label>
       <div class="field-row">
         <input type="text" id="tsa-line" spellcheck="false" autocomplete="off">
-        <button type="button" class="btn secondary" id="tsa-add">Trust it</button>
+        <button type="button" class="btn" id="tsa-add">Trust it</button>
       </div>
     </div>
     <p class="muted state" id="tsa-state"></p>
   </div>
 </section>
+</main>
 
 <footer>
   <p>What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) needs the attestation chain and is not evaluated here yet. A position is never “guaranteed”: the page names the level it reaches — declared by the device, or corroborated by a registry it trusts.</p>
