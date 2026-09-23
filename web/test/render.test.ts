@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Verdict, WatermarkOutcome } from 'vcap-verify-core'
-import { bareMark, card } from '../src/render.js'
+import { bareMark, card, colour } from '../src/render.js'
+import { vectorVerdict } from '../../core/test/vector-verdict.js'
 import { VIDEO_FRAMES } from '../src/sampling.js'
 
 /**
@@ -91,5 +92,70 @@ describe('the sampling policy the page explains itself with', () => {
     expect(VIDEO_FRAMES).toBe(8)
     const refused = bareMark({ layout: 'video-rep-v1', frames_sampled: VIDEO_FRAMES, id_refused: true }, 'https://example.test/trace')
     expect(refused).toContain(`past ${VIDEO_FRAMES} the measurements show no further gain`)
+  })
+})
+
+/**
+ * The card's light is §7's ceiling, not the outcome: an *authentic* file whose
+ * key is a session key, or outside the log, is amber and never green (§7).
+ * Every case is a corpus vector verified as the conformance runner does, so
+ * the page is tested on the verdict the corpus pins.
+ */
+describe('the verdict colour follows the §7 ceiling', () => {
+  const lede = (html: string): string => /<p class="lede">([^<]*)<\/p>/.exec(html)?.[1] ?? ''
+  const ceiling = (html: string): string => (/<p class="ceiling">(.*?)<\/p>/.exec(html)?.[1] ?? '').replace(/<[^>]+>/g, '')
+
+  it('is green only when the ceiling is green (vector 54: registered TEE key)', async () => {
+    const v = await vectorVerdict('54-jpeg-registry-green')
+    const html = card('photo.jpg', v)
+    expect(colour(v)).toBe('green')
+    expect(html).toContain('<div class="verdict green">')
+    expect(lede(html)).toBe('Yes — this file is what it says it is.')
+    expect(ceiling(html)).toBe('green sealed in the TEE')
+  })
+
+  it('is amber for a session key outside the log, and says so beside the title (vector 01)', async () => {
+    const v = await vectorVerdict('01-jpeg-sealed')
+    const html = card('photo.jpg', v)
+    expect(v.outcome).toBe('authentic')
+    expect(html).toContain('<div class="verdict amber">')
+    // §8's title unchanged; the plain line no longer says "Yes".
+    expect(html).toContain('Authentic</span><span class="rest"> — signed at capture, file complete')
+    expect(lede(html)).toMatch(/^Intact, not fully proven — /)
+    expect(ceiling(html)).toBe('amber origin not hardware-attested · key not in transparency log')
+    // The chips stay: the ceiling line adds, it does not replace.
+    expect(html).toContain('<li>no trusted time</li>')
+  })
+
+  it('is amber when the key is in the log and its revocation was not asked (vector 49)', async () => {
+    const v = await vectorVerdict('49-jpeg-registry-verified')
+    const html = card('photo.jpg', v)
+    expect(html).toContain('<div class="verdict amber">')
+    expect(ceiling(html)).toContain('revocation not checked')
+  })
+
+  it('is red for a revoked attestation key, on an authentic outcome (vector 44)', async () => {
+    const v = await vectorVerdict('44-jpeg-attestation-revoked-before-capture')
+    const html = card('photo.jpg', v)
+    expect(v.outcome).toBe('authentic')
+    expect(html).toContain('<div class="verdict red">')
+    expect(lede(html)).toMatch(/^Do not rely on it — /)
+    expect(ceiling(html)).toBe('red attestation key revoked')
+  })
+
+  it('keeps a tampered file red with no ceiling line (vector 11)', async () => {
+    const v = await vectorVerdict('11-jpeg-pixels-edited')
+    const html = card('photo.jpg', v)
+    expect(html).toContain('<div class="verdict red">')
+    expect(lede(html)).toBe('No — this file changed after it was sealed.')
+    expect(html).not.toContain('class="ceiling"')
+  })
+
+  it('never paints a clip greener than its outcome, nor greener than the ceiling', () => {
+    const base = { labels: [], not_evaluated: [] }
+    expect(colour({ ...base, outcome: 'verified_clip', level: { claimed: 'tee', proven: 'tee', ceiling: 'amber' } })).toBe('amber')
+    expect(colour({ ...base, outcome: 'verified_clip', level: { claimed: 'tee', proven: 'none', ceiling: 'red' } })).toBe('red')
+    expect(colour({ ...base, outcome: 'no_proof_found' })).toBe('grey')
+    expect(colour({ ...base, outcome: 'corrupted_proof' })).toBe('red')
   })
 })

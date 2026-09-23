@@ -61,6 +61,9 @@ test('a reader can add a log and take one away, and the verdict follows', async 
   await expect(label(page, 'log not trusted')).toHaveCount(0)
   // What the file alone still cannot answer: a revocation is a later leaf.
   await expect(label(page, 'revocation not checked')).toHaveCount(1)
+  // And it is what holds the card at amber, named beside the title (§7).
+  await expect(page.locator('.verdict')).toHaveClass(/\bamber\b/)
+  await expect(page.locator('.verdict .ceiling')).toContainText('revocation not checked')
 
   // And off again: refusing every log is a supported way to read this page.
   await page.uncheck('#trust-logs input[data-trust="1"]')
