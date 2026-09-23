@@ -67,7 +67,7 @@ export const PLAIN: Record<Verdict['outcome'], string> = {
  * `TITLE` stays the spec's words beside it either way.
  */
 const PLAIN_BELOW: Record<string, string> = {
-  amber: 'Intact, not fully proven — this file has not changed since it was sealed, but part of what vouches for the seal could not be established.',
+  amber: 'Intact, not fully proven — unchanged since it was sealed, but not everything behind the seal is proven.',
   red: 'Do not rely on it — the file has not changed since it was sealed, but a key behind the seal was revoked.'
 }
 const plain = (v: Verdict): string => {
