@@ -513,8 +513,8 @@ would count one fact twice. From those the verdict carries `level`:
 claimed, proven and the §7 ceiling, with *inconsistent claim* when the claim
 exceeds the evidence. X.509 and CMS are read with `asn1js` over WebCrypto (RSA
 PKCS#1 v1.5 and ECDSA with SHA-256/384/512). Besides synthetic chains, the tests
-run a chain minted by real hardware (`core/test/fixtures/`, from
-`SDK-Android/tools/attest-dump`): five certificates under Remote Key Provisioning
+run a chain minted by real hardware (`core/test/fixtures/`, dumped
+from a real phone): five certificates under Remote Key Provisioning
 down to the pinned 2025 Google root, clock pinned to capture time.
 
 Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
