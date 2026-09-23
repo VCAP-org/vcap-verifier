@@ -20,7 +20,7 @@ test('verifies vectors with the server gone and the browser offline', async ({ p
   await page.reload()
   // The page identifies itself in the masthead; the `h1` is the question it
   // answers, which is what a reader arriving with a photo is looking for.
-  await expect(page.locator('header .brand')).toHaveText('vcap verifier')
+  await expect(page.locator('header .brand')).toHaveText('VCAP Verifier')
   await expect(page.locator('h1')).toHaveText('Is this photo or video real?')
   // The typefaces ship with the page and come out of the same cache: a font
   // that only loaded online would be a request the page cannot do without.
