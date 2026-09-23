@@ -9,7 +9,7 @@
       "wasm"
     ]
   },
-  "source": "vcap-ml, `python -m vcap_ml quantize` then `python -m vcap_ml browser-build`: the full detector quantized to int8 (decision D17). The same command on the same pins produces the same bytes, so this digest is checkable without trusting whoever served the file.",
+  "source": "our model pipeline, which is not public: the full detector quantized to int8, since distillation under 10 MB was dropped. The build is deterministic, the same pinned inputs produce the same bytes, and the digest above is what anyone checks the file against without trusting whoever served it.",
   "hosting": "the url is relative, so the model is served from wherever the page is. Nothing pins a host of ours into a public repository, and anyone who does not want to fetch it from us can serve these exact bytes themselves: the digest is what makes the file trustworthy, not where it came from.",
-  "runtime_note": "`execution_providers` asks for WASM alone: this build's quantized nodes have no WebGPU kernels and round-trip to the CPU inside the session, which measured 1016 ms per frame against 211-456 ms on WASM (vcap-ml reports/detector-in-the-browser.md). The runtime tries the listed providers in order and falls back, so a build with GPU kernels only has to say so here."
+  "runtime_note": "`execution_providers` asks for WASM alone: this build's quantized nodes have no WebGPU kernels and round-trip to the CPU inside the session, which measured 1016 ms per frame against 211-456 ms on WASM (an internal measurement). The runtime tries the listed providers in order and falls back, so a build with GPU kernels only has to say so here."
 }

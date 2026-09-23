@@ -12,7 +12,7 @@ import { VIDEO_FRAMES } from '../src/sampling.js'
  * same way, or turn "0 of 8" into an accusation. Zero is what a genuine clip
  * the codec hit hard looks like on the build this page ships, where the
  * hardest surviving chain clears the floor over eight frames and not over one
- * (`vcap-ml/reports/frames-to-recover.md`).
+ * (an internal measurement).
  */
 const matched = (framesWithId?: number): WatermarkOutcome => ({
   result: 'matched',

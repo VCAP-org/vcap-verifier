@@ -2,7 +2,7 @@
  * The watermark detector, and the reason it is a file of its own.
  *
  * Reading a mark out of pixels needs a model. The one that ships is the full
- * int8 build — around 34 MB (decision D17: distillation under 10 MB was
+ * int8 build — around 34 MB (distillation under 10 MB was
  * dropped, so there is no small build to precache) — which is more than the
  * rest of this page by three orders of magnitude. Three consequences, all
  * visible here:

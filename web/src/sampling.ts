@@ -11,7 +11,7 @@
  * in the surfaces that vendor these sources.
  *
  * **Eight is what the measurements ask for, not a round number.**
- * `vcap-ml/reports/frames-to-recover.md` finds every chain that recovers at
+ * An internal measurement finds every chain that recovers at
  * all already recovering from the **first** frame — which used to read as
  * "eight is margin". That was a statement about what the code corrects, not
  * about what a decoder may report, and the 0.85 floor separates the two. On

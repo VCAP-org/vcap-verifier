@@ -26,9 +26,8 @@
  * fastest backend is a property of the build. `detector.json` carries
  * `execution_providers`; each is tried in order and the first session that
  * initialises wins, so a browser with no WebGPU falls back without the page
- * noticing. The int8 build published today asks for WASM only, because
- * `vcap-ml/reports/detector-in-the-browser.md` measured int8 on WebGPU at
- * 1016 ms per frame against 211–456 ms on WASM — this graph's quantized nodes
+ * noticing. The int8 build published today asks for WASM only, because an
+ * internal measurement put int8 on WebGPU at 1016 ms per frame against 211–456 ms on WASM — this graph's quantized nodes
  * have no GPU kernels and round-trip to the CPU inside the session. Routing it
  * to WebGPU would be a regression sold as an acceleration.
  *

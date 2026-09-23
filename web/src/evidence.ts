@@ -9,8 +9,8 @@ import type { WatermarkEvidence } from 'vcap-verify-core'
  *
  * It is read as data and never as a verdict. A detection carrying its own
  * `outcome` is ignored by the core, which compares the reported payload
- * against the ids the device signed itself. Nothing signs a detection
- * (decision D18), so this is worth exactly what the hand that dropped it is
+ * against the ids the device signed itself. Nothing signs a detection,
+ * so this is worth exactly what the hand that dropped it is
  * worth — which is what it was worth anyway, since the same hand dropped the
  * media bytes.
  */

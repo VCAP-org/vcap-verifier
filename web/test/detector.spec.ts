@@ -6,14 +6,11 @@ import { dist, fixtures, serve, stop, vectors } from './serve.js'
 /**
  * The detector, end to end, against a real model and real marked pixels.
  *
- * Everything this needs is deliberately not in the repository: the model is a
- * release asset of `vcap-ml` (34 MB, P11) and the marked media is produced by
- * the embedder there, so the suite **skips** rather than pretends when they
- * are absent. `README.md` says how to put them in place:
- *
- *   vcap-ml: python -m vcap_ml quantize && python -m vcap_ml browser-build
- *   mkdir -p web/dist/models && cp ../vcap-ml/models/detector_int8.onnx \
- *     web/dist/models/detector-videoseal-y256b-1-int8.onnx
+ * Everything this needs is deliberately not in the repository: the model
+ * (34 MB) is published next to the primary page and pinned by digest in
+ * `detector.json`, and the marked media is produced by our embedder, which is
+ * not public, so the suite **skips** rather than pretends when they are
+ * absent. `README.md` says how to put the model in place.
  *
  * What is checked here is what cannot be checked by reading the source: that
  * the pinned digest refuses a model that is not the pinned one, that the page

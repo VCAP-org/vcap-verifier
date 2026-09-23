@@ -3,11 +3,11 @@
  *
  * A detector produces 256 soft bits; a layout is what turns them into an id,
  * or into nothing. The proof format declares which layout was used and
- * deliberately does not define its internals, so the normative description is
- * `vcap-ml/src/vcap_ml/layouts.py` and `vcap-ml/docs/layouts.md`; this file is
- * the JavaScript port that has to stay bit-identical to it, pinned by the
- * vectors in `vcap-ml/vectors/layouts.json` (mirrored in `test/layouts.json`
- * and run by `test/layouts.test.ts`).
+ * deliberately does not define its internals; the bit layout is specified in
+ * `vcap-spec/spec/watermark-layouts-1.0.md`. This file is the JavaScript port
+ * that has to stay bit-identical to the reference encoder in our model
+ * pipeline (not public), pinned by the vectors that pipeline exports (mirrored
+ * in `test/layouts.json` and run by `test/layouts.test.ts`).
  *
  * The two differ because the channels differ. A photo survives compression
  * with most bits intact, so it carries the whole 128-bit capture id under a
@@ -293,8 +293,8 @@ export interface ClipPayload extends VideoPayload {
  * `detector_int8`, crf 36 at 640 px reads 39 flipped bits from one frame
  * (agreement 0.848, under the floor) and 35 from eight (0.863, reportable) —
  * so a page that decoded frames individually and reported an id only when a
- * frame passed on its own would refuse a clip it recovers today
- * (`vcap-ml/reports/frames-to-recover.md`).
+ * frame passed on its own would refuse a clip it recovers today (an internal
+ * measurement).
  *
  * **The count comes from decoding each frame separately**, and it is the only
  * thing that separates a marked recording from one genuine frame spliced into
@@ -317,7 +317,7 @@ export interface ClipPayload extends VideoPayload {
  * one frame (0.848, under the floor) and 35 from eight (0.863, reportable), so
  * it reported *0 of 8* while one spliced frame reported *1 of 8* — the count
  * ranked the genuine recording below the forgery, which is the one comparison
- * it exists to make (`vcap-ml/reports/frames-to-recover.md`).
+ * it exists to make (an internal measurement).
  *
  * Per-frame decoding still never becomes a second answer: frames are counted
  * only against the id the aggregate reported, so a frame that resolves some

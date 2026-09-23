@@ -6,13 +6,13 @@ import { VIDEO_AGREEMENT_FLOOR as CORE_FLOOR } from 'vcap-verify-core'
 
 /**
  * The layout port against the vectors that pin it. `test/layouts.json` is the
- * mirror of `vcap-ml/vectors/layouts.json`, which the exporter writes from the
- * normative Python: a port that decodes these reads the same bits as the
+ * mirror of the vectors our model pipeline (not public) exports from its
+ * reference encoder: a port that decodes these reads the same bits as the
  * encoder that made the marks, and one that does not is a detector reporting
  * ids nobody embedded.
  *
  * The soft bits a detector produces are logits, so a vector's packed message
- * is read here as ±4 — the same substitution `layouts.py`'s own selftest uses.
+ * is read here as ±4 — the same substitution the reference encoder's own self-test uses.
  */
 const vectors = JSON.parse(readFileSync(new URL('./layouts.json', import.meta.url), 'utf8')) as {
   message_bits: number
@@ -206,7 +206,7 @@ describe('video-rep-v1, over the frames of a clip', () => {
    * Why the id is not taken frame by frame, and why the floor does not gate
    * the count. On the int8 build the browser ships, the hardest chain that
    * survives at all reads 39 flipped bits from one frame — agreement 0.848,
-   * under the floor — and 35 from eight (`vcap-ml/reports/frames-to-recover.md`).
+   * under the floor — and 35 from eight (an internal measurement).
    * A page that required a frame to *report* an id on its own would refuse
    * that clip, so the id comes from the average. And a page that held the
    * count to the floor as well reported *0 of 8* for a clip marked throughout,
