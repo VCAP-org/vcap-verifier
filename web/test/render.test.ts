@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Verdict, WatermarkOutcome } from 'vcap-verify-core'
-import { bareMark, card, trace } from '../src/render.js'
+import { bareMark, card } from '../src/render.js'
 import { VIDEO_FRAMES } from '../src/sampling.js'
 
 /**
@@ -74,12 +74,6 @@ describe('how much of the clip carried the mark', () => {
     expect(card('clip.mp4', clip(refused))).not.toContain('class="carried"')
   })
 
-  it('carries the count into the origin-traced block, where no signature holds', () => {
-    const html = trace(matched(1))
-    expect(html).toContain('This is not a verdict of authenticity')
-    expect(html).toContain('1 of the 8 frames sampled across the clip')
-  })
-
   it('carries it into a mark read out of a file with no proof at all', () => {
     const html = bareMark({ layout: 'video-rep-v1', decoded: '5902900', frames_sampled: 8, frames_with_id: 1 }, 'https://example.test/trace')
     expect(html).toContain('1 of the 8 frames sampled across the clip')
@@ -95,14 +89,7 @@ describe('how much of the clip carried the mark', () => {
 describe('the sampling policy the page explains itself with', () => {
   it('is the one the detector samples at', () => {
     expect(VIDEO_FRAMES).toBe(8)
-    const refused: WatermarkOutcome = {
-      result: 'not_recovered',
-      detail: 'a mark may be present and its id is not resolvable',
-      layout: 'video-rep-v1',
-      agreement: 0.7,
-      frames_sampled: VIDEO_FRAMES,
-      id_refused: true
-    }
-    expect(trace(refused)).toContain(`past ${VIDEO_FRAMES} the measurements show no further gain`)
+    const refused = bareMark({ layout: 'video-rep-v1', frames_sampled: VIDEO_FRAMES, id_refused: true }, 'https://example.test/trace')
+    expect(refused).toContain(`past ${VIDEO_FRAMES} the measurements show no further gain`)
   })
 })

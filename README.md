@@ -26,9 +26,6 @@ position level is computed on its own axis — `declared` from the signed
 coordinates, `corroborated` from a `location_corroboration` under an injected
 log key — and never moves the ceiling.
 
-The page also puts a copy next to the original when the user has both, and
-names what the copy still carries: see *Side by side* below.
-
 Not yet: App Attest (the iOS proven level comes from the registry leaf, which is
 where enrolment puts it), a page that actually reaches a log or a status list
 (the static build ships no network).
@@ -80,7 +77,7 @@ git submodule update --init      # the spec and its vectors
 npm ci
 npm run typecheck && npm test    # core: the spec vectors, attachments, evidence; web: the layout ports
 npm run build --workspace web    # web/dist: index.html, verifier.js (+ .sha256), detector.js, detector-runtime.js, the engine's wasm, detector.json, logs.json, tsa.json, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon, the Geist fonts and their licence
-npm run test:e2e --workspace web # Playwright against web/dist: offline use and the side-by-side (needs `npx playwright install chromium` once)
+npm run test:e2e --workspace web # Playwright against web/dist: offline use, the verdict and the watermark paths (needs `npx playwright install chromium` once)
 npm run dev --workspace web      # serves the page with a watcher (no service worker: dev builds are not cached)
 ```
 
@@ -265,30 +262,24 @@ with matching bundle hashes means a different Node, not a different verifier.
 A working tree with uncommitted changes under `web/` or `core/src` is recorded
 as `dirty: true` and will not match a CI build.
 
-## Side by side: a copy next to its original
+## A file with no proof
 
-A verdict on a copy is not self-explanatory. A file that came back from a
-messaging app has lost its trailer and with it its signature, and *no proof
-found* on its own does not say whether the picture is a forgery or a
-re-compressed copy of something that was sealed. So the page takes the original
-too, when the user has it, and prints one row per piece of evidence: what each
-file carries, and which of the two the copy lost.
-
-The watermark is the piece that survives that trip, and the piece an interface
-can most easily let someone read backwards. Three rules hold it in place:
+The file people actually arrive with has usually been through a messaging app:
+re-encoded, its trailer stripped, its signature gone. The page says *no proof
+found* — correctly — and, when the detector is loaded, reads the pixels for
+the watermark the capture was sealed with. Two rules hold it in place:
 
 - **A mark is never a verdict.** The verdict card keeps whatever the signature
-  layer said. A mark found in a copy with no valid signature is rendered in its
-  own block as **origin traced**, with the sentence that says no signature
-  covers those bytes — never *authentic*, never green.
-- **The comparison is the core's.** The page calls `evaluateWatermark` with the
-  claim the **original's** signed core produced, so the id compared against
-  comes from bytes a device signed and never from anything a detection called
-  itself. A payload that does not decode is *not recovered*, which is the
-  normal outcome of heavy re-compression and not an accusation.
-- **What is missing is labelled, not failed.** A row neither file carries is not
-  printed; a copy carrying the same `core_hash` lost nothing, so what its
-  verdict stopped short of reading is *not reported* rather than *lost*.
+  layer said. A mark read out of a file with no valid signature is printed in
+  its own block, outside the card and in none of the verdict colours, as an
+  identifier and nothing more — never *authentic*, never green.
+- **Looking it up is the reader's choice.** The block links the identifier to
+  the registry that issued it, which can turn it back into the proof. That is a
+  request to a server, offered and never made; the verdict needs none.
+
+When a proof does declare a watermark, the comparison against its signed ids
+is the core's (`evaluateWatermark`, inside `verify`) and lands in the verdict
+itself as §8's label.
 
 ### The detector
 
@@ -455,10 +446,10 @@ rule rather than a flaw in it. Above the floor, a recovered `mark_id` taken
 **alone** still says little: 24 bits collide by design, and it is the
 signature, not the mark, that identifies a capture.
 
-None of which changes a verdict, because it cannot: a mark that is read is
-*origin traced*, a mark that is not — including one the floor refused — is
-*watermark not recovered*, and the verdict card keeps the colour the signature
-layer gave it either way. The failure of a detector is a weaker answer, never an
+None of which changes a verdict, because it cannot: a mark read from a file
+with no valid signature is an identifier and never a verdict, a mark that is
+not — including one the floor refused — is *watermark not recovered*, and the
+verdict card keeps the colour the signature layer gave it either way. The failure of a detector is a weaker answer, never an
 error and never a red verdict.
 
 #### Running the end-to-end detector tests

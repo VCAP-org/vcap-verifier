@@ -85,10 +85,10 @@ part of correctness:
   unverified runs. Never import it from the bundle, and never make a verdict
   depend on it — a page without a detector says *watermark not evaluated* and
   is otherwise whole.
-- In the side-by-side, a watermark is never a verdict: a mark found in a copy
-  with no valid signature is **origin traced**, in its own block, and the
-  verdict card keeps the colour the signature layer gave it. The comparison
-  against the original's ids is the core's `evaluateWatermark`, never the
+- The page is one file in, one verdict out. A watermark is never a verdict: a
+  mark read out of a file with no valid signature is an identifier in its own
+  block, and the verdict card keeps the colour the signature layer gave it. A
+  comparison against signed ids is the core's `evaluateWatermark`, never the
   page's own.
 - Publish the failures too: the demo set includes the cases where verification
   cannot conclude.
