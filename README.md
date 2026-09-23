@@ -520,6 +520,21 @@ down to the pinned 2025 Google root, clock pinned to capture time.
 Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
 `nested_proof`, `corrupted_proof`, `no_proof_found`, `unsupported_format_version`.
 
+### The verdict's colour
+
+The outcome says whether the file verifies; §7's `level.ceiling` says how far
+the evidence reaches, and **the ceiling is the verdict's light**. The page
+colours the card with the stricter of the two — the outcome's own colour
+(tampered and corrupted red, clip and nested amber, no proof and unsupported
+grey) and the ceiling — so it never paints greener than the core allows: an
+*authentic* file with a session key, or a key the log never saw, is an amber
+card, never green. Beside the §8 title it prints the ceiling and the §7 labels
+that set it, in the core's words (`ceilingLabels`), e.g. *amber · origin not
+hardware-attested · key not in transparency log*; the plain line above says
+*intact, not fully proven* rather than *yes*. The CLI's `ceiling` line names the
+same labels. A verdict the core returns before §7 (tampered, no proof) has no
+level and keeps its outcome's colour.
+
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,

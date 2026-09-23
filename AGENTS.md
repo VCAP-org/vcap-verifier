@@ -85,6 +85,10 @@ part of correctness:
   unverified runs. Never import it from the bundle, and never make a verdict
   depend on it — a page without a detector says *watermark not evaluated* and
   is otherwise whole.
+- The verdict's **colour is §7's ceiling**, not the outcome: the page paints the
+  stricter of `level.ceiling` and the outcome's own colour, never greener, and
+  names the labels that set it with the core's `ceilingLabels` — never a list
+  of its own. An *authentic* file under an amber ceiling is not a "yes".
 - The page is one file in, one verdict out. A watermark is never a verdict: a
   mark read out of a file with no valid signature is an identifier in its own
   block, and the verdict card keeps the colour the signature layer gave it. A
