@@ -22,6 +22,12 @@ test('verifies vectors with the server gone and the browser offline', async ({ p
   // answers, which is what a reader arriving with a photo is looking for.
   await expect(page.locator('header .brand')).toHaveText('vcap verifier')
   await expect(page.locator('h1')).toHaveText('Is this photo or video real?')
+  // The typefaces ship with the page and come out of the same cache: a font
+  // that only loaded online would be a request the page cannot do without.
+  expect(await page.evaluate(async () => {
+    await document.fonts.ready
+    return [...document.fonts].filter((font) => font.status === 'loaded').map((font) => font.family).sort()
+  })).toEqual(['Geist', 'Geist Mono'])
 
   await page.setInputFiles('#file', join(vectors, '01-jpeg-sealed/input.jpg'))
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
