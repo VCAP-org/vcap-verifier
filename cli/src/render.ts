@@ -1,3 +1,4 @@
+import { ceilingLabels } from 'vcap-verify-core'
 import type { Verdict } from 'vcap-verify-core'
 
 /**
@@ -9,10 +10,13 @@ import type { Verdict } from 'vcap-verify-core'
  * evidence attached, and a reader who is not told which evidence is absent
  * will assume it was all there.
  */
+// The ceiling's words when no §7 label names it — an amber *verified clip*,
+// capped by its outcome. Otherwise the line names the labels that set it
+// (`ceilingLabels`), because "amber" over a list of eight labels, most of
+// which move nothing, left the reader to guess which ones did.
 const CEILING: Record<string, string> = {
-  green: 'green — every question §7 asks has an answer',
-  amber: 'amber — verified, with evidence missing (below)',
-  red: 'red'
+  green: 'every question §7 asks has an answer',
+  amber: 'verified, with evidence missing (below)'
 }
 
 /** What a label means for somebody who has not read the spec. */
@@ -75,7 +79,9 @@ export const render = (path: string, verdict: Verdict): string => {
   lines.push(`  outcome   ${verdict.outcome}${verdict.reason ? ` — ${verdict.reason}` : ''}`)
   if (verdict.level) {
     lines.push(`  level     claimed ${verdict.level.claimed}, proven ${verdict.level.proven}`)
-    lines.push(`  ceiling   ${CEILING[verdict.level.ceiling] ?? verdict.level.ceiling}`)
+    const why = ceilingLabels(verdict)
+    const words = why.length > 0 ? why.join(', ') : CEILING[verdict.level.ceiling]
+    lines.push(`  ceiling   ${verdict.level.ceiling}${words ? ` — ${words}` : ''}`)
   }
   if (verdict.validated_at) {
     lines.push(`  taken     before ${verdict.validated_at.instant} (from ${source(verdict.validated_at.source)})`)

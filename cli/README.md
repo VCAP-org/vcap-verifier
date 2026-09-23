@@ -10,7 +10,7 @@ npx vcap-verify photo.jpg
 photo.jpg
   outcome   authentic
   level     claimed tee, proven none
-  ceiling   amber — verified, with evidence missing (below)
+  ceiling   amber — origin not hardware-attested, key not in transparency log
   taken     before 2026-09-08T12:00:00.000Z (from the device's own clock — a claim)
   core      dc59127e528a04d6e285de3abe748559e49c7f1ef66b238092a6b13afeeb5119
   missing or worth knowing
