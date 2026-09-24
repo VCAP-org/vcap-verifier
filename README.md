@@ -302,8 +302,7 @@ flight and asserts both.
 
 The model is VideoSeal's y_256b detector, quantized to int8 (`model_version`
 `videoseal-y256b-1`). Frames are decoded by the browser, which applies the
-file's orientation, so the mark is read upright — as the image is displayed,
-which is how it was embedded.
+file's orientation, so the mark is read as the image is displayed.
 
 The model's url is **relative**, so it is served from wherever the page is —
 today that is `models/` next to the page on our own host, which is what makes
