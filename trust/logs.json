@@ -1,6 +1,6 @@
 {
   "document": "vcap/1.0/trusted-logs",
-  "updated": "2026-09-22",
+  "updated": "2026-09-25",
   "about": "The transparency logs the verifiers in this repository trust unless the reader says otherwise. A log's key here is what lets a verifier check the `registry` attachment of vcap-spec §6.2: the proof that a device's sealing key was a leaf of that log under a signed tree head. Without a key for the log a proof names, the verdict carries *log not trusted* and nothing is lost but that one check.",
   "how_to_replace": "This document is data, not code. The page publishes it verbatim as `logs.json` next to itself, the CLI reads this file and takes `--trust <file>`, `--log <id>:<spki>` and `--no-default-logs`, and every verifier here can be run against a set that does not contain any of these logs. Verifying without them is the supported case, not a degraded one.",
   "log_id_is": "base64url(SHA-256(spki)), as in Certificate Transparency. Recompute it from `spki` before trusting this file: the two fields check each other.",
@@ -8,6 +8,9 @@
     {
       "log_id": "1Iw8uAnl63-NzdTys4KmO8d0GphTBiNC4AqxJyaaRFQ",
       "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/B7AjwaZyQTwi+xA5jv60HPqS3IgMb6FPubukSSRiCVy1eqlNT9MFwkt9zDBXSBQAxAx4/5IjeQiZlVckSV+uw==",
+      "app_signing_digests": [
+        "0c148a4bbf6ff9a623fc8cc29cf5b6204eb93dd13031bf39b11a1340ac1f087b"
+      ],
       "key_type": "ECDSA P-256, DER SubjectPublicKeyInfo, base64",
       "name": "vcap development log",
       "environment": "development",
