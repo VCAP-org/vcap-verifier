@@ -16,7 +16,7 @@ export interface Issued { der: Uint8Array, keys: CryptoKeyPair, cert: x509.X509C
 
 export const issue = async (o: { subject: string, issuer?: Issued, ca?: boolean, extensions?: x509.Extension[], keys?: CryptoKeyPair, notBefore?: Date, notAfter?: Date, serial?: string }): Promise<Issued> => {
   const keys = o.keys ?? await genKey()
-  const base = { serialNumber: o.serial ?? Math.floor(Math.random() * 1e9).toString(16).padStart(2, '0'), notBefore: o.notBefore ?? new Date(Date.now() - 86_400_000), notAfter: o.notAfter ?? new Date(Date.now() + 365 * 86_400_000), signingAlgorithm: EC, extensions: [new x509.BasicConstraintsExtension(o.ca ?? false, undefined, true), ...(o.extensions ?? [])] }
+  const base = { serialNumber: o.serial ?? Math.floor(Math.random() * 1e9).toString(16).padStart(2, '0'), notBefore: o.notBefore ?? new Date(Date.now() - 86_400_000), notAfter: o.notAfter ?? new Date(Date.now() + 365 * 86_400_000), signingAlgorithm: EC, extensions: [new x509.BasicConstraintsExtension(o.ca ?? false, undefined, true), ...(o.ca ? [new x509.KeyUsagesExtension(x509.KeyUsageFlags.keyCertSign | x509.KeyUsageFlags.cRLSign, true)] : []), ...(o.extensions ?? [])] }
   const cert = o.issuer
     ? await x509.X509CertificateGenerator.create({ ...base, subject: o.subject, issuer: o.issuer.cert.subject, publicKey: keys.publicKey, signingKey: o.issuer.keys.privateKey })
     : await x509.X509CertificateGenerator.createSelfSigned({ ...base, name: o.subject, keys })
@@ -29,6 +29,7 @@ const octets = (b: Uint8Array) => new asn1js.OctetString({ valueHex: Uint8Array.
 const der = (n: asn1js.AsnType) => new Uint8Array(n.toBER(false))
 const ctx = (tag: number, ...value: asn1js.AsnType[]) => new asn1js.Constructed({ idBlock: { tagClass: 3, tagNumber: tag }, value })
 const spkiOf = async (k: CryptoKey) => new Uint8Array(await subtle().exportKey('spki', k))
+const utf8Bytes = (text: string) => new TextEncoder().encode(text)
 
 export const tsaSigner = async (v: { notBefore?: Date, notAfter?: Date } = {}): Promise<{ root: Issued, signer: Issued }> => {
   const root = await issue({ subject: 'CN=Test TSA Root', ca: true, ...v })
@@ -71,13 +72,20 @@ export const timestampToken = async (signer: Issued, imprint: Uint8Array, o: { g
 }
 
 export type Level = 0 | 1 | 2
+/** The signing-certificate digest of the test app, as a leaf's attestationApplicationId carries it and the test log declares it. */
+export const APP_DIGEST = new Uint8Array(32).fill(0xab)
 /** Android KeyDescription extension (schema v300, only the fields the verifier reads). */
-export const keyDescription = (o: { attestation: Level, keyMint: Level, locked?: boolean, bootState?: number, withRot?: boolean }): x509.Extension => {
+export const keyDescription = (o: { attestation: Level, keyMint: Level, locked?: boolean, bootState?: number, withRot?: boolean, app?: Uint8Array | null }): x509.Extension => {
   const en = (v: number) => new asn1js.Enumerated({ value: v })
   const rot = o.withRot === false ? [] : [ctx(704, seq(octets(new Uint8Array(32)), new asn1js.Boolean({ value: o.locked ?? true }), en(o.bootState ?? 0), octets(new Uint8Array(32))))]
+  // attestationApplicationId [709] in softwareEnforced, as KeyMint writes it.
+  const app = o.app === null ? [] : [ctx(709, octets(der(seq(
+    new asn1js.Set({ value: [seq(octets(utf8Bytes('org.vcap.test')), new asn1js.Integer({ value: 1 }))] }),
+    new asn1js.Set({ value: [octets(o.app ?? APP_DIGEST)] })
+  ))))]
   const body = der(seq(
     new asn1js.Integer({ value: 300 }), en(o.attestation), new asn1js.Integer({ value: 300 }), en(o.keyMint),
-    octets(new Uint8Array([1, 2, 3])), octets(new Uint8Array(0)), seq(), seq(...rot)
+    octets(new Uint8Array([1, 2, 3])), octets(new Uint8Array(0)), seq(...app), seq(...rot)
   ))
   return new x509.Extension('1.3.6.1.4.1.11129.2.1.17', false, body)
 }

@@ -105,8 +105,8 @@ describe('the verdict colour follows the §7 ceiling', () => {
   const lede = (html: string): string => /<p class="lede">([^<]*)<\/p>/.exec(html)?.[1] ?? ''
   const ceiling = (html: string): string => (/<p class="ceiling">(.*?)<\/p>/.exec(html)?.[1] ?? '').replace(/<[^>]+>/g, '')
 
-  it('is green only when the ceiling is green (vector 54: registered TEE key)', async () => {
-    const v = await vectorVerdict('54-jpeg-registry-green')
+  it('is green only when the ceiling is green (vector 100: registered TEE key, timestamped)', async () => {
+    const v = await vectorVerdict('100-jpeg-registry-green-timestamped')
     const html = card('photo.jpg', v)
     expect(colour(v)).toBe('green')
     expect(html).toContain('<div class="verdict green">')
@@ -122,7 +122,7 @@ describe('the verdict colour follows the §7 ceiling', () => {
     // §8's title unchanged; the plain line no longer says "Yes".
     expect(html).toContain('Authentic</span><span class="rest"> — signed at capture, file complete')
     expect(lede(html)).toMatch(/^Intact, not fully proven — /)
-    expect(ceiling(html)).toBe('amber origin not hardware-attested · key not in transparency log')
+    expect(ceiling(html)).toBe('amber origin not hardware-attested · key not in transparency log · no trusted time')
     // The chips stay: the ceiling line adds, it does not replace.
     expect(html).toContain('<li>no trusted time</li>')
   })
@@ -168,5 +168,26 @@ describe('which labels are limits', () => {
     expect(checked).toContain('<li>watermark matched</li>')
     expect(limits).toContain('<li>revocation not checked</li>')
     expect(limits).not.toContain('watermark matched')
+  })
+})
+
+describe('the headline of a clip says only what was compared', () => {
+  const base: Verdict = { outcome: 'verified_clip', labels: [], not_evaluated: [], segments: { verified: [1, 2] } }
+
+  it('says "signed frames" when the frames were read back from the file', () => {
+    const html = card('clip.mp4', { ...base, content: { recomputed: true, detail: '2 GOPs read from the container' } })
+    expect(html).toContain('In part — these are signed frames of a longer recording.')
+  })
+
+  it('does not, when the segment hashes came out of the proof alone', () => {
+    const html = card('clip.mp4', { ...base, content: { recomputed: false, detail: 'recomputation not requested' } })
+    expect(html).not.toContain('these are signed frames')
+    expect(html).toContain('their frames were not compared with this file')
+  })
+
+  it('reads frames not compared as amber, never as a clip', () => {
+    const v: Verdict = { outcome: 'frames_not_compared', labels: [], not_evaluated: [], segments: { verified: [] }, level: { claimed: 'tee', proven: 'none', ceiling: 'amber' } }
+    expect(colour(v)).toBe('amber')
+    expect(card('clip.mp4', v)).toContain('Frames not compared')
   })
 })

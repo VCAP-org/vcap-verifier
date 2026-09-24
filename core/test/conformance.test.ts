@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { verify, verifyChain, jcs, toHex, extractCore, fromBase64, parseCertificate, pemToDer } from '../src/index.js'
+import { verify, verifyChain, jcs, toHex, extractCore, fromBase64, parseCertificate, pemToDer, evaluateWatermark, VIDEO_AGREEMENT_FLOOR } from '../src/index.js'
 import { importP256Spki } from '../src/es256.js'
 import { sha256 } from '../src/sha.js'
 import type { Json } from '../src/jcs.js'
@@ -9,8 +9,8 @@ import { corpus } from './corpus.js'
 
 /**
  * The conformance vectors of vcap-spec. Source of truth: the `spec` submodule;
- * fallback: the snapshot in core/vectors, kept equal by vectors-sync.mjs so CI
- * needs no token for the private spec repository. This core was written from
+ * fallback: the snapshot in core/vectors, kept equal by vectors-sync.mjs so a
+ * checkout without the submodule still runs every vector. This core was written from
  * the spec, not from the reference verifier; the vectors are where the two
  * must agree byte for byte.
  */
@@ -39,8 +39,8 @@ const googleRoots = existsSync(join(TRUST, 'attestation-roots.pem'))
   ? pemCerts(readFileSync(join(TRUST, 'attestation-roots.pem'), 'utf8'))
   : undefined
 const trustedLogs = existsSync(join(TRUST, 'logs.json'))
-  ? (JSON.parse(readFileSync(join(TRUST, 'logs.json'), 'utf8')).logs as { log_id: string, spki: string }[])
-      .map((l) => ({ logId: l.log_id, spki: fromBase64(l.spki) }))
+  ? (JSON.parse(readFileSync(join(TRUST, 'logs.json'), 'utf8')).logs as { log_id: string, spki: string, app_signing_digests?: string[] }[])
+      .map((l) => ({ logId: l.log_id, spki: fromBase64(l.spki), ...(l.app_signing_digests ? { appSigningDigests: l.app_signing_digests } : {}) }))
   : undefined
 
 // Compare only what the vector asks about, at every depth: a verdict may carry
@@ -63,6 +63,17 @@ describe(`vcap-spec conformance vectors (corpus ${CORPUS.version}, manifest ${CO
   // a deliberate submodule bump rather than a silent omission.
   it(`run the ${CORPUS.declaredCount} vectors of corpus ${CORPUS.version}`, () => {
     expect(dirs.length).toBe(CORPUS.declaredCount)
+  })
+
+  // A count can match while the set does not: a vector renamed on one side
+  // and not the other, or one directory swapped for another, passes an
+  // equality of lengths. The names are the claim the manifest makes.
+  it('run exactly the vectors the manifest names, each of the kind it declares', () => {
+    expect(dirs).toEqual(Object.keys(CORPUS.kinds).sort())
+    for (const dir of dirs) {
+      const { kind } = JSON.parse(readFileSync(join(VECTORS, dir, 'expected.json'), 'utf8')) as { kind: string }
+      expect(kind, dir).toBe(CORPUS.kinds[dir])
+    }
   })
 
   for (const dir of dirs) {
@@ -116,6 +127,29 @@ describe(`vcap-spec conformance vectors (corpus ${CORPUS.version}, manifest ${CO
         // passing it. This is how the container vectors sat unchecked.
         throw new Error(`unknown vector kind: ${kind}`)
       }
+    })
+  }
+})
+
+/**
+ * `_watermark/agreement-floor.json`: the `video-rep-v1` floor as cases — an
+ * agreement, whether the CRC passed, whether an id may be reported. The core
+ * applies the floor to any detection it is handed (`evaluateWatermark`), so
+ * this is where the corpus's cases reach it; the page's own decoder is held to
+ * the same file in `web/test/layouts.test.ts`.
+ */
+describe(`vcap-spec agreement floor (corpus ${CORPUS.version})`, () => {
+  const floor = JSON.parse(readFileSync(join(VECTORS, '_watermark', 'agreement-floor.json'), 'utf8')) as { floor: number, cases: Array<{ agreement: number, crc_passes: boolean, resolves: boolean }> }
+  it('pins the same floor as the core', () => {
+    expect(floor.floor).toBe(VIDEO_AGREEMENT_FLOOR)
+    expect(floor.cases.length).toBeGreaterThan(0)
+  })
+  for (const c of floor.cases) {
+    it(`agreement ${c.agreement}, CRC ${c.crc_passes ? 'passes' : 'fails'}: ${c.resolves ? 'resolves' : 'no id'}`, () => {
+      const claim = { layout: 'video-rep-v1', captureId: '00'.repeat(16), markId: 4242, mime: 'video/mp4', coreHash: '' }
+      // A CRC that fails is a detector reporting no id; one that passes reports the id it read.
+      const w = evaluateWatermark({ layout: 'video-rep-v1', decoded: c.crc_passes ? '4242' : null, agreement: c.agreement, model_version: 'm' }, claim)
+      expect(w.result).toBe(c.resolves ? 'matched' : 'not_recovered')
     })
   }
 })

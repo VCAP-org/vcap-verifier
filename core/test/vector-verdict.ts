@@ -19,8 +19,8 @@ const pems = (file: string): string[] =>
 const tsaRoots = pems('tsa-roots.pem').map(pemToDer)
 const googleRoots = existsSync(join(TRUST, 'attestation-roots.pem')) ? pems('attestation-roots.pem').map((b) => parseCertificate(pemToDer(b))) : undefined
 const trustedLogs = existsSync(join(TRUST, 'logs.json'))
-  ? (JSON.parse(readFileSync(join(TRUST, 'logs.json'), 'utf8')).logs as { log_id: string, spki: string }[])
-      .map((l) => ({ logId: l.log_id, spki: fromBase64(l.spki) }))
+  ? (JSON.parse(readFileSync(join(TRUST, 'logs.json'), 'utf8')).logs as { log_id: string, spki: string, app_signing_digests?: string[] }[])
+      .map((l) => ({ logId: l.log_id, spki: fromBase64(l.spki), ...(l.app_signing_digests ? { appSigningDigests: l.app_signing_digests } : {}) }))
   : undefined
 
 export const vectorVerdict = async (name: string): Promise<Verdict> => {

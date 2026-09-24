@@ -4,6 +4,7 @@ import { leafHash, nodeHash } from '../src/merkle.js'
 import { sha256, subtle } from '../src/sha.js'
 import { logIdOf, treeHeadMessage, type RegistryAttachment } from '../src/registry.js'
 import { keyStatusMessage, type KeyStatusStatement } from '../src/key-status.js'
+import { APP_DIGEST } from './fixtures.js'
 
 // A test transparency log: one key, and trees built by hand with the same RFC
 // 6962 functions the verifier uses. The attachments that need a log are not in
@@ -13,7 +14,8 @@ import { keyStatusMessage, type KeyStatusStatement } from '../src/key-status.js'
 const keyPair = await subtle().generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
 export const logSpki = new Uint8Array(await subtle().exportKey('spki', keyPair.publicKey))
 export const logId = await logIdOf(logSpki)
-export const trusted = [{ logId, spki: logSpki }]
+// The test log admits keys from the test app (§7 *The app that made the key*).
+export const trusted = [{ logId, spki: logSpki, appSigningDigests: [toHex(APP_DIGEST)] }]
 export const sign = async (message: Uint8Array): Promise<Uint8Array> =>
   new Uint8Array(await subtle().sign({ name: 'ECDSA', hash: 'SHA-256' }, keyPair.privateKey, Uint8Array.from(message)))
 

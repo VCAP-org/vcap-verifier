@@ -10,7 +10,9 @@ export const detectContainer = (b: Bytes): Container => {
 }
 
 // JPEG: drop APP11 segments whose payload starts with "JP" (C2PA's JUMBF), keep
-// everything else verbatim; entropy-coded data after SOS is untouched.
+// everything else verbatim; entropy-coded data after SOS is untouched. Throws
+// on a marker structure it cannot walk: there is then no canonical form to
+// hash, and the caller decides what that means for the verdict.
 export const stripC2paFromJpeg = (jpeg: Bytes): Bytes => {
   const kept: Bytes[] = [jpeg.subarray(0, 2)]
   let pos = 2
@@ -23,6 +25,7 @@ export const stripC2paFromJpeg = (jpeg: Bytes): Bytes => {
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { kept.push(jpeg.subarray(pos, pos + 2)); pos += 2; continue }
     if (marker === 0xda) break
     const length = readU16BE(jpeg, pos + 2)
+    if (length < 2 || pos + 2 + length > jpeg.length) throw new Error('JPEG: segment length out of range')
     const segment = jpeg.subarray(pos, pos + 2 + length)
     const isJumbf = marker === 0xeb && segment[4] === 0x4a && segment[5] === 0x50
     if (!isJumbf) kept.push(segment)

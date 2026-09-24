@@ -56,17 +56,19 @@ describe('§5 recomputation from the container', () => {
     expect(v.reason).toBe('segment 1: content differs from the container')
   })
 
-  it('verifies the signature layer alone when recomputation is switched off', async () => {
+  it('gives no segment credit when recomputation is switched off and the file is not the sealed bytes', async () => {
     const { file } = load('sealed')
     const edited = Uint8Array.from(file)
     const at = Math.floor(file.length / 2)
     edited[at] = (edited[at] as number) ^ 1
     // Same bytes, message-level only: the proof's own hashes still agree with
-    // themselves, which is exactly the check that is not verification.
+    // themselves, which is exactly the check that is not verification — so it
+    // earns no segment and never reads *verified clip*.
     const v = await verify(edited, { recomputeSegments: false })
-    expect(v.outcome).toBe('verified_clip')
+    expect(v.outcome).toBe('frames_not_compared')
     expect(v.content).toEqual({ recomputed: false, detail: 'recomputation not requested' })
-    expect(v.segments).toEqual({ verified: [0, 1, 2] })
+    expect(v.segments).toEqual({ verified: [] })
+    expect(v.labels).toContain('segment content not recomputed')
   })
 })
 
@@ -90,7 +92,9 @@ describe('a media hash computed by the caller', () => {
   it('is not believed when it is the wrong one', async () => {
     const { file, media } = load('sealed')
     const alone = await verify(file.subarray(media.length), { recomputeSegments: false, mediaHash: new Uint8Array(32) })
-    expect(alone.outcome).toBe('verified_clip')
-    expect(alone.reason).toBe('media.hash does not match the received file')
+    // A wrong digest and no frames to compare: the signatures hold and
+    // nothing ties any frame to them.
+    expect(alone.outcome).toBe('frames_not_compared')
+    expect(alone.segments).toEqual({ verified: [] })
   })
 })

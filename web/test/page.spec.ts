@@ -147,7 +147,7 @@ test('an authentic file under an amber ceiling is an amber card that says why', 
   await expect(verdict.locator('h2')).toHaveText('Authentic — signed at capture, file complete')
   await expect(verdict).toHaveClass(/\bamber\b/)
   await expect(verdict).not.toHaveClass(/\bgreen\b/)
-  await expect(verdict.locator('.ceiling')).toHaveText('amber origin not hardware-attested · key not in transparency log')
+  await expect(verdict.locator('.ceiling')).toHaveText('amber origin not hardware-attested · key not in transparency log · no trusted time')
   await expect(verdict.locator('.lede')).toContainText('Intact, not fully proven')
   await expect(verdict.locator('.lede')).not.toContainText('Yes')
   // The chips and the detail list are still there.

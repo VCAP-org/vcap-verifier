@@ -4,7 +4,7 @@ import { leafHash } from '../src/merkle.js'
 import { sha256, subtle } from '../src/sha.js'
 import { verifyRegistry } from '../src/registry.js'
 import { verifyAnchor } from '../src/anchor.js'
-import { type StatusAttachment, statusMessage, verifyStatus } from '../src/attestation-status.js'
+import { type StatusAttachment, chainStatus, statusMessage, verifyStatus } from '../src/attestation-status.js'
 import { type IntegrityAttachment, integrityMessage, verifyIntegrity } from '../src/integrity.js'
 import { type LocationCorroboration, corroborationMessage, positionLevel, verifyLocationCorroboration } from '../src/location.js'
 import { deviceKeyIdHex as keyIdHex, deviceSpki, logSpki, path, registryFor, root, sign, trusted } from './log.js'
@@ -44,7 +44,8 @@ describe('anchor attachment', () => {
 describe('integrity attachment', () => {
   const attachmentFor = async (verdict: string, source = 'playIntegrity'): Promise<IntegrityAttachment> => {
     const coreHash = await sha256(utf8('a core'))
-    return { source, verdict, evaluated_at: 1757331000, sig: toBase64url(await sign(integrityMessage(coreHash, verdict))) }
+    const body = { source, verdict, evaluated_at: 1757331000 }
+    return { ...body, sig: toBase64url(await sign(integrityMessage(coreHash, body))) }
   }
 
   it('relays a verdict signed by a trusted registry key', async () => {
@@ -59,8 +60,13 @@ describe('integrity attachment', () => {
     const coreHash = await sha256(utf8('a core'))
     const failed = await attachmentFor('failed')
     // The one attack this attachment exists to stop: a relay that says
-    // `hardware` where the platform said `failed`.
+    // `hardware` where the platform said `failed` — and, now that the whole
+    // body is signed, one that moves `evaluated_at` or swaps `source`.
     expect(await verifyIntegrity({ ...failed, verdict: 'hardware' }, coreHash, trusted))
+      .toMatchObject({ ok: false, trusted: false })
+    expect(await verifyIntegrity({ ...failed, evaluated_at: 1 }, coreHash, trusted))
+      .toMatchObject({ ok: false, trusted: false })
+    expect(await verifyIntegrity({ ...failed, source: 'appAttest' }, coreHash, trusted))
       .toMatchObject({ ok: false, trusted: false })
   })
 
@@ -76,8 +82,10 @@ describe('integrity attachment', () => {
     // `trusted: true` is what §8 turns into *integrity evidence invalid*.
     expect(await verifyIntegrity(await attachmentFor('rooted'), coreHash, trusted))
       .toMatchObject({ ok: false, trusted: true })
+    // An unknown source is §9's extensible value: the attachment reads as
+    // absent, not as evidence that failed.
     expect(await verifyIntegrity(await attachmentFor('hardware', 'knoxAttest'), coreHash, trusted))
-      .toMatchObject({ ok: false, trusted: true })
+      .toMatchObject({ ok: false, trusted: false, unknownSource: true })
     const short = await attachmentFor('hardware')
     expect(await verifyIntegrity({ ...short, sig: toBase64url(new Uint8Array(63)) }, coreHash, trusted))
       .toMatchObject({ ok: false, trusted: true })
@@ -174,14 +182,18 @@ describe('chain revocation snapshot', () => {
     return a
   }
 
-  it('reads a countersigned snapshot that clears the chain', async () => {
-    expect(await verifyStatus(await snapshot(), coreHash, trusted)).toEqual({ ok: true, fetchedAt: 1757332800000, revoked: null })
+  it('reads a countersigned snapshot and hands back its entries as signed', async () => {
+    expect(await verifyStatus(await snapshot(), coreHash, trusted)).toEqual({ ok: true, fetchedAt: 1757332800000, entries })
   })
 
-  it('names the revoked certificate and the instant the list was read', async () => {
-    const a = await snapshot({ entries: [{ serial: 'aa', status: 'valid' }, { serial: 'bb', status: 'revoked', reason: 'KEY_COMPROMISE' }] })
-
-    expect(await verifyStatus(a, coreHash, trusted)).toEqual({ ok: true, fetchedAt: 1757332800000, revoked: { serial: 'bb', reason: 'KEY_COMPROMISE' } })
+  it('decides coverage and revocation against the chain, not the list', () => {
+    const list = [{ serial: '00aa', status: 'valid' }, { serial: 'BB', status: 'revoked', reason: 'KEY_COMPROMISE', revoked_at: 1 }, { serial: 'cc', status: 'unknown' }]
+    // Serials compare in lowercase with leading zeros stripped (§6.2).
+    expect(chainStatus(list, ['aa'])).toEqual({ state: 'clear' })
+    expect(chainStatus(list, ['aa', 'bb'])).toEqual({ state: 'revoked', entry: list[1] })
+    // `unknown`, or a certificate the list does not name, is *not checked*.
+    expect(chainStatus(list, ['aa', 'cc'])).toEqual({ state: 'unchecked' })
+    expect(chainStatus(list, ['aa', 'dd'])).toEqual({ state: 'unchecked' })
   })
 
   it('refuses a snapshot signed by a key the verifier does not trust for tree heads', async () => {
