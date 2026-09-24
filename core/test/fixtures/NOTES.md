@@ -9,7 +9,7 @@ KeyMint 300, TEE, Remote Key Provisioning), dumped from the phone with a small k
 
 Sealed by real hardware, not generated: Samsung SM-S908B (Exynos 2200),
 Android 16, StrongBox keys, 640x360, one-second GOPs, three segments each,
-produced by SDK-Android's `VideoPipelineOnDeviceTest`.
+produced by the Android SDK's on-device pipeline test.
 
 - `sealed.mp4` — H.264 + AAC audio. Carries the empty edit list `MediaMuxer`
   writes when the microphone opens before the camera (473 ms on the video
@@ -20,7 +20,7 @@ produced by SDK-Android's `VideoPipelineOnDeviceTest`.
 ## sealed-padded.mp4 (+ `sealed-padded-segments.json`)
 
 moto g75 5G, Android 16, TEE, 1280x720, three segments, H.264 + AAC, sealed by
-SDK-Android's drop-in on 14 September 2026 — the file the other two are missing.
+the Android SDK's drop-in on 14 September 2026 — the file the other two are missing.
 Neither of them, and not one NAL unit of the seven container vectors in
 `vcap-spec`, ends in a zero byte: an H.264 encoder pads slices to the level's
 minimum size only when a scene is too cheap to code, and a camera pointed at a
@@ -31,7 +31,7 @@ NAL unit is exactly the bytes the container stores for it*). The writer that
 trimmed them sealed every recording as `tampered` against its own signature.
 
 Its `-segments.json` is derived from the sidecar the drop-in wrote next to the
-file rather than from a `VideoPipelineOnDeviceTest` run, so it carries no `pub`:
+file rather than from a run of that pipeline test, so it carries no `pub`:
 that proof's key lives in its attestation chain, and nothing here reads `pub`.
 
 `*-segments.json` is the device's own record of what it signed (`capture_id`,
