@@ -443,6 +443,16 @@ export const markOffer = (megabytes: number): string => `<div class="panel mark"
   </div>`
 
 /**
+ * The chain read, offered rather than made: what is sent (the anchor id, and
+ * the reader's address, as with any request) and to whom, before anything is.
+ */
+export const anchorOffer = (title: string, hosts: string[], anchorId: number): string => `<div class="panel anchor" id="anchor-offer">
+    <h3>This proof is anchored on ${escape(title)}, and the chain was not read</h3>
+    <p class="muted">Checking it asks ${hosts.map((h) => `<code>${escape(h)}</code>`).join(' or ')} — a public endpoint that is not ours — for anchor ${anchorId}. That number and your address are all it learns; the file and the proof stay here.</p>
+    <p><button type="button" class="btn" id="read-anchor">Read the anchor from the chain</button></p>
+  </div>`
+
+/**
  * What the page shows when checking a file failed outright — never a spinner
  * that never stops. The core does not throw on a file; this is a page that
  * could not read the file at all, or a bug of ours, and the reader is told

@@ -290,3 +290,13 @@ describe('a check that failed outright', () => {
     expect(html).toContain('Array buffer allocation failed')
   })
 })
+
+describe('a chain read offered, not made', () => {
+  it('names the endpoint and the one number it would learn', async () => {
+    const { anchorOffer } = await import('../src/render.js')
+    const html = anchorOffer('Base Sepolia (testnet)', ['sepolia.base.org'], 7)
+    expect(html).toContain('<code>sepolia.base.org</code>')
+    expect(html).toContain('for anchor 7')
+    expect(html).toContain('id="read-anchor"')
+  })
+})

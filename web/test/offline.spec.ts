@@ -63,7 +63,8 @@ test('verifies vectors with the server gone and the browser offline', async ({ p
   await page.setInputFiles('#file', join(vectors, '57-jpeg-anchor-on-chain/input.jpg'))
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await expect(page.locator('.verdict .chips > li', { hasText: /^anchoring not verified$/ })).toHaveCount(1)
-  await expect(page.locator('.verdict')).toContainText('the chain could not be read')
+  // Chains are read only on request, so offline the page did not even try.
+  await expect(page.locator('.verdict')).toContainText('chain not consulted')
   await expect(page.locator('.verdict')).not.toContainText('anchor evidence invalid')
 
   // The only thing the page may try beyond its own origin is the chain an

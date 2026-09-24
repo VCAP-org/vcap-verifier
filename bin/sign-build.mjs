@@ -21,9 +21,11 @@
 // `bin/verify-build.mjs`: there is no legal entity and no certificate behind
 // this key, so it proves **continuity, not identity**.
 //
-// The private key lives in `Ops/verifier-signing/ed25519-private.pem`, outside
-// every repository. It is never read from the
-// repository and never written to it.
+// The private key is held by the key holder, on one machine, outside every
+// repository, and is named on each run with `--key <path>` or
+// `VCAP_SIGNING_KEY`. There is no default path: a key found by convention is a
+// key used by accident, and it is never read from the repository or written
+// to it.
 import { execFileSync } from 'node:child_process'
 import { createPrivateKey, createPublicKey, sign } from 'node:crypto'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -38,7 +40,7 @@ const arg = (name, fallback) => {
 }
 
 const dist = resolve(root, arg('--dist', 'web/dist'))
-const keyPath = resolve(arg('--key', process.env.VCAP_SIGNING_KEY || join(root, '..', 'Ops/verifier-signing/ed25519-private.pem')))
+const keyArg = arg('--key', process.env.VCAP_SIGNING_KEY)
 // Overridable so CI can run the whole sign-then-verify round trip with a
 // throwaway key and a throwaway log: the code path that publishes is then the
 // code path that is tested, without the real key going anywhere near a runner.
@@ -48,7 +50,9 @@ const logPath = resolve(arg('--log-file', join(root, 'signing/manifests.jsonl'))
 const die = (message) => { console.error(`[vcap] ${message}`); process.exit(1) }
 
 if (!existsSync(`${dist}/hashes.json`)) die(`${dist}/hashes.json missing — build the page first`)
-if (!existsSync(keyPath)) die(`no signing key at ${keyPath}. It lives in Ops/, outside every repo; pass --key or set VCAP_SIGNING_KEY`)
+if (!keyArg) die('no signing key named: pass --key <path> or set VCAP_SIGNING_KEY (the key lives outside every repository)')
+const keyPath = resolve(keyArg)
+if (!existsSync(keyPath)) die(`no signing key at ${keyPath}; pass --key <path> or set VCAP_SIGNING_KEY`)
 
 const manifestBytes = readFileSync(`${dist}/hashes.json`)
 const manifest = JSON.parse(manifestBytes)
