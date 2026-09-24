@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Verdict, WatermarkOutcome } from 'vcap-verify-core'
-import { bareMark, card, colour } from '../src/render.js'
+import { bareMark, card, colour, errorCard, markOffer } from '../src/render.js'
 import { vectorVerdict } from '../../core/test/vector-verdict.js'
 import { VIDEO_FRAMES } from '../src/sampling.js'
 
@@ -189,5 +189,104 @@ describe('the headline of a clip says only what was compared', () => {
     const v: Verdict = { outcome: 'frames_not_compared', labels: [], not_evaluated: [], segments: { verified: [] }, level: { claimed: 'tee', proven: 'none', ceiling: 'amber' } }
     expect(colour(v)).toBe('amber')
     expect(card('clip.mp4', v)).toContain('Frames not compared')
+  })
+})
+
+describe('every line of evidence says where it comes from', () => {
+  const v: Verdict = {
+    outcome: 'authentic',
+    labels: [],
+    not_evaluated: [],
+    core_hash: 'ab'.repeat(32),
+    claimed_secure_hw: 'tee',
+    level: { claimed: 'tee', proven: 'tee', ceiling: 'amber' },
+    attestation: { proven: 'tee', detail: 'chain to a pinned Google root', boot_state: { locked: true, state: 'verified' } },
+    registry: { ok: true, detail: 'key in the transparency log before tree head', secure_hw: 'tee' },
+    timestamp: { ok: true, detail: 'existed before 2026-09-08T12:00:00.000Z', gen_time: '2026-09-08T12:00:00.000Z' },
+    integrity: { ok: true, detail: 'playIntegrity reported hardware', verdict: 'hardware' },
+    key_status: { ok: false, detail: 'no log lookup available' },
+    anchor: { ok: true, detail: 'anchored on base-sepolia, block 42', on_chain: true },
+    validated_at: { instant: '2026-09-08T12:00:00.000Z', source: 'timestamp' },
+    mark_id: { value: 5902900, derived: false }
+  }
+  const html = card('photo.jpg', v)
+  const row = (key: string): string => {
+    const at = html.indexOf(`<dt>${key}</dt>`)
+    expect(at, key).toBeGreaterThan(-1)
+    return html.slice(at, html.indexOf('</dd>', at))
+  }
+
+  it('renders the proven level, the attestation with its boot state, the timestamp and the integrity statement', () => {
+    expect(row('proven level')).toContain('<code>tee</code>')
+    expect(row('attestation')).toContain('boot verified, device locked')
+    expect(row('trusted time')).toContain('existed before 2026-09-08')
+    expect(row('device integrity')).toContain('playIntegrity reported hardware')
+  })
+
+  it('names the source of each in words', () => {
+    expect(row('attestation')).toContain('from the file alone')
+    expect(row('transparency log')).toContain('VCAP transparency log key')
+    expect(row('device integrity')).toContain('VCAP transparency log key')
+    expect(row('trusted time')).toContain('third-party timestamp authority')
+    expect(row('validated at')).toContain('third-party timestamp authority')
+    expect(row('anchor')).toContain('public chain via RPC')
+    expect(row('key revocation')).toContain('VCAP online lookup')
+    expect(html).toContain('our own records, not independent')
+  })
+
+  it('no longer says the attestation is not evaluated', () => {
+    expect(html).not.toContain('attestation not evaluated by this page')
+    expect(row('claimed level')).toContain('the device\'s own claim')
+  })
+
+  it('says when a mark id is not the one derived from the capture id', () => {
+    expect(row('mark id')).toContain('will not find this capture')
+  })
+
+  it('shows the signature verdict while the watermark is still being read', () => {
+    const pending = card('photo.jpg', { ...v, labels: ['watermark not evaluated'] }, { watermarkPending: true })
+    expect(pending).toContain('being read')
+    expect(pending).not.toContain('<li>watermark not evaluated</li>')
+  })
+})
+
+describe('the words around a verdict that is not the plain one', () => {
+  it('says a proof it cannot read is not the same as no proof', () => {
+    expect(card('x.jpg', { outcome: 'no_proof_found', labels: [], not_evaluated: [], reason: 'payload is not a JSON object' })).toContain('carries no proof this page can read')
+    expect(card('x.jpg', { outcome: 'no_proof_found', labels: [], not_evaluated: [], reason: 'no trailer and no sidecar' })).toContain('This file carries no proof.')
+  })
+
+  it('does not tell a clip under a red ceiling that the file is unchanged', () => {
+    const html = card('clip.mp4', { outcome: 'verified_clip', labels: ['key revoked'], not_evaluated: [], content: { recomputed: true, detail: '' }, level: { claimed: 'tee', proven: 'tee', ceiling: 'red' } })
+    expect(html).toContain('a key behind the seal was revoked')
+    expect(html).not.toContain('has not changed since it was sealed')
+  })
+})
+
+describe('a mark read with no proof', () => {
+  it('links a photo payload — the whole capture id — to the registry', () => {
+    expect(bareMark({ layout: 'photo-bch-v3', decoded: 'ab'.repeat(16) }, 'https://registry.example/t')).toContain('href="https://registry.example/t/' + 'ab'.repeat(16) + '"')
+  })
+
+  it('does not link a clip\'s mark id, which many captures share, and says why', () => {
+    const html = bareMark({ layout: 'video-rep-v1', decoded: '5902900', agreement: 0.99 }, 'https://registry.example/t')
+    expect(html).not.toContain('href=')
+    expect(html).toContain('cannot be looked up on its own')
+  })
+
+  it('asks before downloading the detector, and says how much', () => {
+    const html = markOffer(62.4)
+    expect(html).toContain('about 62 MB')
+    expect(html).toContain('id="read-mark"')
+  })
+})
+
+describe('a check that failed outright', () => {
+  it('is a card that says what to do, never a spinner', () => {
+    const html = errorCard('big.mov', 'Array buffer allocation failed')
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('Try the file again')
+    expect(html).toContain('vcap-verify')
+    expect(html).toContain('Array buffer allocation failed')
   })
 })

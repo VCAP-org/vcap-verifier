@@ -30,12 +30,18 @@ test('a stripped copy is told its pixels may still carry a mark, and how to read
   const { server, url } = await serve()
   await page.goto(url)
 
+  const requested: string[] = []
+  page.on('request', (request) => requested.push(new URL(request.url()).pathname))
   await page.setInputFiles('#file', copy)
   await expect(page.locator('.verdict h2')).toHaveText('No proof found')
   const panel = page.locator('.panel.mark')
   await expect(panel).toHaveCount(1)
+  // Asked first, with the size, and nothing fetched until the reader agrees.
+  await expect(panel).toContainText('about 62 MB')
+  expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(false)
+  await panel.locator('#read-mark').click()
   // No model on this host: the page tried, and says it could not look.
-  await expect(panel).toContainText('The detector could not be loaded (the reason is above), so this page could not look.')
+  await expect(page.locator('.panel.mark')).toContainText('The detector could not be loaded (the reason is above), so this page could not look.')
   // Not dressed as a verdict: no verdict colour, and outside the verdict card.
   await expect(panel).not.toHaveClass(/green|amber|red|grey/)
   await expect(page.locator('.verdict .panel.mark')).toHaveCount(0)
@@ -70,6 +76,8 @@ test('an unreadable detection changes nothing and says so', async ({ page }) => 
   await page.goto(url)
   await page.setInputFiles('#file', sealed)
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  // Let the watermark pass finish (no model here) before the detection lands.
+  await expect(page.locator('.verdict')).toContainText('no detection was available')
   await page.setInputFiles('#evidence', join(fixtures, 'detection-unreadable.json'))
   await expect(page.locator('#status')).toContainText('is not a readable detection')
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
@@ -102,6 +110,37 @@ test('the detector is fetched when a file needs it and never on load, and its ab
   await expect(page.locator('#status')).toContainText('The detector did not load: the model could not be fetched: 404')
   expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(true)
   expect(requested.some((p) => p.endsWith('.onnx'))).toBe(true)
+  await stop(server)
+})
+
+test('the signature verdict is on the page before the detector answers', async ({ page }) => {
+  // The model is held back until the verdict is visible: had the page waited
+  // for the detector, nothing would be on screen while the model is pending.
+  const { server, url } = await serve({ absent: /\.onnx$/ })
+  let release: () => void = () => {}
+  const held = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/*.onnx', async (route) => { await held; await route.fulfill({ status: 404, body: '' }) })
+  await page.goto(url)
+  await page.setInputFiles('#file', sealed)
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await expect(page.locator('.verdict')).toContainText('being read')
+  release()
+  await expect(page.locator('.verdict')).toContainText('no detection was available: the model could not be fetched: 404')
+  await expect(page.locator('.verdict')).not.toContainText('being read')
+  await stop(server)
+})
+
+test('a file the page cannot read at all is an error card that says what to do', async ({ page }) => {
+  const { server, url } = await serve()
+  await page.goto(url)
+  // A File whose bytes cannot be read: the one failure the core never sees.
+  await page.evaluate(() => {
+    Object.defineProperty(File.prototype, 'arrayBuffer', { value: () => Promise.reject(new Error('NotReadableError: the file could not be read')) })
+  })
+  await page.setInputFiles('#file', sealed)
+  await expect(page.locator('.panel.error')).toContainText('could not finish checking')
+  await expect(page.locator('.panel.error')).toContainText('NotReadableError')
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'idle')
   await stop(server)
 })
 

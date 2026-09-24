@@ -52,9 +52,11 @@ where enrolment puts it), a page that actually reaches a log or a status list.
 - **The detector is a separate download, and the page is whole without it.**
   Distillation under 10 MB was dropped: what exists is the full
   model at 34.2 MB, so it is never fetched on load and never precached. It is
-  fetched the first time a file needs it — a proof that declares a watermark,
-  or a file with no proof — digest-checked before it runs, and the verdict waits
-  for it with a progress line. Its absence is *watermark not evaluated* with the
+  fetched when a file needs it and digest-checked before it runs: at once for a
+  proof that declares a watermark, with the signature's verdict on the page
+  first and the watermark line filled in when the detector answers; for a file
+  with no proof, only after the reader agrees to the stated download (about
+  62 MB with the engine). Its absence is *watermark not evaluated* with the
   reason — a weaker verdict, not an error. The verifier states which model
   looked.
 - **One drop on first visit, everything else one click away.** The page opens
@@ -293,16 +295,23 @@ as `dirty: true` and will not match a CI build.
 
 The file people actually arrive with has usually been through a messaging app:
 re-encoded, its trailer stripped, its signature gone. The page says *no proof
-found* — correctly — and fetches the detector to read the pixels for
-the watermark the capture was sealed with. Two rules hold it in place:
+found* — correctly — and offers to read the pixels for the watermark the
+capture was sealed with, saying first that it costs a download of about 62 MB.
+Three rules hold it in place:
 
 - **A mark is never a verdict.** The verdict card keeps whatever the signature
   layer said. A mark read out of a file with no valid signature is printed in
   its own block, outside the card and in none of the verdict colours, as an
   identifier and nothing more — never *authentic*, never green.
-- **Looking it up is the reader's choice.** The block links the identifier to
-  the registry that issued it, which can turn it back into the proof. That is a
-  request to a server, offered and never made; the verdict needs none.
+- **Looking it up is the reader's choice.** For a photo, whose mark is the
+  whole capture id, the block links it to the registry that issued it, which
+  can turn it back into the proof. That is a request to a server, offered and
+  never made; the verdict needs none. A clip's mark is a 24-bit id many
+  captures share, so it gets no link, and the block says why.
+- **Every line says where its evidence comes from**: from the file alone, the
+  VCAP transparency log key (our records, not independent), a third-party
+  timestamp authority, a public chain via RPC, or a VCAP online lookup this
+  page does not make.
 
 When a proof does declare a watermark, the comparison against its signed ids
 is the core's (`evaluateWatermark`, inside `verify`) and lands in the verdict
@@ -317,7 +326,7 @@ none of them precached:
 | file | what it is | when it is fetched |
 |---|---|---|
 | `detector.json` | the manifest: url, bytes, SHA-256, `model_version`, providers | with the page (a few hundred bytes, cached offline) |
-| `detector.js` | the download and the digest check | the first time a file needs it |
+| `detector.js` | the download and the digest check | the first time a file needs it (for a file with no proof, when the reader asks) |
 | `detector-runtime.js` + `ort-wasm-simd-threaded.jsep.*` | onnxruntime-web and the layout decoders | after the model's bytes hash to the manifest |
 
 The order is the point: an engine is code, and code that runs before the model

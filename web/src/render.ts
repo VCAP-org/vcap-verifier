@@ -81,9 +81,18 @@ const PLAIN_BELOW: Record<string, string> = {
   amber: 'Intact, not fully proven — unchanged since it was sealed, but not everything behind the seal is proven.',
   red: 'Do not rely on it — the file has not changed since it was sealed, but a key behind the seal was revoked.'
 }
+// "Has not changed since it was sealed" is a fact about an *authentic* file
+// only: a clip under a red ceiling is part of a recording, not the whole one.
+const RED_CLIP = 'Do not rely on it — a key behind the seal was revoked.'
+// *No proof found* also answers a proof that is there and cannot be read
+// (§8: a payload that is not a proof is no proof). "Carries no proof" would
+// then be false about the file in the reader's hand.
+const UNREADABLE_PROOF = 'This file carries no proof this page can read.'
 const plain = (v: Verdict): string => {
   const shown = colour(v)
+  if (shown === 'red' && v.outcome !== 'authentic' && shown !== COLOR[v.outcome]) return RED_CLIP
   if (shown !== COLOR[v.outcome]) return PLAIN_BELOW[shown] ?? PLAIN[v.outcome]
+  if (v.outcome === 'no_proof_found' && v.reason !== undefined && v.reason !== 'no trailer and no sidecar') return UNREADABLE_PROOF
   return v.outcome === 'verified_clip' && v.content?.recomputed !== true ? CLIP_NOT_READ : PLAIN[v.outcome]
 }
 
@@ -114,6 +123,47 @@ const SOURCE: Record<string, string> = {
   anchor: 'proven by the anchored block',
   device_clock: 'the device\'s own clock, not proven',
   verifier_clock: 'this browser\'s clock; the proof declares no time'
+}
+
+/**
+ * Where each piece of evidence comes from, in plain words beside it. The
+ * difference is the whole claim of this page: what the file proves on its own
+ * anybody can check here offline; what rests on the transparency log rests on
+ * a key of a log we run — our records, never independent corroboration; a
+ * timestamp authority and a public chain are other people's; and the one
+ * question only a live lookup answers is one this page does not ask.
+ */
+export const FROM = {
+  file: 'from the file alone',
+  log: 'VCAP transparency log key',
+  tsa: 'third-party timestamp authority',
+  chain: 'public chain via RPC',
+  lookup: 'VCAP online lookup',
+  browser: 'this browser\'s clock',
+  supplied: 'a detection you supplied'
+} as const
+const INSTANT_FROM: Record<string, string> = { timestamp: FROM.tsa, anchor: FROM.chain, device_clock: FROM.file, verifier_clock: FROM.browser }
+const SOURCES_LEGEND = `<p class="legend">Where each line comes from: <em>${FROM.file}</em> is checked here, offline, by anyone; <em>${FROM.log}</em> rests on a key of the log we run — our own records, not independent; a <em>${FROM.tsa}</em> and a <em>${FROM.chain}</em> are other people's; a <em>${FROM.lookup}</em> is a question this page does not ask. No source is a verdict of authenticity on its own.</p>`
+
+/** The proven level and what proved it: the chain in the file (Android), the registry leaf (iOS), or nothing. */
+const levelRow = (v: Verdict): [string, string, string] | null => {
+  if (!v.level) return null
+  const by = v.attestation ? FROM.file : v.level.proven !== 'none' && v.registry?.ok ? FROM.log : FROM.file
+  return ['proven level', `<code>${escape(v.level.proven)}</code>, claimed <code>${escape(v.level.claimed)}</code>`, by]
+}
+
+const attestationRow = (v: Verdict): [string, string, string] | null => {
+  const a = v.attestation
+  if (!a) return null
+  const boot = a.boot_state ? `; boot ${escape(a.boot_state.state)}, device ${a.boot_state.locked ? 'locked' : 'unlocked'}` : ''
+  return ['attestation', `proves <code>${escape(a.proven)}</code> — ${escape(a.detail)}${boot}`, FROM.file]
+}
+
+/** `watermark.mark_id` and whether it is derived from the capture id (a SHOULD): a lookup by mark id finds the capture only if it is. */
+const markIdRow = (v: Verdict): [string, string, string] | null => {
+  const m = v.mark_id
+  if (!m) return null
+  return ['mark id', `<code>${m.value}</code> — ${m.derived ? 'derived from the capture id' : 'not the value derived from the capture id, so a lookup by mark id will not find this capture'}`, FROM.file]
 }
 
 /**
@@ -238,42 +288,66 @@ const carriedLine = (w: WatermarkOutcome | undefined): string =>
  */
 const CHECKED = new Set(['watermark matched', 'location corroborated', 'integrity hardware'])
 
-export const card = (name: string, v: Verdict): string => {
+export interface CardOptions {
+  /**
+   * The signature layer has answered and the detector is still working: the
+   * verdict is shown now and the watermark row says it is being read, instead
+   * of the page withholding a finished answer for a 60 MB download.
+   */
+  watermarkPending?: boolean
+  /** The detection came from a file the reader dropped, not from this page's detector. */
+  detectionSupplied?: boolean
+}
+
+export const card = (name: string, v: Verdict, o: CardOptions = {}): string => {
   const checked = v.labels.filter((l) => CHECKED.has(l))
+  // While the detector runs, *watermark not evaluated* is not yet an answer:
+  // the row below says the mark is being read, and the label comes back if the
+  // detector cannot be had.
+  const shownLabels = o.watermarkPending === true ? v.labels.filter((l) => l !== 'watermark not evaluated') : v.labels
   // The ceilings, and they keep the specification's words: these are what the
   // verdict does **not** reach, and a paraphrase would be a different claim.
   // What changes is only how they are set — as chips under a line that
   // names them, rather than a bullet list of seven grey phrases inside a green
   // card, which read as a list of faults and is the opposite of a ceiling.
   const lines = [
-    ...v.labels.filter((l) => !CHECKED.has(l)).map((l) => `<li>${escape(l)}</li>`),
+    ...shownLabels.filter((l) => !CHECKED.has(l)).map((l) => `<li>${escape(l)}</li>`),
     ...v.not_evaluated.map((k) => `<li>not evaluated: <code>${escape(k)}</code></li>`)
   ]
   // What the verdict rests on, as a description list: the name of each piece of
-  // evidence on one side, what the core said about it on the other.
-  const rows: Array<[string, string] | null> = [
-    v.claimed_secure_hw ? ['claimed level', `<code>${escape(v.claimed_secure_hw)}</code> (attestation not evaluated by this page)`] : null,
-    v.device_clock ? ['declared capture time', `${new Date(v.device_clock).toISOString()} (device clock, not trusted time)`] : null,
+  // evidence, what the core said about it, and where that evidence comes from.
+  const watermarkFrom = o.detectionSupplied === true ? FROM.supplied : FROM.file
+  const rows: Array<[string, string, string] | null> = [
+    v.claimed_secure_hw ? ['claimed level', `<code>${escape(v.claimed_secure_hw)}</code> (the device's own claim)`, FROM.file] : null,
+    levelRow(v),
+    attestationRow(v),
+    v.attestation_status ? ['chain revocation', escape(v.attestation_status.detail), FROM.log] : null,
+    v.device_clock ? ['declared capture time', `${new Date(v.device_clock).toISOString()} (device clock, not trusted time)`, FROM.file] : null,
+    v.timestamp ? ['trusted time', escape(v.timestamp.detail), FROM.tsa] : null,
     // §7: which clock the certificate paths were validated at. A reader who is
     // not told cannot tell a capture time proven by a token from one the device
     // asserted about itself.
-    v.validated_at ? ['validated at', `${escape(v.validated_at.instant)} (${escape(SOURCE[v.validated_at.source] ?? v.validated_at.source)})`] : null,
-    v.segments ? ['segments verified', v.segments.verified.length ? v.segments.verified.join(', ') : 'none'] : null,
-    v.segments?.contradicted?.length ? ['segments whose frames are not the signed frames', v.segments.contradicted.join(', ')] : null,
+    v.validated_at ? ['validated at', `${escape(v.validated_at.instant)} (${escape(SOURCE[v.validated_at.source] ?? v.validated_at.source)})`, INSTANT_FROM[v.validated_at.source] ?? FROM.file] : null,
+    v.segments ? ['segments verified', v.segments.verified.length ? v.segments.verified.join(', ') : 'none', FROM.file] : null,
+    v.segments?.contradicted?.length ? ['segments whose frames are not the signed frames', v.segments.contradicted.join(', '), FROM.file] : null,
     // §5 recomputation either happened or did not, and the page says which:
     // "every segment verifies" means much less when nothing read the frames.
-    v.content ? ['segment content', `${v.content.recomputed ? 'recomputed from the container' : 'not recomputed'} (${escape(v.content.detail)})`] : null,
-    v.watermark ? ['watermark', escape(watermarkLine(v.watermark))] : null,
-    v.registry ? ['transparency log', escape(v.registry.detail)] : null,
-    v.attestation_status ? ['chain revocation', escape(v.attestation_status.detail)] : null,
+    v.content ? ['segment content', `${v.content.recomputed ? 'recomputed from the container' : 'not recomputed'} (${escape(v.content.detail)})`, FROM.file] : null,
+    o.watermarkPending === true
+      ? ['watermark', 'being read — the verdict above is the signature\'s, and this line fills in when the detector finishes', FROM.file]
+      : v.watermark ? ['watermark', escape(watermarkLine(v.watermark)), watermarkFrom] : null,
+    markIdRow(v),
+    v.registry ? ['transparency log', escape(v.registry.detail), FROM.log] : null,
+    v.integrity ? ['device integrity', escape(v.integrity.detail), FROM.log] : null,
+    v.location_corroboration ? ['position corroboration', escape(v.location_corroboration.detail), FROM.log] : null,
     // The device key's own standing, which is the one thing this page cannot
     // establish from the file: it ships with no log to ask, so it says so
     // rather than leaving the reader to assume it was checked.
-    v.key_status ? ['key revocation', escape(v.key_status.detail)] : null,
-    v.anchor ? ['anchor', escape(v.anchor.detail)] : null,
-    v.core_hash ? ['proof identity', `<code>${v.core_hash}</code>`] : null
+    v.key_status ? ['key revocation', escape(v.key_status.detail), FROM.lookup] : null,
+    v.anchor ? ['anchor', escape(v.anchor.detail), v.anchor.on_chain === true ? FROM.chain : FROM.file] : null,
+    v.core_hash ? ['proof identity', `<code>${v.core_hash}</code>`, FROM.file] : null
   ]
-  const details = rows.filter((row): row is [string, string] => row !== null)
+  const details = rows.filter((row): row is [string, string, string] => row !== null)
   // The core's own sentence for why the verdict stopped where it did: it names
   // no field, so it is a line above the list rather than a row of it.
   const reason = v.reason ? `<p class="reason">${escape(v.reason)}</p>` : ''
@@ -291,7 +365,7 @@ export const card = (name: string, v: Verdict): string => {
       ? `<div class="limits"><p class="limits-head">What this verdict does not cover</p><ul class="chips">${lines.join('')}</ul></div>`
       : ''}
     ${details.length || reason
-      ? `<details class="tech"><summary><span class="chev" aria-hidden="true">›</span> Technical detail</summary>${reason}${details.length ? `<dl class="kv">${details.map(([key, value]) => `<dt>${escape(key)}</dt><dd>${value}</dd>`).join('')}</dl>` : ''}</details>`
+      ? `<details class="tech"><summary><span class="chev" aria-hidden="true">›</span> Technical detail</summary>${reason}${details.length ? `<dl class="kv">${details.map(([key, value, from]) => `<dt>${escape(key)}</dt><dd>${value}<span class="source">${escape(from)}</span></dd>`).join('')}</dl>${SOURCES_LEGEND}` : ''}</details>`
       : ''}
   </div>`
 }
@@ -342,10 +416,43 @@ export const bareMark = (evidence: WatermarkEvidence, traceUrl: string): string 
     <p>It reads <code>${escape(decoded)}</code>${layout ? ` in <code>${escape(layout)}</code>` : ''}.</p>
     ${carriedParagraph(evidence)}
     ${customModelNote(evidence)}
-    <p class="muted">The registry that issued it can turn it back into the proof. Looking it up is a request to somebody's server, and the only one this page will ever suggest.</p>
-    <p><a class="btn" href="${escape(traceUrl)}/${escape(decoded)}" rel="noreferrer">Look this identifier up in the registry</a></p>
+    ${lookup(layout, decoded, traceUrl)}
   </div>`
 }
+
+/**
+ * The registry lookup, for the one layout whose payload names a capture.
+ * `photo-bch-v3` carries the whole 128-bit capture id; `video-rep-v1` carries
+ * a 24-bit mark id that thousands of captures share by design, so a link on it
+ * would point a reader at a stranger's recording as readily as at this one.
+ */
+const lookup = (layout: string | null | undefined, decoded: string, traceUrl: string): string => layout === 'video-rep-v1'
+  ? '<p class="muted">A clip\'s mark is a short identifier that many captures share, so it cannot be looked up on its own: finding the capture takes its capture id, which only the proof carries.</p>'
+  : `<p class="muted">The registry that issued it can turn it back into the proof. Looking it up is a request to somebody's server, and the only one this page will ever suggest.</p>
+    <p><a class="btn" href="${escape(traceUrl)}/${escape(decoded)}" rel="noreferrer">Look this identifier up in the registry</a></p>`
+
+/**
+ * A file with no proof whose pixels may carry a mark, before anything is
+ * downloaded: reading it needs the detector, and the reader is told what that
+ * costs and asked. The verdict above is already whole.
+ */
+export const markOffer = (megabytes: number): string => `<div class="panel mark" id="mark-offer">
+    <h3>This file carries no proof — but it may still carry an invisible mark</h3>
+    <p class="muted">A copy that came back from a chat app or a social network has usually lost its proof and kept the mark. Reading it needs the watermark detector: about ${Math.round(megabytes)} MB, downloaded once from where this page is served and checked against the digest it pins. Nothing about your file is sent.</p>
+    <p><button type="button" class="btn" id="read-mark">Read the mark (about ${Math.round(megabytes)} MB)</button></p>
+  </div>`
+
+/**
+ * What the page shows when checking a file failed outright — never a spinner
+ * that never stops. The core does not throw on a file; this is a page that
+ * could not read the file at all, or a bug of ours, and the reader is told
+ * what to do about either.
+ */
+export const errorCard = (name: string, message: string): string => `<div class="panel error" role="alert">
+    <h3>This page could not finish checking ${escape(name)}</h3>
+    <p>Nothing was uploaded, and no verdict was reached. Try the file again; if the browser ran out of memory on a large video, close other tabs first. If it fails again, the file may be damaged — the command-line verifier, <code>vcap-verify</code>, reads the same file with the same core and prints the error in full.</p>
+    <p class="muted">What went wrong: <code>${escape(message)}</code></p>
+  </div>`
 
 /**
  * A mark read by a model the reader supplied is named as such, so an
