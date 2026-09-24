@@ -32,13 +32,14 @@ where enrolment puts it), a page that actually reaches a log or a status list
 
 ## Design constraints
 
-- **One verification core, four consumers** (this page, the platform API, the
-  Node and Ruby libraries, the app's offline verdict). Same input, same verdict,
+- **One verification core, four consumers** (this page and the CLI, the
+  platform API, the JavaScript library, the app's offline verdict). Same input, same verdict,
   same wording. The conformance suite from `vcap-spec` is a required CI gate in
   all of them.
-- **No network in the verification path.** Registry proofs, anchors and QTSP
-  chains are checked from data carried in the file or fetched from public
-  endpoints; if there is no network the verdict degrades and says so.
+- **No network in the verification path.** Registry proofs, anchors and
+  timestamp chains are checked from data carried in the file; the answers that
+  need a network (revocation, the chain behind an anchor) are injected by the
+  caller, and without them the verdict degrades and says so.
 - **The detector is an explicit download, and the page is whole without it.**
   Distillation under 10 MB was dropped: what exists is the full
   model at 34.2 MB, so it is never fetched on load, never precached, and its
@@ -299,6 +300,10 @@ anything else are refused with the two digests printed, and the page is left
 exactly as useful as it was — a Playwright test flips one byte of the model in
 flight and asserts both.
 
+The model is VideoSeal's y_256b detector, quantized to int8 (`model_version`
+`videoseal-y256b-1`). Frames are decoded by the browser, which applies the
+file's orientation, so the mark is read as the image is displayed.
+
 The model's url is **relative**, so it is served from wherever the page is —
 today that is `models/` next to the page on our own host, which is what makes
 the download same-origin and spares it CORS entirely. Nobody has to fetch it
@@ -538,8 +543,8 @@ level and keeps its outcome's colour.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 1.2.0, 85
-vectors** (manifest `29fd346eda9206bb…`), the last of them an iOS video sealed
+and the claim is only worth what it names. Today that is **corpus 1.3.0, 85
+vectors** (manifest `69d8e6e08d620f54…`), the last of them an iOS video sealed
 on a device, whose segment chain a Secure Enclave signed:
 
 | Runner | Vectors | Corpus |

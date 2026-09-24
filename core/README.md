@@ -16,8 +16,8 @@ verdict.location  // { claimed, level, declared? } (§7.1): none | declared | co
 
 ## It contacts nothing, and that is the design
 
-Every check here is one the file carries the evidence for. Two answers need a
-network and the core will not go and get them — the **caller** supplies them,
+Every check here is one the file carries the evidence for. The answers that
+need a network the core will not go and get — the **caller** supplies them,
 and their absence is a labelled answer rather than a failure:
 
 ```ts
@@ -25,6 +25,7 @@ await verify(bytes, {
   trustedLogs: [{ logId, spki }],   // else: log not trusted
   tsaRoots: [der],                  // else: trusted time not evaluated
   keyStatus: async (keyIdHex, at) => …,  // else: revocation not checked
+  revocation: async (serialHex) => …,  // Google's status list; else: chain revocation not checked
   readChain: async (chain, anchorId) => …, // else: anchoring not verified
   watermark: async (claim) => …,    // else: watermark not evaluated
   now: new Date(…)                  // a §7 verdict depends on when it is asked
@@ -132,7 +133,7 @@ does not check that the evidence came from one. This is weaker than
 `keyStatus`, and the difference is worth naming: a key-status statement is
 trusted because it is *signed* by a log the caller pinned, over a message
 binding the key id, the instant and the status. Nothing signs a detector's
-output — there is no key for it in v1.0, and minting one would put a server of
+output — there is no key for it in the format, and minting one would put a server of
 ours on the path to a verdict, which the product forbids. So the evidence is
 trusted exactly as far as the caller is, which is exactly as far as it already
 had to be: the same caller hands over the media bytes and can reach any verdict
@@ -172,6 +173,9 @@ difference.
 | `verifyRegistry`, `verifyKeyStatus`, `verifyAnchor`, `validateTimestamp`, `verifyIntegrity` | the §6.2 attachments, individually |
 | `evaluateWatermark`, `captureIdHex`, `VIDEO_AGREEMENT_FLOOR` | §8's watermark table on its own, for a caller holding a detection and no file — and the floor, so a detector can apply it before it reports |
 | `leafHash`, `nodeHash`, `verifyInclusion`, `verifyConsistency` | RFC 6962, shared by the log and the anchor |
+| `positionLevel`, `verifyLocationCorroboration` | §7.1's position level on its own |
+| `verifyVaultKey` | the log's statement about an organization's vault key (`vcap-vault-1.md`) — never part of a verdict |
+| `parseTrustDocument`, `parseTrustedLog`, `parseTsaDocument`, `parseTsaRoot` | readers for a written trust set |
 | `validateAndroidAttestation`, `googleRoots`, `parseCertificate` | §7's proven level |
 
 The pieces are exported as well as `verify` because a service usually has one
