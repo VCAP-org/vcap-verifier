@@ -77,6 +77,9 @@ test('a custom model is used instead of the pinned one, named custom, and not di
 
   await page.setInputFiles('#file', join(vectors, '01-jpeg-sealed/input.jpg'))
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  // The signature's verdict is up before the detector finishes; the watermark
+  // line fills in after, and the status line goes idle when it has.
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'idle')
   // It ran: the stub was handed the reader's bytes, and the verdict names it.
   expect(await page.evaluate(() => (window as unknown as { handed: number }).handed)).toBe(model.length)
   await expect(page.locator('.verdict')).toContainText(version)

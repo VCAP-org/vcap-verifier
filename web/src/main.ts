@@ -1,5 +1,5 @@
 import { verify, type Verdict, type WatermarkClaim, type WatermarkEvidence } from 'vcap-verify-core'
-import { bareMark, card, escape } from './render.js'
+import { bareMark, card, errorCard, escape, markOffer } from './render.js'
 import { readEvidence } from './evidence.js'
 import { chainReader, mountChains, mountTrust, mountTsa, trustInUse, trustedLogs, trustedTsaRoots } from './trust.js'
 import type { Detector, DetectorManifest, DetectProgress } from './detector.js'
@@ -21,11 +21,13 @@ import pinned from './detector.json'
  * see `render.ts`.
  *
  * The detector that reads a mark out of pixels is a separate download
- * (`detector.ts`), never fetched on load and never precached: it is fetched
- * the first time a file needs it — a proof that declares a watermark, or a
- * file with no proof whose pixels may still carry one — checked against the
- * digest it pins, and the verdict waits for it. When it cannot be had the
- * verdict is the one this page gave before a detector existed, with
+ * (`detector.ts`), never fetched on load and never precached. For a proof
+ * that declares a watermark it is fetched at once, and the signature's verdict
+ * is on the page before it arrives, its watermark line filling in when the
+ * detector finishes. For a file with no proof it is fetched only when the
+ * reader asks, told the size first: a 60 MB download is not something to
+ * start on somebody's phone because they dropped a file. When it cannot be had
+ * the verdict is the one this page gave before a detector existed, with
  * *watermark not evaluated* and the reason on it: weaker, never a failure.
  *
  * A reader may run a model of their own instead (Advanced, *Use a different
@@ -214,14 +216,13 @@ const ran = (loaded: Detector): void => {
 }
 
 /**
- * The core's watermark lookup: the user's detection when they brought one,
- * otherwise the detector, fetched now if it has not been. A detector that
- * cannot be had throws, and the core reads that as *watermark not evaluated*
- * with the reason. The core compares what comes back against the signed claim.
+ * The core's watermark lookup over this page's detector, fetched now if it has
+ * not been. A detector that cannot be had throws, and the core reads that as
+ * *watermark not evaluated* with the reason. The core compares what comes
+ * back against the signed claim.
  */
-const lookup = (bytes: Uint8Array, own: WatermarkEvidence | undefined, label: string) =>
+const lookup = (bytes: Uint8Array, label: string) =>
   async (claim: WatermarkClaim): Promise<WatermarkEvidence | null> => {
-    if (own) return own
     const loaded = await ensureDetector()
     const evidence = await loaded.detect(bytes, claim, progress(label))
     ran(loaded)
@@ -240,10 +241,18 @@ const progress = (label: string) => ({ done, total, partial, frameMs }: DetectPr
   say(total > 1 ? `Reading the watermark of ${label}: frame ${done} of ${total}${found}${rate}` : `Reading the watermark of ${label}${rate}`, 'working')
 }
 
-const verdictOf = async (file: File, extra: { sidecar?: Uint8Array, detection?: WatermarkEvidence }): Promise<Verdict> => {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  return await verify(bytes, {
-    sidecar: extra.sidecar,
+/**
+ * What the detector costs, said before it is fetched: the pinned model plus the
+ * WebAssembly engine and its loader (27.8 MB of `.wasm` and 0.4 MB of
+ * runtime in this build). A model of the reader's own is already in memory, so
+ * only the engine is left to download.
+ */
+const ENGINE_BYTES = 28.2e6
+const detectorDownload = (): number => (custom ? 0 : (pinned as DetectorManifest).build?.bytes ?? 0) + ENGINE_BYTES
+
+const verdictOf = (bytes: Uint8Array, sidecar: Uint8Array | undefined, watermark: (claim: WatermarkClaim) => Promise<WatermarkEvidence | null>): Promise<Verdict> =>
+  verify(bytes, {
+    sidecar,
     // Read at every verdict, not captured once: switching a log off in the
     // panel has to change the next verdict, or the control is decoration.
     trustedLogs: trustedLogs(),
@@ -252,9 +261,8 @@ const verdictOf = async (file: File, extra: { sidecar?: Uint8Array, detection?: 
     tsaRoots: trustedTsaRoots(),
     // Same rule again: a chain switched off in the panel is not read.
     readChain: chainReader(),
-    watermark: lookup(bytes, extra.detection, file.name)
+    watermark
   })
-}
 
 /**
  * Read the mark out of a file that carries no proof, on its own terms.
@@ -264,7 +272,7 @@ const verdictOf = async (file: File, extra: { sidecar?: Uint8Array, detection?: 
  * printed as an identifier and never as a verdict. Choosing the layout from
  * the mime is the same rule §8 uses to tell a video proof from a photo one.
  */
-const markAlone = async (file: File): Promise<string> => {
+const markAlone = async (file: File, bytes: Uint8Array): Promise<string> => {
   let loaded: Detector
   try { loaded = await ensureDetector() } catch {
     return `<div class="panel mark">
@@ -280,7 +288,9 @@ const markAlone = async (file: File): Promise<string> => {
     coreHash: ''
   }
   try {
-    const evidence = await loaded.detect(new Uint8Array(await file.arrayBuffer()), claim, progress(file.name))
+    // The bytes the verdict was computed from, not a second read of the file:
+    // a video held twice is a tab that runs out of memory.
+    const evidence = await loaded.detect(bytes, claim, progress(file.name))
     ran(loaded)
     return bareMark(evidence, TRACE_URL)
   } catch {
@@ -288,6 +298,15 @@ const markAlone = async (file: File): Promise<string> => {
   }
 }
 
+const done = 'Checked in this browser. Nothing was uploaded.'
+
+/**
+ * The verdict, in the order the reader needs it: the signature layer first,
+ * because it needs no download, then the watermark when the detector has read
+ * it. A proof that declares no watermark, or a detection the reader supplied,
+ * is one pass. Any failure lands as a card that says what to do — a page
+ * that stays on "Reading…" forever is the one answer this page may not give.
+ */
 const check = async (): Promise<void> => {
   drawUsing()
   const { file, sidecar, detection, detectionName } = held
@@ -299,24 +318,73 @@ const check = async (): Promise<void> => {
   const run = ++generation
   if (!file) { out.innerHTML = ''; return }
 
-  // Verifying a large video takes seconds of hashing, and the first file that
-  // needs the detector waits for its download. The status line says so, and
-  // the previous verdict goes: it answered a different question.
+  // Verifying a large video takes seconds of hashing. The status line says so,
+  // and the previous verdict goes: it answered a different question.
   out.innerHTML = ''
   note = detection ? `Watermark read from ${detectionName ?? 'the detection you supplied'}. No detector ran in this page.` : null
   say(`Reading ${file.name}…`, 'working')
-
-  const sidecarBytes = sidecar ? new Uint8Array(await sidecar.arrayBuffer()) : undefined
   const name = sidecar ? `${file.name} + ${sidecar.name}` : file.name
-  const verdict = await verdictOf(file, { sidecar: sidecarBytes, detection })
-  // A file the signature layer could not speak for may still carry a mark:
-  // the watermark is only evaluated for a proof that declares one, which a
-  // stripped copy does not have. This is the file people actually arrive with,
-  // and its verdict waits for the mark like a sealed file's does.
-  const mark = verdict.outcome === 'no_proof_found' ? await markAlone(file) : ''
-  if (run !== generation) return
-  out.innerHTML = card(name, verdict) + mark
-  say(note ?? 'Checked in this browser. Nothing was uploaded.')
+
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const sidecarBytes = sidecar ? new Uint8Array(await sidecar.arrayBuffer()) : undefined
+    if (detection) {
+      const verdict = await verdictOf(bytes, sidecarBytes, async () => detection)
+      if (run !== generation) return
+      out.innerHTML = card(name, verdict, { detectionSupplied: true })
+      say(note ?? done)
+      return
+    }
+
+    // Pass one: the signature layer, with a lookup that only notes it was
+    // asked. The core asks only for a proof that declares a watermark and got
+    // as far as the watermark check, which is exactly when a detector is due.
+    let wanted = false
+    const verdict = await verdictOf(bytes, sidecarBytes, async () => { wanted = true; return null })
+    if (run !== generation) return
+
+    if (wanted) {
+      out.innerHTML = card(name, verdict, { watermarkPending: true })
+      say('The signature is checked. Reading the watermark…', 'working')
+      // Pass two, with the detector: it can change the verdict — a payload
+      // that contradicts the proof is red (§8) — so the whole card is redrawn
+      // from the core's second answer rather than patched.
+      const full = await verdictOf(bytes, sidecarBytes, lookup(bytes, file.name))
+      if (run !== generation) return
+      out.innerHTML = card(name, full)
+      say(note ?? done)
+      return
+    }
+
+    out.innerHTML = card(name, verdict)
+    // A file the signature layer could not speak for may still carry a mark:
+    // the watermark is only evaluated for a proof that declares one, which a
+    // stripped copy does not have. This is the file people actually arrive
+    // with — and reading its pixels costs a download the reader agrees to.
+    if (verdict.outcome === 'no_proof_found') {
+      if (detector) {
+        out.insertAdjacentHTML('beforeend', await markAlone(file, bytes))
+        if (run !== generation) return
+      } else {
+        out.insertAdjacentHTML('beforeend', markOffer(detectorDownload() / 1e6))
+        const button = document.getElementById('read-mark') as HTMLButtonElement
+        button.addEventListener('click', () => {
+          button.disabled = true
+          void markAlone(file, bytes).then((html) => {
+            if (run !== generation) return
+            document.getElementById('mark-offer')?.remove()
+            out.insertAdjacentHTML('beforeend', html)
+            say(note ?? done)
+          })
+        })
+      }
+    }
+    say(note ?? done)
+  } catch (error) {
+    if (run !== generation) return
+    out.innerHTML = errorCard(file.name, error instanceof Error ? error.message : String(error))
+    say(`${file.name} could not be checked. Nothing was uploaded.`)
+  }
 }
 
 /**

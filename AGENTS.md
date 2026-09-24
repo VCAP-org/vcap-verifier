@@ -97,9 +97,12 @@ part of correctness:
   lets the reader refuse it (`--offline`, `--chains`, the page's switch). A
   reader that throws is *not consulted* (*anchoring not verified*), never
   *not found*; offline must still give a whole verdict.
-- The **detector** is fetched only when a file needs it (a proof declaring a
-  `watermark`, or a file with no proof), never on load, and the verdict waits
-  for it with its progress shown:
+- The **detector** is fetched only when a file needs it, never on load. For a
+  proof declaring a `watermark` it is fetched at once, and the signature's
+  verdict is shown **first**, its watermark line filling in when the detector
+  answers (the core runs twice: once with a lookup that only notes it was
+  asked, once with the detector). For a file with no proof it is fetched only
+  after the reader agrees, with the download size stated (`markOffer`):
   `web/src/detector.ts` is a separate artifact, excluded from the service
   worker's precache, and `detector.json` pins the build's SHA-256 so nothing
   unverified runs. Never import it from the bundle, and never make a verdict
@@ -108,6 +111,13 @@ part of correctness:
   Use a different model*): unpinned, so it is hashed in the page and named
   `custom-<sha256 prefix>` in every detection — never the pinned build's
   `model_version`.
+- Every line of evidence in the verdict says **where it comes from**, in
+  words (`FROM` in `web/src/render.ts`): *from the file alone*, *VCAP
+  transparency log key*, *third-party timestamp authority*, *public chain via
+  RPC*, *VCAP online lookup*. A new row carries one; a row that rests on our
+  log never reads as independent.
+- `check()` never leaves the page on "Reading…": any failure is `errorCard`,
+  which says what to do.
 - The **first view** is one question, one dropzone and one status line; the
   detector, the sidecar and the three trust panels live in one closed
   *Advanced* `<details>`. That is still *visible and refusable*: the panels are

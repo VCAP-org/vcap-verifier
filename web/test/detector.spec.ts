@@ -41,8 +41,10 @@ test.describe('with the published detector build', () => {
     await expect(page.locator('#status')).not.toContainText('running on')
     expect(asked.filter((u) => u.includes('.onnx'))).toHaveLength(0)
 
-    const clicked = Date.now()
     await page.setInputFiles('#file', photo)
+    // A file with no proof: the reader is asked before the download starts.
+    const clicked = Date.now()
+    await page.locator('#read-mark').click()
     await expect(page.locator('#status')).toContainText('running on', { timeout: 120_000 })
     const loaded = Date.now()
     console.log(`[timing] photo — 34.2 MB downloaded, hashed and a session opened in ${took(clicked)}`)
@@ -68,6 +70,7 @@ test.describe('with the published detector build', () => {
     const { server, url } = await serve({ corrupt: /\.onnx$/ })
     await page.goto(url)
     await page.setInputFiles('#file', photo)
+    await page.locator('#read-mark').click()
 
     await expect(page.locator('#status')).toContainText('The detector did not load', { timeout: 120_000 })
     await expect(page.locator('#status')).toContainText('the manifest pins')
@@ -88,6 +91,7 @@ test.describe('with the published detector build', () => {
     await page.setInputFiles('#model', model)
     await expect(page.locator('#detector-model')).toContainText('custom-a482af784d1a')
     await page.setInputFiles('#file', photo)
+    await page.locator('#read-mark').click()
     const mark = page.locator('.panel.mark')
     await expect(mark.locator('h3')).toHaveText('An invisible mark is still in these pixels', { timeout: 120_000 })
     await expect(mark).toContainText('custom-a482af784d1a, a model you supplied')
@@ -101,6 +105,7 @@ test.describe('with the published detector build', () => {
     await page.goto(url)
     const clicked = Date.now()
     await page.setInputFiles('#file', clip)
+    await page.locator('#read-mark').click()
     // Progressive: the eight frames are reported as they land, because six
     // seconds of silence reads as a hang and the reader has no other signal.
     // They arrive before the ready line, which the page prints once the clip
