@@ -213,7 +213,7 @@ test('the first view is one drop and one line, and Advanced says what is in use'
 
   const advanced = page.locator('details#advanced')
   await expect(advanced).not.toHaveAttribute('open')
-  await expect(page.locator('#using')).toHaveText('Using: 1 log · 1 timestamp authority · 1 chain · pinned detector')
+  await expect(page.locator('#using')).toHaveText('Using: 1 log · 1 timestamp authority · chains read on request · pinned detector')
   // Folded, not gone: every trust point is in the page and one click away.
   await expect(page.locator('#trust-logs li')).toHaveCount(1)
   await expect(page.locator('#trust-logs')).toBeHidden()
@@ -227,7 +227,7 @@ test('the first view is one drop and one line, and Advanced says what is in use'
 
   // Any change reads "custom" on the summary line.
   await page.uncheck('#tsa-roots input[type=checkbox]')
-  await expect(page.locator('#using')).toHaveText('Using (custom): 1 log · 0 timestamp authorities · 1 chain · pinned detector')
+  await expect(page.locator('#using')).toHaveText('Using (custom): 1 log · 0 timestamp authorities · chains read on request · pinned detector')
   await stop(server)
 })
 
@@ -242,5 +242,30 @@ test('the page fits a phone: no horizontal scroll at 390 px, Advanced open or no
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await page.locator('.verdict details.tech summary').click()
   expect(await overflow()).toBeLessThanOrEqual(0)
+  await stop(server)
+})
+
+/**
+ * The page runs under its own Content-Security-Policy with nothing refused:
+ * a policy that blocked the page's own style or bundle would be found here
+ * and not by a reader. Every violation the browser reports is collected.
+ */
+test('runs under its Content-Security-Policy with no violation', async ({ page }) => {
+  const { server, url } = await serve({ absent: /\.onnx$/ })
+  await page.addInitScript(() => {
+    const seen: string[] = []
+    ;(window as unknown as { violations: string[] }).violations = seen
+    document.addEventListener('securitypolicyviolation', (e) => seen.push(`${e.violatedDirective} ${e.blockedURI}`))
+  })
+  await page.goto(url)
+  expect(await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content')).toContain("connect-src 'self' https://sepolia.base.org")
+  await page.setInputFiles('#file', sealed)
+  await expect(page.locator('.verdict')).toContainText('no detection was available')
+  await page.setInputFiles('#file', copy)
+  await page.locator('#read-mark').click()
+  await expect(page.locator('.panel.mark')).toContainText('could not be loaded')
+  // The font, the styles, the bundle and the detector module all loaded.
+  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Geist')
+  expect(await page.evaluate(() => (window as unknown as { violations: string[] }).violations)).toEqual([])
   await stop(server)
 })

@@ -47,8 +47,13 @@ where enrolment puts it), a page that actually reaches a log or a status list.
   a **trust point**: the verifier is not a light client, it checks the
   endpoint's chain id and then believes the root it returns, so a lying RPC
   could fake a root. It is sent the anchor id, never the file or the proof.
-  Offline (or `--offline`, or the chain switched off on the page) the anchor is
-  *not consulted* — *anchoring not verified*, never a failure.
+  **On the page that read is off until the reader asks**: an anchored verdict
+  says *anchoring not verified* and offers the read, naming the endpoint and
+  the anchor id it would send (and, like any request, the reader's address);
+  one click, or the switch under *Advanced*, turns it on for the visit. The CLI
+  reads it by default and `--offline` sends nothing. Offline, or with the read
+  not taken, the anchor is *not consulted* — *anchoring not verified*, never a
+  failure.
 - **The detector is a separate download, and the page is whole without it.**
   Distillation under 10 MB was dropped: what exists is the full
   model at 34.2 MB, so it is never fetched on load and never precached. It is
@@ -123,11 +128,38 @@ and all three are still why Pages is the *mirror* below and not the primary:
 What did not change is the part that matters: the page is static, nothing is
 fetched from our infrastructure to reach a verdict, and once the service worker
 has installed the only requests a verdict can make are the anchor read from the
-public chain RPC in `chains.json` and, when a file needs it, the detector. **Our host serves the page; it is not
+public chain RPC in `chains.json` — only when the reader asks for it — and,
+when a file needs it, the detector. **Our host serves the page; it is not
 in the verification path** — which is why the hashes below, and not the
 hostname, are what the page asks to be trusted on. Anyone who would rather not
 fetch it from us can serve the same `dist/` anywhere, sub-path included: every
 URL the build produces is relative.
+
+### What the page may load: its Content-Security-Policy
+
+"Nothing leaves the browser" is enforced by the browser, not only promised in
+the source. `index.html` carries a CSP `<meta>` that `build.mjs` fills in from
+the files it describes:
+
+```
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval';
+style-src 'self' 'sha256-<the one inline style>'; img-src 'self' blob: data:;
+font-src 'self'; connect-src 'self' <the RPC origins of trust/chains.json>;
+worker-src 'self' blob:; manifest-src 'self'; object-src 'none';
+base-uri 'none'; form-action 'none'
+```
+
+`wasm-unsafe-eval` is what onnxruntime needs to compile the detector's engine
+and `blob:` workers are its threads; the one origin outside the page is the
+chain endpoint, and only for a read the reader asked for. A Playwright test
+drives a verdict, the detector path and the mark offer and fails on any
+violation the browser reports.
+
+The registry the page links a photo's mark to is a build-time constant:
+`VCAP_TRACE_URL`, defaulting to the reference deployment's registry
+(`https://console.vcap.gregoriogalante.com/t`). A build for another deployment
+sets it and gets its own link; the published build uses the default, which is
+why its hashes reproduce from a plain clone.
 
 CI is unchanged and is still the gate: typecheck, the core against the spec
 vectors, the double clean build with one set of hashes (`build-web.yml`), and
@@ -247,8 +279,8 @@ the same key that signed every earlier manifest in
 holds that key: there is no legal entity behind it, no certificate
 and no key-management service, so it is not eIDAS, not an advanced
 electronic signature, and not a claim about a person or a company. The key
-lives on one machine, in the workspace's `Ops/` folder outside every
-repository, and whoever has that disk can sign — which is exactly why the claim
+lives on one machine, outside every repository, and whoever has that disk can
+sign — which is exactly why the claim
 is kept this small. [`signing/README.md`](signing/README.md) spells out both
 halves, the by-hand checks with `openssl`, and what a rotation looks like.
 

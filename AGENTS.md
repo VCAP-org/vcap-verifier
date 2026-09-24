@@ -87,8 +87,13 @@ part of correctness:
   before the capture and nothing else, so no wording anywhere may let it read
   as independent corroboration.
 - No analytics, no telemetry, no uploads. The file and the proof never leave
-  the browser, and that must stay auditable in a single read of the source.
-- The **chain read** is the one request a verdict makes: for a proof with an
+  the browser, and that must stay auditable in a single read of the source —
+  and enforced: the page's CSP (`build.mjs`, `csp()`) allows its own origin and
+  the RPC origins of `trust/chains.json`, nothing else. A new request the page
+  makes needs a CSP change, and a reason in this file.
+- The **chain read** is the one request a verdict makes, and on the page it is
+  **off until the reader asks** (`chainOffer`/`enableChain` in `trust.ts`;
+  the offer names the endpoint and the anchor id). For a proof with an
   `anchor`, the page and the CLI ask the public chain RPC listed in
   `trust/chains.json` (never a server of ours) for the root the contract
   stored, sending the anchor id only. The core stays transport-free
@@ -158,8 +163,9 @@ part of correctness:
   on the clock, the machine or its paths — only on the commit and the pinned
   toolchain. CI builds twice from clean checkouts and fails if the trees differ.
   Every shipped file is listed in `hashes.json`, and that manifest is signed
-  with a **detached** Ed25519 signature (`bin/sign-build.mjs`, key in `Ops/`,
-  never in a repo). It lands at `dist/hashes.json.sig`, which is safe because
+  with a **detached** Ed25519 signature (`bin/sign-build.mjs --key <path>` or
+  `VCAP_SIGNING_KEY`; the key is held offline, never in a repo, and never
+  found by a default path). It lands at `dist/hashes.json.sig`, which is safe because
   the manifest does not list it and the builds CI diffs are unsigned: what must
   never happen is the signature entering the bytes it signs. It claims
   **continuity, not identity**: no legal

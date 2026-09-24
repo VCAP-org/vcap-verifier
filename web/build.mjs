@@ -28,6 +28,43 @@ const dirty = git('status', '--porcelain', '--', '.', '../core/src', '../trust')
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
+/**
+ * The registry the page links a photo's mark to: the reference deployment's,
+ * unless `VCAP_TRACE_URL` names another at build time. A build for another
+ * deployment points at its own registry without a code change; the published
+ * build is made with the default, so its hashes reproduce from a plain clone.
+ */
+const TRACE_URL = process.env.VCAP_TRACE_URL || 'https://console.vcap.gregoriogalante.com/t'
+
+/**
+ * The Content-Security-Policy of the page, from the files it describes: the
+ * RPC origins of `trust/chains.json` (the one place a verdict may ask
+ * anything), and the SHA-256 of the one inline `<style>`, so no other style
+ * can be injected. `wasm-unsafe-eval` is what onnxruntime needs to compile the
+ * detector's engine; `blob:` workers are its threads. Everything else is the
+ * page's own origin.
+ */
+const csp = (template) => {
+  const style = /<style>([\s\S]*?)<\/style>/.exec(template)
+  if (!style) throw new Error('[vcap] index.html has no inline <style> to hash')
+  const styleHash = createHash('sha256').update(style[1]).digest('base64')
+  const chains = JSON.parse(readFileSync('../trust/chains.json', 'utf8')).chains
+  const rpc = [...new Set(Object.values(chains).flatMap((c) => c.rpc.map((url) => new URL(url).origin)))]
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    `style-src 'self' 'sha256-${styleHash}'`,
+    "img-src 'self' blob: data:",
+    "font-src 'self'",
+    `connect-src 'self' ${rpc.join(' ')}`,
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'"
+  ].join('; ')
+}
+
 const options = {
   entryPoints: ['src/main.ts'],
   // The page bundles the core's **source**, not its `dist`. The published
@@ -36,6 +73,7 @@ const options = {
   // the sources somebody auditing it can read — with no build step in between
   // that could go stale.
   alias: { 'vcap-verify-core': '../core/src/index.ts' },
+  define: { __VCAP_TRACE_URL__: JSON.stringify(TRACE_URL) },
   bundle: true,
   format: 'esm',
   target: ['es2022'],
@@ -48,10 +86,13 @@ const options = {
 
 // The HTML carries its own provenance so a reader can compare the page in
 // front of them with the repository's CI output without opening devtools.
-const html = (fields) => Object.entries(fields).reduce(
-  (page, [key, value]) => page.replaceAll(`{{${key}}}`, value),
-  readFileSync('src/index.html', 'utf8')
-)
+const html = (fields) => {
+  const template = readFileSync('src/index.html', 'utf8')
+  return Object.entries({ ...fields, csp: csp(template) }).reduce(
+    (page, [key, value]) => page.replaceAll(`{{${key}}}`, value),
+    template
+  )
+}
 
 /**
  * The detector is a second artifact, not part of the bundle. It is reached
