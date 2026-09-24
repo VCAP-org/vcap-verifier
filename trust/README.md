@@ -11,6 +11,11 @@ case instead of the obvious one. The switches are separate everywhere —
 `--no-default-logs` and `--no-default-tsa`, two panels on the page, two
 sections in the app's Settings.
 
+A third document, `chains.json`, is not about whom to believe for a signature
+or a clock but where to read anchors from: which public chain RPC is asked for
+the root an anchor's contract stored. It has its own section below, because
+that endpoint is a trust point of its own.
+
 ## Transparency logs
 
 `logs.json` is the list of transparency logs the page and the CLI in this
@@ -134,3 +139,54 @@ file may name a certificate it does not hold.
 
 Rotating a provider means a **new entry**, never an edit of an existing one:
 tokens already minted keep chaining to the root that signed them.
+
+## Chains
+
+`chains.json` lists the public chains an `anchor` attachment is read from:
+per chain name (the `chain` a proof's anchor carries), the EIP-155 `chain_id`,
+the anchoring `contract`, and the HTTPS JSON-RPC endpoints to ask, in order.
+Same publication as the other two: read by the CLI from this directory,
+bundled into the page, published unchanged as `chains.json` beside it and
+covered by `hashes.json`.
+
+### What reading a chain buys, and what it does not
+
+The anchor's Merkle path is checked from the file alone. Reading the chain
+adds the other half: the contract stored *this* root under *this* id, in a
+block with a time — which §7 then uses as the proven instant when no
+timestamp token is present.
+
+**The RPC endpoint is a trust point.** The verifier is not a light client: it
+checks that the endpoint answers `eth_chainId` with the chain id listed, and
+then believes the root it returns. A lying or compromised endpoint could
+return the root a forged proof carries. It learns the anchor id and the
+address asking — never the file or the proof. The endpoint listed is the
+chain's public one, not a server of ours; running your own node and listing it
+takes that third party out of the check.
+
+Without an answer — offline, every endpoint down, the chain switched off —
+the anchor reads *anchoring not verified*, with the reason in its detail:
+**not consulted**, never *not found*, never a failure.
+
+### Replacing it
+
+| where | how |
+|---|---|
+| CLI | `--show-trust` to read it, `--chains <file>` to use another document, `--offline` to read no chain |
+| page | the *Public chains read for anchors* panel: a switch per chain |
+| library | `vcap-verify-core` ships **no** default; `verify(bytes, { readChain: rpcChainReader(parseChainsDocument(doc), post) })`, with `post` your own transport |
+
+### The shape
+
+```json
+{
+  "chains": {
+    "base-sepolia": { "chain_id": 84532, "contract": "0x…40 hex", "rpc": ["https://…"],
+                      "name": "…", "operator": "…", "caveats": ["…"] }
+  }
+}
+```
+
+`parseChainsDocument` refuses a non-HTTPS endpoint, a malformed address and a
+missing chain id: an answer over plain HTTP could be rewritten by anyone on
+the path.

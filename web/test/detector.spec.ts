@@ -34,17 +34,15 @@ test.describe('with the published detector build', () => {
     const { server, url } = await serve()
     await page.goto(url)
 
-    // Nothing is fetched before the click: the model is 34 MB and the page is
-    // whole without it.
+    // Nothing is fetched on load: the model is 34 MB and only a file that
+    // needs it pays for it. This one carries no proof, so its pixels are read.
     const asked: string[] = []
     page.on('request', (request) => asked.push(request.url()))
-    await page.setInputFiles('#file', photo)
-    await expect(page.locator('.verdict h2')).toHaveText('No proof found')
-    expect(asked.filter((u) => u.includes('.onnx'))).toHaveLength(0)
     await expect(page.locator('#detector-state')).not.toContainText('running on')
+    expect(asked.filter((u) => u.includes('.onnx'))).toHaveLength(0)
 
     const clicked = Date.now()
-    await page.click('#load-detector')
+    await page.setInputFiles('#file', photo)
     await expect(page.locator('#detector-state')).toContainText('running on', { timeout: 120_000 })
     const loaded = Date.now()
     console.log(`[timing] photo — 34.2 MB downloaded, hashed and a session opened in ${took(clicked)}`)
@@ -54,6 +52,7 @@ test.describe('with the published detector build', () => {
     await expect(mark.locator('h3')).toHaveText('An invisible mark is still in these pixels', { timeout: 120_000 })
     console.log(`[timing] photo — one frame detected and the verdict redrawn in ${took(loaded)}`)
     await expect(mark).toContainText('This is not a verdict of authenticity')
+    // The verdict waited for the mark: it is on the page with it, not before.
     await expect(mark.locator('a', { hasText: 'Look this identifier up' })).toHaveCount(1)
     // The signature layer decides the colour, and it said nothing: a mark is
     // never why a file verifies.
@@ -69,7 +68,6 @@ test.describe('with the published detector build', () => {
     const { server, url } = await serve({ corrupt: /\.onnx$/ })
     await page.goto(url)
     await page.setInputFiles('#file', photo)
-    await page.click('#load-detector')
 
     await expect(page.locator('#detector-state')).toContainText('The detector did not load', { timeout: 120_000 })
     await expect(page.locator('#detector-state')).toContainText('the manifest pins')
@@ -77,7 +75,6 @@ test.describe('with the published detector build', () => {
     // not evaluated, which is a weaker verdict and not a failure.
     await expect(page.locator('.panel.mark a')).toHaveCount(0)
     await expect(page.locator('.verdict h2')).toHaveText('No proof found')
-    await expect(page.locator('#load-detector')).toBeEnabled()
 
     await stop(server)
   })
@@ -86,10 +83,8 @@ test.describe('with the published detector build', () => {
     test.skip(!existsSync(clip), 'no marked clip in place')
     const { server, url } = await serve()
     await page.goto(url)
-    await page.setInputFiles('#file', clip)
-
     const clicked = Date.now()
-    await page.click('#load-detector')
+    await page.setInputFiles('#file', clip)
     // Progressive: the eight frames are reported as they land, because six
     // seconds of silence reads as a hang and the reader has no other signal.
     // They arrive before the ready line, which the page prints once the clip

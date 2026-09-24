@@ -3,7 +3,7 @@
  *
  * No argument-parsing dependency: this tool exists so that somebody can check
  * a file without trusting us, and every package in its tree is something they
- * would have to trust. Seventeen flags of hand-rolled parsing is a smaller ask
+ * would have to trust. Nineteen flags of hand-rolled parsing is a smaller ask
  * than a transitive graph.
  */
 export interface Options {
@@ -34,6 +34,10 @@ export interface Options {
   tsaRoots: string[]
   /** Drop the timestamping authorities this tool ships with, leaving only what `--tsa-root` added. */
   noDefaultTsa: boolean
+  /** Read no chain: an anchor reads *anchoring not verified*. The only switch that keeps the tool off the network. */
+  offline: boolean
+  /** The chains document to read anchors with, instead of `trust/chains.json`. */
+  chainsFile?: string
   /** Exit non-zero unless the verdict's ceiling is green. */
   requireGreen: boolean
   /** The verifier's clock, for reproducing a verdict at a stated instant. */
@@ -69,6 +73,9 @@ Options
   --tsa-root <path.pem>     a timestamping authority root to pin, on top of the shipped
                             ones; repeatable
   --no-default-tsa          do not trust the timestamping authorities this tool ships with
+  --chains <path.json>      the chains document to read anchors with, in the shape of
+                            trust/chains.json, instead of the shipped one
+  --offline                 read no chain: an anchor reads *anchoring not verified*
   --require-green           exit 2 unless the ceiling is green
   --at <iso8601>            the instant to verify at, instead of now
   -h, --help                this
@@ -91,6 +98,13 @@ Trust
   timestamp reads *trusted time not evaluated* and §7 validates against the
   device's own clock, which caps the ceiling at amber.
 
+  Chains (trust/chains.json). An anchor is checked by asking the chain's
+  contract, through the public JSON-RPC endpoint listed there, which root it
+  stored. That endpoint is a trust point: a lying RPC could return the root a
+  forged proof carries. It learns the anchor id and your address, never the
+  file. List your own node with --chains, or read nothing with --offline;
+  a chain that cannot be read gives *anchoring not verified*, never a failure.
+
   Verifying against sets that contain none of ours is a supported way to run
   this tool, not a degraded one.
 
@@ -105,7 +119,7 @@ tampered file is a successful run of the tool and a failure of the file.
 `
 
 export const parse = (argv: string[]): Options => {
-  const o: Options = { files: [], json: false, recompute: true, logs: [], trustFiles: [], noDefaultLogs: false, showTrust: false, tsaRoots: [], noDefaultTsa: false, requireGreen: false, help: false }
+  const o: Options = { files: [], json: false, recompute: true, logs: [], trustFiles: [], noDefaultLogs: false, showTrust: false, tsaRoots: [], noDefaultTsa: false, offline: false, requireGreen: false, help: false }
   const next = (flag: string, at: number): string => {
     const value = argv[at + 1]
     if (value === undefined || value.startsWith('--')) throw new UsageError(`${flag} needs a value`)
@@ -125,6 +139,8 @@ export const parse = (argv: string[]): Options => {
       case '--no-default-logs': o.noDefaultLogs = true; break
       case '--no-default-tsa': o.noDefaultTsa = true; break
       case '--show-trust': o.showTrust = true; break
+      case '--offline': o.offline = true; break
+      case '--chains': o.chainsFile = next(arg, at); at++; break
       case '--trust': o.trustFiles.push(next(arg, at)); at++; break
       case '--tsa-root': o.tsaRoots.push(next(arg, at)); at++; break
       case '--at': {

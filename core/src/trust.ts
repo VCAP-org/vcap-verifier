@@ -147,3 +147,45 @@ export const parseTsaRoot = async (text: string): Promise<{ fingerprint: string,
 
 /** The fingerprint `openssl x509 -noout -fingerprint -sha256` prints, lowercase and without colons. */
 export const fingerprintOf = async (der: Bytes): Promise<string> => toHex(await sha256(der))
+
+/**
+ * The third trust document: which public chains a verifier reads an `anchor`
+ * attachment's root from (§6.2), where the contract lives on each, and which
+ * JSON-RPC endpoints it asks.
+ *
+ * The RPC is a trust point and the document says so: whoever answers the call
+ * could answer with any root. A reader who distrusts every endpoint listed can
+ * run their own node and list that instead, or read nothing — an anchor that
+ * was not read is *anchoring not verified*, never a failure.
+ */
+export interface ChainEntry {
+  /** EIP-155 chain id; the endpoint's `eth_chainId` must answer it. */
+  chain_id: number
+  /** The anchoring contract, `0x` + 40 hex. */
+  contract: string
+  /** HTTPS JSON-RPC endpoints, asked in order. */
+  rpc: string[]
+  name?: string
+  operator?: string
+  caveats?: string[]
+}
+
+const isHttps = (url: unknown): boolean => {
+  if (typeof url !== 'string') return false
+  try { return new URL(url).protocol === 'https:' } catch { return false }
+}
+
+/** The entries keyed by the `chain` value a proof's anchor names, checked field by field. */
+export const parseChainsDocument = (document: unknown): Record<string, ChainEntry> => {
+  if (!isObj(document) || !isObj(document.chains)) throw new TrustDocumentError('a chains document is an object with a `chains` object keyed by chain name')
+  const chains: Record<string, ChainEntry> = {}
+  for (const [name, entry] of Object.entries(document.chains)) {
+    if (!isObj(entry)) throw new TrustDocumentError(`chain ${name} is not an object`)
+    if (!Number.isSafeInteger(entry.chain_id) || (entry.chain_id as number) <= 0) throw new TrustDocumentError(`chain ${name} needs a positive integer \`chain_id\``)
+    if (typeof entry.contract !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(entry.contract)) throw new TrustDocumentError(`chain ${name} needs a \`contract\` address, 0x and 40 hex`)
+    // HTTPS only: an answer over plain HTTP could be rewritten by anybody on the path.
+    if (!Array.isArray(entry.rpc) || entry.rpc.length === 0 || !entry.rpc.every(isHttps)) throw new TrustDocumentError(`chain ${name} needs a non-empty \`rpc\` list of https URLs`)
+    chains[name] = entry as unknown as ChainEntry
+  }
+  return chains
+}

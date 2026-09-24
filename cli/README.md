@@ -19,13 +19,21 @@ photo.jpg
     · origin not hardware-attested: nothing proves the key lives in secure hardware
 ```
 
-## It contacts nothing
+## It contacts one thing: the chain an anchor names
 
-Every check this makes is one the file carries the evidence for, which is the
-whole promise of the format. So *revocation not checked* and *anchoring not
-verified* are the normal answers here, and they are **answers**, not failures:
-a verifier that cannot ask the log says so rather than guessing. A caller who
-wants those closed reads the log and the chain themselves and uses
+For a proof with an `anchor`, the tool asks the public chain it names, through
+the JSON-RPC endpoint `trust/chains.json` lists, which root the contract stored
+(one read-only `eth_call`) — so anchoring is checkable without us. It sends the
+anchor id, never the file. The endpoint is a **trust point**: the tool checks
+its chain id and then believes the root, so a lying RPC could fake one. List
+your own node with `--chains <file>`, or read nothing with `--offline`; a chain
+that cannot be read gives *anchoring not verified*, an answer and not a
+failure.
+
+Every other check is one the file carries the evidence for, which is the whole
+promise of the format. So *revocation not checked* is the normal answer here,
+and it is an **answer**, not a failure: a verifier that cannot ask the log says
+so rather than guessing. A caller who wants it closed reads the log and uses
 `vcap-verify-core` directly.
 
 The anchors are yours to supply, because a verdict is only ever green against a
@@ -38,6 +46,8 @@ named set of them:
 --show-trust                   print the logs and the authorities this run would trust
 --tsa-root <path.pem>          a TSA root to pin
 --no-default-tsa               do not trust the authorities this tool ships with
+--chains <path.json>           the chains and RPC endpoints to read anchors with, shaped like trust/chains.json
+--offline                      read no chain: anchors read *anchoring not verified*
 ```
 
 Two sets, two switches, because they are two decisions: `trust/logs.json` is
@@ -115,7 +125,7 @@ full verdict over the whole file, with no label for where the proof came from.
 
 A proof may declare a `watermark` (§6.1): the writer saying a mark was embedded
 in the pixels. Reading it back needs a detector — a model, a demux, frames —
-and this tool has none and contacts nothing, so the detection comes from the
+and this tool has none and runs no model, so the detection comes from the
 caller as a file:
 
 ```

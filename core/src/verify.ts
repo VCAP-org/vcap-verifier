@@ -268,10 +268,13 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
         mime: (proof.media as Obj).mime as string,
         coreHash: hash
       }
+      // A lookup that throws is an absent answer, and its reason is kept: a
+      // detector that could not be fetched should say why in the verdict.
       let evidence = null
-      try { evidence = await o.watermark(claim) } catch { evidence = null }
+      let unavailable = 'no detection was available'
+      try { evidence = await o.watermark(claim) } catch (error) { unavailable += `: ${error instanceof Error ? error.message : String(error)}` }
       const result = evidence === null
-        ? { result: 'not_evaluated' as const, detail: 'no detection was available' }
+        ? { result: 'not_evaluated' as const, detail: unavailable }
         : evaluateWatermark(evidence, claim)
       verdict.watermark = result
       // §8's red row. It is returned as *tampered* with a reason and no
@@ -302,7 +305,8 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   }
   if (isObj(proof.anchor)) {
     const a = await verifyAnchor(proof.anchor as unknown as AnchorAttachment, coreHash, o.readChain)
-    verdict.anchor = a.ok ? { ok: true, detail: a.onChain ? `anchored on ${a.chain}, block ${a.block}` : 'merkle path reaches the anchored root; chain not consulted', on_chain: a.onChain, block_time: a.blockTime } : { ok: false, detail: a.reason }
+    const offChain = a.ok && a.unread !== undefined ? `merkle path reaches the anchored root; the chain could not be read (${a.unread})` : 'merkle path reaches the anchored root; chain not consulted'
+    verdict.anchor = a.ok ? { ok: true, detail: a.onChain ? `anchored on ${a.chain}, block ${a.block}` : offChain, on_chain: a.onChain, block_time: a.blockTime } : { ok: false, detail: a.reason }
     // §8's rule for every attachment: present and not holding up carries the
     // absent label too. *not anchored* is what a reader is shown, *anchor
     // evidence invalid* is what an operator can act on.

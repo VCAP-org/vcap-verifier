@@ -10,7 +10,7 @@
  * - **Nothing is fetched when the page opens.** This module is not imported by
  *   the bundle; `main.ts` reaches it through a dynamic `import()` of a URL the
  *   bundler cannot resolve, so `detector.js` is a separate artifact that the
- *   browser asks for only after the user clicks.
+ *   browser asks for only once a file needs it.
  * - **It is not in the offline precache.** `sw.js` stores every other shipped
  *   file; this one and the model it pulls are excluded on purpose, so an
  *   offline page is the page minus the detector and not a failed install.
@@ -81,7 +81,7 @@ const download = async (url: string, total: number, onProgress: (loaded: number,
 }
 
 /**
- * Called only from a click. Throws with a sentence the page prints as it is:
+ * Called only when a file needs it. Throws with a sentence the page prints as it is:
  * every failure here leaves the page working and the watermark *not
  * evaluated*, so the message has to say which of the two it is.
  */

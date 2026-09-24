@@ -1,0 +1,20 @@
+{
+  "document": "vcap/1.0/chains",
+  "updated": "2026-09-24",
+  "about": "The public chains the verifiers in this repository read an `anchor` attachment from (vcap-spec §6.2), unless the reader says otherwise. A proof's anchor carries a Merkle path to a batch root and names the chain, the contract slot (`anchor_id`) and the block it was written in; checking it against the chain means asking the contract what root it stored under that id. The verifier asks the endpoints listed here, in order, with one read-only `eth_call` of `getAnchor(uint256)`. Without an answer — offline, `--offline`, or every endpoint down — the anchor reads *anchoring not verified* and nothing is lost but that one check.",
+  "how_to_replace": "This document is data, not code. The page publishes it verbatim as `chains.json` next to itself and bundles the same bytes; the CLI reads this file, takes `--chains <file>` to use another one and `--offline` to read no chain at all. Listing your own node's URL is the way to take the third-party endpoint out of the check.",
+  "trust_point": "The RPC endpoint is trusted to answer honestly. The verifier is not a light client: it checks that the endpoint serves the chain id below and then believes the root it returns. A lying or compromised endpoint could return the root a forged proof carries. What the endpoint learns is the anchor id being checked and the address asking; it never sees the file or the proof, and it is not run by the vcap project.",
+  "chains": {
+    "base-sepolia": {
+      "chain_id": 84532,
+      "contract": "0xC0cB4dB299ADE68Cc9CE6DC0B541FF870b272572",
+      "rpc": ["https://sepolia.base.org"],
+      "name": "Base Sepolia (testnet)",
+      "operator": "the endpoint is the public RPC Base publishes for its test network; the contract is VcapAnchor, deployed by the vcap project",
+      "caveats": [
+        "A testnet: its blocks are real and public, but the network carries no economic security and could in principle be reset. An anchor here proves the root was on this chain when it was read, and no more.",
+        "A public endpoint with no SLA and rate limits. When it does not answer, the anchor reads *anchoring not verified*, never *not found*."
+      ]
+    }
+  }
+}

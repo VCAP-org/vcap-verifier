@@ -50,7 +50,7 @@ Two things it cannot serve, said here rather than left to be discovered:
   engine that would run it *is* here, hashed like the rest; only the model is
   missing. The page stays whole without it —
   it says *watermark not evaluated* and every other verdict is unchanged — but
-  clicking the detector here will find no model.
+  a file that needs the detector here will find no model.
 - **No cross-origin isolation.** GitHub Pages does not send COOP/COEP, so there
   is no `SharedArrayBuffer` and WASM runs on one thread. Nothing breaks; the
   detector, where one is available, is roughly 2.3–2.6× slower than on the

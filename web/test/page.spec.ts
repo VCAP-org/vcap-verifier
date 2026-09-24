@@ -34,7 +34,8 @@ test('a stripped copy is told its pixels may still carry a mark, and how to read
   await expect(page.locator('.verdict h2')).toHaveText('No proof found')
   const panel = page.locator('.panel.mark')
   await expect(panel).toHaveCount(1)
-  await expect(panel).toContainText('Load the detector above and this page will look.')
+  // No model on this host: the page tried, and says it could not look.
+  await expect(panel).toContainText('The detector could not be loaded (the reason is above), so this page could not look.')
   // Not dressed as a verdict: no verdict colour, and outside the verdict card.
   await expect(panel).not.toHaveClass(/green|amber|red|grey/)
   await expect(page.locator('.verdict .panel.mark')).toHaveCount(0)
@@ -73,33 +74,30 @@ test('an unreadable detection changes nothing and says so', async ({ page }) => 
   await stop(server)
 })
 
-test('the detector is fetched on a click and never on load, and its absence is an answer', async ({ page }) => {
-  // A host with no model on it: the one file this page ever fetches is the one
-  // that is missing, and the page has to keep working and say why.
+test('the detector is fetched when a file needs it and never on load, and its absence is an answer', async ({ page }) => {
+  // A host with no model on it: the one file this page fetches for a
+  // watermark is the one that is missing, and the verdict has to arrive
+  // anyway, with the reason on it.
   const { server, url } = await serve({ absent: /\.onnx$/ })
   const requested: string[] = []
   page.on('request', (request) => requested.push(new URL(request.url()).pathname))
   await page.goto(url)
+  await expect(page.locator('#detector-title')).toHaveText('Invisible watermark: not checked')
+
+  // Loaded and idle: nothing about the detector has been asked for.
+  expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(false)
+  expect(requested.some((p) => p.endsWith('.onnx'))).toBe(false)
+
+  // Vector 01 declares a watermark, so the page fetches the detector for it,
+  // waits, and gives the verdict it can: *watermark not evaluated*, and why.
   await page.setInputFiles('#file', sealed)
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
-
-  // The page is complete and nothing about the detector has been asked for.
-  expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(false)
-  expect(requested.some((p) => p.endsWith('/detector.json'))).toBe(false)
-  // The absence is stated where the reader is about to need it: the bar's
-  // title, next to the file, and not a line of grey text at the foot.
-  await expect(page.locator('#detector-title')).toHaveText('Invisible watermark: not checked')
-  await expect(page.locator('#detector-bar')).not.toHaveClass(/ready/)
-
-  await page.click('#load-detector')
-  // The reader gets the reason, and the verdict on screen is untouched: a
-  // detector that cannot be had is *watermark not evaluated*, not a failure.
+  await expect(page.locator('.verdict .chips > li', { hasText: /^watermark not evaluated$/ })).toHaveCount(1)
+  await expect(page.locator('.verdict')).toContainText('no detection was available: the model could not be fetched: 404')
   await expect(page.locator('#detector-state')).toContainText('The detector did not load: the model could not be fetched: 404')
   await expect(page.locator('#detector-title')).toHaveText('Invisible watermark: not checked')
   expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(true)
-  expect(requested.some((p) => p.endsWith('/detector.json'))).toBe(true)
-  await expect(page.locator('.verdict h2')).toContainText('Authentic')
-  await expect(page.locator('#load-detector')).toBeEnabled()
+  expect(requested.some((p) => p.endsWith('.onnx'))).toBe(true)
   await stop(server)
 })
 

@@ -1,7 +1,8 @@
-import { parseTrustDocument, parseTrustedLog, parseTsaDocument, parseTsaRoot, type TrustDocumentEntry, type TrustedLog, type TsaAuthorityEntry } from 'vcap-verify-core'
+import { parseChainsDocument, parseTrustDocument, parseTrustedLog, parseTsaDocument, parseTsaRoot, rpcChainReader, type ChainEntry, type ChainReader, type TrustDocumentEntry, type TrustedLog, type TsaAuthorityEntry } from 'vcap-verify-core'
 import { escape } from './render.js'
 import defaultDocument from '../../trust/logs.json'
 import defaultTsaDocument from '../../trust/tsa.json'
+import defaultChainsDocument from '../../trust/chains.json'
 
 /**
  * Which transparency logs this page believes, and the reader's hand on that.
@@ -249,4 +250,68 @@ export const mountTsa = async (changed: () => void): Promise<void> => {
       })
       .catch((error: Error) => { sayTsa(error.message) })
   })
+}
+
+/**
+ * Which public chains this page reads an anchor from, and the RPC it asks.
+ *
+ * The one request a verdict can make, and only for a proof that carries an
+ * `anchor`: a read-only `eth_call` to the endpoint `chains.json` lists. It
+ * sends the anchor id, never the file or the proof. The endpoint is trusted to
+ * answer honestly — a lying RPC could return a forged root — and the panel
+ * says so. Switched off, or offline, the anchor reads *anchoring not
+ * verified* and the rest of the verdict is unchanged.
+ */
+const chains: { name: string, entry: ChainEntry, on: boolean }[] = []
+
+// A plain JSON POST with no credentials and no referrer: the endpoint learns
+// the anchor id and the reader's address, and nothing about this page. Bounded,
+// because a verdict must not wait forever on somebody else's server.
+const post = async (url: string, body: string): Promise<string> => {
+  const response = await window.fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10_000)
+  })
+  if (!response.ok) throw new Error(`${new URL(url).host} answered HTTP ${response.status}`)
+  return await response.text()
+}
+
+/** The reader over the chains switched on; none on → undefined, which is *chain not consulted*. */
+export const chainReader = (): ChainReader | undefined => {
+  const on = chains.filter((c) => c.on)
+  return on.length === 0 ? undefined : rpcChainReader(Object.fromEntries(on.map((c) => [c.name, c.entry])), post)
+}
+
+const drawChains = (): void => {
+  const list = document.getElementById('chain-list') as HTMLUListElement
+  list.innerHTML = chains.map(({ name, entry, on }, at) => `<li>
+    <label><input type="checkbox" data-chain="${at}"${on ? ' checked' : ''}> ${escape(entry.name ?? name)}</label>
+    <div class="muted">Contract <code>${escape(entry.contract)}</code>, read through ${entry.rpc.map((url) => `<code>${escape(url)}</code>`).join(', ')}.
+    <br><strong>The endpoint is trusted to answer honestly.</strong> This page checks it serves chain ${entry.chain_id} and then believes the root it returns.</div>
+    ${(entry.caveats ?? []).length === 0 ? '' : `<ul class="muted">${(entry.caveats ?? []).map((c) => `<li>${escape(c)}</li>`).join('')}</ul>`}
+  </li>`).join('')
+  for (const box of list.querySelectorAll('input[type=checkbox]')) {
+    box.addEventListener('change', () => {
+      const chain = chains[Number((box as HTMLInputElement).dataset.chain)]
+      if (chain) chain.on = (box as HTMLInputElement).checked
+      onChainChange()
+    })
+  }
+}
+
+let onChainChange: () => void = () => {}
+
+export const mountChains = (changed: () => void): void => {
+  onChainChange = changed
+  try {
+    for (const [name, entry] of Object.entries(parseChainsDocument(defaultChainsDocument))) chains.push({ name, entry, on: true })
+  } catch (error) {
+    (document.getElementById('chain-state') as HTMLParagraphElement).textContent = `the shipped chains did not load: ${error instanceof Error ? error.message : String(error)}`
+  }
+  drawChains()
 }
