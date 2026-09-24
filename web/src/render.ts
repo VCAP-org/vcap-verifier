@@ -22,7 +22,10 @@ export const escape = (s: string): string =>
  */
 export const COLOR: Record<Verdict['outcome'], string> = {
   authentic: 'green', verified_clip: 'amber', tampered: 'red', nested_proof: 'amber',
-  corrupted_proof: 'red', no_proof_found: 'grey', unsupported_format_version: 'grey'
+  corrupted_proof: 'red', no_proof_found: 'grey', unsupported_format_version: 'grey',
+  // Grey, like *no proof found*: the signatures hold, and nothing on the page
+  // can say whether these frames are the ones they cover.
+  frames_not_compared: 'grey'
 }
 const STRICTNESS: Record<string, number> = { green: 0, amber: 1, red: 2 }
 
@@ -57,8 +60,16 @@ export const PLAIN: Record<Verdict['outcome'], string> = {
   nested_proof: 'Careful — a sealed file was sealed a second time.',
   corrupted_proof: 'The proof is damaged and cannot be read.',
   no_proof_found: 'This file carries no proof.',
-  unsupported_format_version: 'This page cannot read a proof of this version.'
+  unsupported_format_version: 'This page cannot read a proof of this version.',
+  frames_not_compared: 'Cannot tell — the proof is genuine, but nothing shows these frames are the ones it signed.'
 }
+/**
+ * *Verified clip* is "these are signed frames" only when the frames were read
+ * back from the container and matched (§5). Without that, somebody signed
+ * some segments and this page did not look at the frames, and the headline
+ * must not say more.
+ */
+const CLIP_NOT_READ = 'In part — some segments of this recording are signed, and their frames were not compared with this file.'
 /**
  * The plain line when the card is not the outcome's own colour, so the largest
  * words on the card never contradict its light. "Yes" belongs to green only:
@@ -72,7 +83,8 @@ const PLAIN_BELOW: Record<string, string> = {
 }
 const plain = (v: Verdict): string => {
   const shown = colour(v)
-  return shown === COLOR[v.outcome] ? PLAIN[v.outcome] : PLAIN_BELOW[shown] ?? PLAIN[v.outcome]
+  if (shown !== COLOR[v.outcome]) return PLAIN_BELOW[shown] ?? PLAIN[v.outcome]
+  return v.outcome === 'verified_clip' && v.content?.recomputed !== true ? CLIP_NOT_READ : PLAIN[v.outcome]
 }
 
 /**
@@ -93,7 +105,8 @@ export const TITLE: Record<Verdict['outcome'], string> = {
   nested_proof: 'Nested proof — a sealed file was sealed again; the outer proof is not authoritative',
   corrupted_proof: 'Corrupted proof — the trailer is damaged',
   no_proof_found: 'No proof found',
-  unsupported_format_version: 'Unsupported format version'
+  unsupported_format_version: 'Unsupported format version',
+  frames_not_compared: 'Frames not compared — the signatures hold, and no frame of this file is tied to them'
 }
 
 const SOURCE: Record<string, string> = {

@@ -170,3 +170,24 @@ describe('which labels are limits', () => {
     expect(limits).not.toContain('watermark matched')
   })
 })
+
+describe('the headline of a clip says only what was compared', () => {
+  const base: Verdict = { outcome: 'verified_clip', labels: [], not_evaluated: [], segments: { verified: [1, 2] } }
+
+  it('says "signed frames" when the frames were read back from the file', () => {
+    const html = card('clip.mp4', { ...base, content: { recomputed: true, detail: '2 GOPs read from the container' } })
+    expect(html).toContain('In part — these are signed frames of a longer recording.')
+  })
+
+  it('does not, when the segment hashes came out of the proof alone', () => {
+    const html = card('clip.mp4', { ...base, content: { recomputed: false, detail: 'recomputation not requested' } })
+    expect(html).not.toContain('these are signed frames')
+    expect(html).toContain('their frames were not compared with this file')
+  })
+
+  it('reads frames not compared as grey, never as a clip', () => {
+    const v: Verdict = { outcome: 'frames_not_compared', labels: [], not_evaluated: [], segments: { verified: [] }, level: { claimed: 'tee', proven: 'none', ceiling: 'amber' } }
+    expect(colour(v)).toBe('grey')
+    expect(card('clip.mp4', v)).toContain('Frames not compared')
+  })
+})
