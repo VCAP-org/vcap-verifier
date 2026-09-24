@@ -69,3 +69,28 @@ describe('§5 recomputation from the container', () => {
     expect(v.segments).toEqual({ verified: [0, 1, 2] })
   })
 })
+
+/**
+ * A caller that hashed the canonical bytes itself — a phone, natively — hands
+ * over the digest and only the trailer. The answer must be the one the whole
+ * file gives, and a wrong digest must not be believed.
+ */
+describe('a media hash computed by the caller', () => {
+  it('gives the whole file’s verdict from the trailer alone', async () => {
+    const { file, media } = load('sealed')
+    const trailerOnly = file.subarray(media.length)
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', media))
+    const whole = await verify(file, { recomputeSegments: false })
+    const alone = await verify(trailerOnly, { recomputeSegments: false, mediaHash: digest })
+    expect(alone.outcome).toBe(whole.outcome)
+    expect(alone.core_hash).toBe(whole.core_hash)
+    expect(alone.labels).toEqual(whole.labels)
+  })
+
+  it('is not believed when it is the wrong one', async () => {
+    const { file, media } = load('sealed')
+    const alone = await verify(file.subarray(media.length), { recomputeSegments: false, mediaHash: new Uint8Array(32) })
+    expect(alone.outcome).toBe('verified_clip')
+    expect(alone.reason).toBe('media.hash does not match the received file')
+  })
+})

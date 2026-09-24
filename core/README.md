@@ -31,6 +31,13 @@ await verify(bytes, {
 })
 ```
 
+One more option is not about the network but about where the hashing runs.
+`mediaHash` is the SHA-256 of the canonical bytes (§4.1) when the caller
+already has it — a phone that hashed a long recording natively. With it the
+core needs only the trailer (pass `recomputeSegments: false`, since there is
+no container to read), and the digest is trusted exactly as far as the caller
+that computed it.
+
 A verdict is only ever green **against a named set of anchors**. Google's
 attestation roots are pinned in the library (`googleRoots`); logs and TSA roots
 are yours to name, because the same bytes are green for a verifier that pins a

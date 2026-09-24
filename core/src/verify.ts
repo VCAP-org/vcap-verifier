@@ -101,6 +101,12 @@ export interface VerifyOptions {
   // in watermark.ts — nothing signs a detection, so the evidence is trusted
   // exactly as far as the caller that also hands over the media bytes.
   watermark?: WatermarkLookup
+  // The SHA-256 of the canonical bytes (§4.1), when the caller already has it:
+  // a phone that hashed a 100 MB recording natively should not hash it again
+  // in JavaScript to learn the same 32 bytes. Trusted exactly as far as the
+  // caller that computed it; a caller that passes it may pass a file that is
+  // only the trailer, with `recomputeSegments: false`.
+  mediaHash?: Bytes
   now?: Date
 }
 
@@ -201,7 +207,7 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
 
   // 5. Media (§4.1), segments (§5), labels (§8).
   const mediaObj = proof.media as { hash: string, segment_count?: number }
-  const mediaMatches = toBase64url(await sha256(canonicalBytes(media))) === mediaObj.hash
+  const mediaMatches = toBase64url(o.mediaHash ?? await sha256(canonicalBytes(media))) === mediaObj.hash
   for (const [k, label] of ABSENT) if (!(k in proof)) labels.push(label)
   if (flags !== null) {
     const expected = ('segments' in proof ? 2 : 0) | ((isObj(proof.policy) && proof.policy.pseudonymous === true) ? 4 : 0)
