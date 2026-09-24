@@ -25,9 +25,19 @@ import { DEFAULT_CHAINS_FILE, DEFAULT_TRUST_FILE, DEFAULT_TSA_FILE, describeChai
  * us, a TSA is somebody else. Those are decisions the reader is entitled to
  * see and to undo, not configuration details.
  */
-const EXIT = { ok: 0, doesNotVerify: 1, notGreen: 2, usage: 64 }
+// 66 is sysexits' EX_NOINPUT: a file that could not be read was never judged,
+// and a script must be able to tell that apart from a file that was judged
+// and failed.
+const EXIT = { ok: 0, doesNotVerify: 1, notGreen: 2, usage: 64, unreadable: 66 }
 
-const VERIFIES = new Set(['authentic', 'verified_clip'])
+/**
+ * Whether a verdict answers "yes, these bytes are what was signed". A clip
+ * does only when its frames were read back from the container (§5): a clip
+ * whose segment hashes came out of the proof alone proves somebody signed
+ * some hashes, not that these frames are the signed ones.
+ */
+const verifies = (v: Verdict): boolean =>
+  v.outcome === 'authentic' || (v.outcome === 'verified_clip' && v.content?.recomputed === true)
 
 export interface Streams {
   out: (text: string) => void
@@ -121,38 +131,49 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
     }
   }
 
-  const verdicts: { path: string, verdict: Verdict }[] = []
+  // One file that cannot be read (missing, a directory, a named sidecar that
+  // is not there) is reported and the others are still judged: a directory
+  // run must not lose every verdict to its first bad path.
+  const results: Array<{ path: string, verdict: Verdict } | { path: string, error: string }> = []
   for (const path of options.files) {
-    const file = new Uint8Array(await readFile(path))
-    const sidecar = await readSidecar(path, options)
-    verdicts.push({
-      path,
-      verdict: await verify(file, {
-        sidecar,
-        recomputeSegments: options.recompute,
-        trustedLogs: trust.logs,
-        tsaRoots,
-        readChain,
-        ...(watermark ? { watermark: async () => watermark } : {}),
-        now: options.now
+    try {
+      const file = new Uint8Array(await readFile(path))
+      const sidecar = await readSidecar(path, options)
+      results.push({
+        path,
+        verdict: await verify(file, {
+          sidecar,
+          recomputeSegments: options.recompute,
+          trustedLogs: trust.logs,
+          tsaRoots,
+          readChain,
+          ...(watermark ? { watermark: async () => watermark } : {}),
+          now: options.now
+        })
       })
-    })
+    } catch (error) {
+      results.push({ path, error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   if (options.json) {
     // One object per line, so a shell can pipe a directory through `jq`
-    // without the tool holding every verdict in memory first.
-    for (const { path, verdict } of verdicts) {
-      io.out(JSON.stringify({ file: path, ...verdict }) + '\n')
+    // without the tool holding every verdict in memory first. A file that
+    // could not be read is a line too, with `error` and no `outcome`.
+    for (const r of results) {
+      io.out(JSON.stringify('error' in r ? { file: r.path, error: r.error } : { file: r.path, ...r.verdict }) + '\n')
     }
   } else {
-    io.out(verdicts.map(({ path, verdict }) => render(path, verdict)).join('\n\n') + '\n')
+    io.out(results.map((r) => 'error' in r ? `${r.path}\n  error     ${r.error}` : render(r.path, r.verdict)).join('\n\n') + '\n')
   }
 
   // The worst answer across the files decides, so a script checking a
-  // directory cannot pass because the last file happened to be fine.
-  if (verdicts.some(({ verdict }) => !VERIFIES.has(verdict.outcome))) return EXIT.doesNotVerify
-  if (options.requireGreen && verdicts.some(({ verdict }) => verdict.level?.ceiling !== 'green')) return EXIT.notGreen
+  // directory cannot pass because the last file happened to be fine — and a
+  // file that was never judged outranks one that was judged and failed.
+  const verdicts = results.flatMap((r) => 'error' in r ? [] : [r.verdict])
+  if (verdicts.length < results.length) return EXIT.unreadable
+  if (verdicts.some((verdict) => !verifies(verdict))) return EXIT.doesNotVerify
+  if (options.requireGreen && verdicts.some((verdict) => verdict.level?.ceiling !== 'green')) return EXIT.notGreen
   return EXIT.ok
 }
 

@@ -1,5 +1,6 @@
-import { type Bytes, concat, fromBase64 } from './bytes.js'
+import { type Bytes, concat, fromBase64, isInstant, utf8 } from './bytes.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
+import { jcs, type Json } from './jcs.js'
 import type { TrustedLog } from './registry.js'
 
 /**
@@ -13,9 +14,10 @@ import type { TrustedLog } from './registry.js'
  * verifier already holds for tree heads, the verdict is Google's or Apple's,
  * relayed.
  *
- * The verdict is inside the signed message, which is the whole point of signing
- * a string this short: `failed` cannot be relabelled `hardware` in transit, and
- * the other direction is nobody's interest.
+ * The whole attachment but `sig` is inside the signed message —
+ * `"vcap/1.0/integrity" ‖ core_hash ‖ JCS(A)`, the construction of
+ * `location_corroboration` — so `failed` cannot be relabelled `hardware`, and
+ * neither `source` nor `evaluated_at` can be swapped under the signature.
  */
 export interface IntegrityAttachment {
   source: string
@@ -26,6 +28,9 @@ export interface IntegrityAttachment {
 
 export type IntegrityOutcome =
   | { ok: true, source: string, verdict: string, evaluatedAt: number }
+  // §6.2: `source` is extensible, and one this verifier does not know is read
+  // as an absent attachment — *integrity unevaluated*, nothing else.
+  | { ok: false, reason: string, trusted: boolean, unknownSource: true }
   // `trusted` is the difference between a lie and a stranger: false means no
   // key this verifier follows made the signature, which is absent evidence and
   // not failed evidence. §8's label rule turns on exactly this.
@@ -36,23 +41,28 @@ export type IntegrityOutcome =
 const SOURCES = new Set(['playIntegrity', 'appAttest', 'none'])
 const VERDICTS = new Set(['hardware', 'basic', 'unevaluated', 'failed'])
 
-/** §6.2: `core_hash ‖ UTF-8(verdict)`. */
-export const integrityMessage = (coreHash: Bytes, verdict: string): Bytes =>
-  concat(coreHash, new TextEncoder().encode(verdict))
+const SEPARATOR = utf8('vcap/1.0/integrity')
+
+/** §6.2: `"vcap/1.0/integrity" ‖ core_hash ‖ JCS(attachment without sig)`. */
+export const integrityMessage = (coreHash: Bytes, attachment: { [key: string]: Json }): Bytes => {
+  const { sig: _sig, ...body } = attachment
+  return concat(SEPARATOR, coreHash, jcs(body))
+}
 
 /**
  * The attachment does not name its key, so every trusted log key is tried: a
  * signature that verifies identifies the key that made it.
  */
 export const verifyIntegrity = async (a: IntegrityAttachment, coreHash: Bytes, trusted: TrustedLog[]): Promise<IntegrityOutcome> => {
-  if (!SOURCES.has(a.source)) return { ok: false, reason: `unknown integrity source ${a.source}`, trusted: true }
+  if (!SOURCES.has(a.source)) return { ok: false, reason: `unknown integrity source ${String(a.source)}`, trusted: false, unknownSource: true }
   if (!VERDICTS.has(a.verdict)) return { ok: false, reason: `unknown integrity verdict ${a.verdict}`, trusted: true }
-  if (!Number.isInteger(a.evaluated_at) || a.evaluated_at < 0) return { ok: false, reason: 'evaluated_at is not an instant', trusted: true }
+  if (!isInstant(a.evaluated_at)) return { ok: false, reason: 'evaluated_at is not an instant', trusted: true }
   let sig: Bytes
   try { sig = fromBase64(a.sig) } catch { return { ok: false, reason: 'signature malformed', trusted: true } }
   if (sig.length !== 64) return { ok: false, reason: 'signature is not 64 bytes', trusted: true }
 
-  const message = integrityMessage(coreHash, a.verdict)
+  let message: Bytes
+  try { message = integrityMessage(coreHash, a as unknown as { [key: string]: Json }) } catch { return { ok: false, reason: 'attachment malformed', trusted: true } }
   for (const log of trusted) {
     const key = await importP256Spki(log.spki)
     if (key && await verifyEs256(key, message, sig)) {

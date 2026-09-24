@@ -116,6 +116,12 @@ describe('verdict with evidence attachments', async () => {
   const hash = await coreHashOf(proof)
   const { root, signer } = await tsaSigner()
   const withProof = (extra: object) => new TextEncoder().encode(JSON.stringify({ ...proof, ...extra }))
+  // A chain about the proof's own signing key: one about another key beside
+  // this signature is *tampered* (§7 rule 5), not a weaker level. Only the
+  // public half matters — the leaf is signed by the intermediate.
+  const { fromBase64 } = await import('../src/bytes.js')
+  const signingKey = await subtle().importKey('spki', Uint8Array.from(fromBase64(proof.sig.pub as string)), { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify'])
+  const ownChain = async (o: Parameters<typeof androidChain>[0] = {}) => androidChain({ leafKeys: { publicKey: signingKey, privateKey: (await genKey()).privateKey } as CryptoKeyPair, ...o })
 
   it('leaves the token unevaluated without TSA roots', async () => {
     const v = await verify(trailer.media, { sidecar: withProof({ timestamp: { tsr: toBase64url(await timestampToken(signer, hash)) } }) })
@@ -157,14 +163,14 @@ describe('verdict with evidence attachments', async () => {
     // The measured case: an RKP intermediate lives about twelve days, so a
     // month after the capture the chain is expired at the verifier's clock and
     // valid at the instant the proof declares.
-    const a = await androidChain({ validity: { notBefore: dayBefore, notAfter: dayAfter } })
+    const a = await ownChain({ validity: { notBefore: dayBefore, notAfter: dayAfter } })
     const v = await verify(trailer.media, { sidecar: withProof({ attestation: a.chain.map(toBase64url) }), googleRoots: [parseCertificate(a.root.der)], now: monthLater })
     expect(v.attestation?.detail).not.toContain('outside its validity')
     expect(v.labels).toContain('attestation chain expired, capture time not proven')
     expect(v.level?.ceiling).toBe('amber')
   })
   it('says nothing about the expiry when the instant is proven by a token', async () => {
-    const a = await androidChain({ validity: { notBefore: dayBefore, notAfter: dayAfter } })
+    const a = await ownChain({ validity: { notBefore: dayBefore, notAfter: dayAfter } })
     const v = await verify(trailer.media, {
       sidecar: withProof({ attestation: a.chain.map(toBase64url), timestamp: { tsr: await tokenAt(current) } }),
       googleRoots: [parseCertificate(a.root.der)], tsaRoots: [current.root.der], now: monthLater
@@ -191,16 +197,21 @@ describe('verdict with evidence attachments', async () => {
     const logSpki = new Uint8Array(await subtle().exportKey('spki', logKeys.publicKey))
     const trustedLogs = [{ logId: await logIdOf(logSpki), spki: logSpki }]
 
-    const frozen = async (o: { revoked?: boolean, fetchedAt?: number } = {}) => {
-      const entries = o.revoked ? [{ serial: 'bb', status: 'revoked', reason: 'KEY_COMPROMISE' }] : [{ serial: 'aa', status: 'valid' }]
+    // Valid around the capture: the certificates are checked at its instant.
+    const chain = await ownChain({ validity: { notBefore: dayBefore, notAfter: new Date(clock.getTime() + 365 * 86_400_000) } })
+    const serials = chain.chain.slice(0, -1).map((der) => parseCertificate(der).serialHex)
+    // Every certificate but the pinned root, as §6.2 *Coverage* asks; one of
+    // them revoked when asked, with the date and reason the source gave.
+    const frozen = async (o: { revoked?: { at?: number, reason?: string }, fetchedAt?: number, cover?: number } = {}) => {
+      const entries = serials.slice(0, o.cover ?? serials.length).map((serial, i) => i === 1 && o.revoked
+        ? { serial, status: 'revoked', ...(o.revoked.reason ? { reason: o.revoked.reason } : {}), ...(o.revoked.at !== undefined ? { revoked_at: o.revoked.at } : {}) }
+        : { serial, status: 'valid' })
       const a = { source: 'googleStatusList', fetched_at: o.fetchedAt ?? clock.getTime(), entries, sig: '' }
       a.sig = toBase64url(new Uint8Array(await subtle().sign({ name: 'ECDSA', hash: 'SHA-256' }, logKeys.privateKey, Uint8Array.from(statusMessage(await coreHashOf(proof), a)))))
       return a
     }
-    const withChain = async (extra: object) => {
-      const a = await androidChain()
-      return verify(trailer.media, { sidecar: withProof({ attestation: a.chain.map(toBase64url), ...extra }), googleRoots: [parseCertificate(a.root.der)], trustedLogs, now: monthLater })
-    }
+    const withChain = async (extra: object, o: object = {}) =>
+      verify(trailer.media, { sidecar: withProof({ attestation: chain.chain.map(toBase64url), ...extra }), googleRoots: [parseCertificate(chain.root.der)], trustedLogs, now: monthLater, ...o })
 
     it('is the revocation check when it clears the chain: offline is no longer *not checked*', async () => {
       const v = await withChain({ attestation_status: await frozen() })
@@ -208,22 +219,35 @@ describe('verdict with evidence attachments', async () => {
       expect(v.attestation_status?.ok).toBe(true)
       expect(v.labels).not.toContain('chain revocation not checked')
     })
-    it('is red for the level when a certificate was revoked at or before the capture', async () => {
-      const v = await withChain({ attestation_status: await frozen({ revoked: true, fetchedAt: clock.getTime() - 1000 }) })
+    it('covers every certificate of the chain, or checks nothing', async () => {
+      const v = await withChain({ attestation_status: await frozen({ cover: 1 }) })
+
+      expect(v.labels).toContain('chain revocation not checked')
+    })
+    it('is red for the level when a certificate is revoked and nothing trusted shows the capture came first', async () => {
+      // A date after the device's clock is not enough: the clock is the word of
+      // whoever holds the key (vector 96).
+      const v = await withChain({ attestation_status: await frozen({ revoked: { at: clock.getTime() + 86_400_000, reason: 'SUPERSEDED' }, fetchedAt: clock.getTime() + 2 * 86_400_000 }) })
 
       expect(v.labels).toContain('attestation key revoked')
       expect(v.level).toMatchObject({ proven: 'none', ceiling: 'red' })
     })
-    it('leaves the level standing when the revocation came after the capture', async () => {
-      const v = await withChain({ attestation_status: await frozen({ revoked: true, fetchedAt: clock.getTime() + 86_400_000 }) })
+    it('leaves the level standing when a token places the capture before the revocation date', async () => {
+      const token = { timestamp: { tsr: await tokenAt(current) } }
+      const v = await withChain({ attestation_status: await frozen({ revoked: { at: clock.getTime() + 86_400_000, reason: 'SUPERSEDED' } }), ...token }, { tsaRoots: [current.root.der] })
 
       expect(v.labels).toContain('attestation key revoked after the capture')
       expect(v.labels).not.toContain('attestation key revoked')
       expect(v.level?.ceiling).not.toBe('red')
+      // `fetched_at` is never a revocation date, and a compromise reaches back.
+      const undated = await withChain({ attestation_status: await frozen({ revoked: { reason: 'SUPERSEDED' }, fetchedAt: clock.getTime() + 86_400_000 }), ...token }, { tsaRoots: [current.root.der] })
+      expect(undated.labels).toContain('attestation key revoked')
+      const compromise = await withChain({ attestation_status: await frozen({ revoked: { at: clock.getTime() + 86_400_000, reason: 'KEY_COMPROMISE' } }), ...token }, { tsaRoots: [current.root.der] })
+      expect(compromise.labels).toContain('attestation key revoked')
     })
     it('adds nothing and takes nothing away when the countersignature does not check out', async () => {
       const forged = await frozen()
-      forged.entries = [{ serial: 'aa', status: 'valid', reason: 'edited after signing' }]
+      forged.entries = forged.entries.map((e) => ({ ...e, reason: 'edited after signing' }))
       const v = await withChain({ attestation_status: forged })
 
       expect(v.attestation_status?.ok).toBe(false)
@@ -255,13 +279,22 @@ describe('verdict with evidence attachments', async () => {
     expect(blind.labels).toContain('location corroboration not evaluated')
   })
 
-  it('flags an attestation chain whose key is not the signer, and the claim above it', async () => {
+  it('reads an attestation chain about another key as tampered, not as a weaker level (§7 rule 5)', async () => {
     const a = await androidChain()
     const v = await verify(trailer.media, { sidecar: withProof({ attestation: a.chain.map(toBase64url) }), googleRoots: [parseCertificate(a.root.der)] })
-    expect(v.attestation?.proven).toBe('none')
-    expect(v.labels).toContain('inconsistent claim')
-    expect(v.labels).toContain('chain revocation not checked')
-    expect(v.level?.ceiling).toBe('amber')
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'attestation leaf key differs from sig.pub', labels: [] })
+  })
+
+  it('reads a chain that breaks §7 rules 1–3 as evidence invalid, with no claim to contradict', async () => {
+    // The chain is fine and the root is not the one pinned: rule 1.
+    const around = { validity: { notBefore: dayBefore, notAfter: dayAfter } }
+    const a = await ownChain(around)
+    const other = await ownChain(around)
+    const v = await verify(trailer.media, { sidecar: withProof({ attestation: a.chain.map(toBase64url) }), googleRoots: [parseCertificate(other.root.der)] })
+    expect(v.labels).toEqual(expect.arrayContaining(['attestation evidence invalid', 'origin not hardware-attested']))
+    expect(v.labels).not.toContain('inconsistent claim')
+    expect(v.labels).not.toContain('chain revocation not checked')
+    expect(v.level).toMatchObject({ proven: 'none', ceiling: 'amber' })
   })
 })
 

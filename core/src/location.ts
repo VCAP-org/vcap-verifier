@@ -1,4 +1,4 @@
-import { type Bytes, concat, fromBase64, utf8 } from './bytes.js'
+import { type Bytes, concat, fromBase64, isInstant, utf8 } from './bytes.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import { jcs, type Json } from './jcs.js'
 import type { TrustedLog } from './registry.js'
@@ -79,7 +79,8 @@ export const verifyLocationCorroboration = async (a: LocationCorroboration, core
   if (typeof a.method !== 'string' || !METHODS.has(a.method)) return { ok: false, reason: `unknown corroboration method ${String(a.method)}`, evaluated: false, trusted: false }
   let sig: Bytes
   try { sig = fromBase64(a.sig) } catch { return { ok: false, reason: 'signature malformed', evaluated: true, trusted: false } }
-  const message = corroborationMessage(coreHash, a as unknown as { [key: string]: Json })
+  let message: Bytes
+  try { message = corroborationMessage(coreHash, a as unknown as { [key: string]: Json }) } catch { return { ok: false, reason: 'attachment malformed', evaluated: true, trusted: false } }
   let signed = false
   for (const log of trusted) {
     const key = await importP256Spki(log.spki)
@@ -89,7 +90,7 @@ export const verifyLocationCorroboration = async (a: LocationCorroboration, core
 
   // From here the registry really said this; the question is whether it parses.
   if (typeof a.result !== 'string' || !RESULTS.has(a.result)) return { ok: false, reason: `result ${String(a.result)} is outside match, no-match, unknown`, evaluated: true, trusted: true }
-  if (!Number.isInteger(a.at) || a.at < 0) return { ok: false, reason: 'at is not an instant', evaluated: true, trusted: true }
+  if (!isInstant(a.at)) return { ok: false, reason: 'at is not an instant', evaluated: true, trusted: true }
   const radius = a.radius_m
   const hasRadius = Number.isInteger(radius) && (radius as number) >= 1
   // A zone check without its zone corroborates nothing anyone can read.

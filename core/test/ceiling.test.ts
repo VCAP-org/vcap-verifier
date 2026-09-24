@@ -9,16 +9,22 @@ import { vectorVerdict } from './vector-verdict.js'
  * vectors, which pin that ceiling, and never on a verdict built by hand.
  */
 describe('the labels that set the verdict ceiling', () => {
-  it('names the hardware a green verdict was sealed in (vector 54)', async () => {
-    const v = await vectorVerdict('54-jpeg-registry-green')
+  it('names the hardware a green verdict was sealed in (vector 100)', async () => {
+    const v = await vectorVerdict('100-jpeg-registry-green-timestamped')
     expect(v.level?.ceiling).toBe('green')
     expect(ceilingLabels(v)).toEqual(['sealed in the TEE'])
+  })
+
+  it('names the device clock as what keeps vector 54 amber', async () => {
+    const v = await vectorVerdict('54-jpeg-registry-green')
+    expect(v.level?.ceiling).toBe('amber')
+    expect(ceilingLabels(v)).toEqual(['no trusted time'])
   })
 
   it('names a session key and a key outside the log as amber (vector 01)', async () => {
     const v = await vectorVerdict('01-jpeg-sealed')
     expect(v.level?.ceiling).toBe('amber')
-    expect(ceilingLabels(v)).toEqual(['origin not hardware-attested', 'key not in transparency log'])
+    expect(ceilingLabels(v)).toEqual(['origin not hardware-attested', 'key not in transparency log', 'no trusted time'])
   })
 
   it('names the unasked revocation as amber when the key is in the log (vector 49)', async () => {

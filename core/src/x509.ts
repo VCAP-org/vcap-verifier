@@ -24,6 +24,8 @@ export interface Certificate {
   extensions: Map<string, Bytes>
   // Basic constraints: cA flag when the extension is present.
   isCa: boolean | null
+  // Key usage: the keyCertSign bit when the extension is present.
+  keyCertSign: boolean | null
 }
 
 const OID = {
@@ -31,7 +33,7 @@ const OID = {
   ecdsaSHA256: '1.2.840.10045.4.3.2', ecdsaSHA384: '1.2.840.10045.4.3.3', ecdsaSHA512: '1.2.840.10045.4.3.4',
   rsaEncryption: '1.2.840.113549.1.1.1', ecPublicKey: '1.2.840.10045.2.1',
   p256: '1.2.840.10045.3.1.7', p384: '1.3.132.0.34', p521: '1.3.132.0.35',
-  basicConstraints: '2.5.29.19'
+  basicConstraints: '2.5.29.19', keyUsage: '2.5.29.15'
 } as const
 
 const HASH: Record<string, string> = {
@@ -50,6 +52,7 @@ export const parseCertificate = (der: Bytes): Certificate => {
   const validity = sequence(tbs[offset + 3] as Node, 'validity')
   const extensions = new Map<string, Bytes>()
   let isCa: boolean | null = null
+  let keyCertSign: boolean | null = null
   const extNode = tbs.slice(offset + 6).find((n) => contextTag(n) === 3)
   if (extNode) {
     for (const ext of sequence(explicitContent(extNode, 'extensions'), 'extensions')) {
@@ -61,6 +64,8 @@ export const parseCertificate = (der: Bytes): Certificate => {
         const bc = sequence(parseDer(value), 'BasicConstraints')
         isCa = bc[0] instanceof asn1js.Boolean ? bc[0].valueBlock.value : false
       }
+      // KeyUsage is a BIT STRING, bit 0 first; keyCertSign is bit 5.
+      if (id === OID.keyUsage) keyCertSign = ((bitStringBytes(parseDer(value), 'KeyUsage')[0] ?? 0) & 0x04) !== 0
     }
   }
   return {
@@ -75,7 +80,8 @@ export const parseCertificate = (der: Bytes): Certificate => {
     signatureAlgorithm: oid(sequence(cert[1] as Node, 'signatureAlgorithm')[0] as Node, 'signatureAlgorithm'),
     signature: bitStringBytes(cert[2] as Node, 'signature'),
     extensions,
-    isCa
+    isCa,
+    keyCertSign
   }
 }
 
@@ -83,9 +89,11 @@ export interface PublicKey { key: CryptoKey, kind: 'rsa' | 'ec', curveBytes?: nu
 
 /** Imports an SPKI for signature verification with the algorithm implied by the certificate that signed with it. */
 export const importForVerify = async (spki: Bytes, hash: string): Promise<PublicKey | null> => {
-  const algId = sequence(sequence(parseDer(spki), 'SPKI')[0] as Node, 'algorithm')
-  const algo = oid(algId[0] as Node, 'algorithm')
+  // The SPKI is a certificate's, from a proof: a malformed one is a key that
+  // cannot verify anything, not an exception out of the verdict.
   try {
+    const algId = sequence(sequence(parseDer(spki), 'SPKI')[0] as Node, 'algorithm')
+    const algo = oid(algId[0] as Node, 'algorithm')
     if (algo === OID.rsaEncryption) {
       return { key: await subtle().importKey('spki', owned(spki), { name: 'RSASSA-PKCS1-v1_5', hash }, true, ['verify']), kind: 'rsa' }
     }
@@ -124,9 +132,18 @@ export const verifyWith = async (pub: PublicKey, algorithmOid: string, message: 
 
 export const hashOf = (algorithmOid: string): string | null => HASH[algorithmOid] ?? null
 
-/** `subject` was issued by `issuer`: names match and the signature verifies. */
+/**
+ * Whether a certificate may sign others (RFC 5280 §4.2.1.9, §4.2.1.3): cA in
+ * its basic constraints, and keyCertSign when it carries a key usage. Without
+ * this, any leaf a pinned root ever issued — a TSA signer, a device key —
+ * could issue a chain of its own and have it read as rooted.
+ */
+export const canIssue = (c: Certificate): boolean => c.isCa === true && c.keyCertSign !== false
+
+/** `subject` was issued by `issuer`: names match, the issuer may issue, and the signature verifies. */
 export const issuedBy = async (subject: Certificate, issuer: Certificate): Promise<boolean> => {
   if (!equal(subject.issuer, issuer.subject)) return false
+  if (!canIssue(issuer)) return false
   const hash = HASH[subject.signatureAlgorithm]
   if (!hash) return false
   const pub = await importForVerify(issuer.spki, hash)

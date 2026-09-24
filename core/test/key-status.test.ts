@@ -5,7 +5,7 @@ import { subtle } from '../src/sha.js'
 import { coreHashOf, parseTrailer, verify } from '../src/index.js'
 import { parseCertificate } from '../src/x509.js'
 import { statusMessage } from '../src/attestation-status.js'
-import { androidChain, genKey } from './fixtures.js'
+import { androidChain, genKey, timestampToken, tsaSigner } from './fixtures.js'
 import { keyStatusFor, logId, registryFor, sign, trusted } from './log.js'
 
 /**
@@ -41,16 +41,22 @@ describe('the device key against the log', async () => {
     timestamp: clock.getTime() - 1000
   })
 
-  // A chain revocation observation, so *chain revocation not checked* is not
-  // what keeps these verdicts off green.
+  // A chain revocation observation covering every certificate but the pinned
+  // root, so *chain revocation not checked* is not what keeps these verdicts
+  // off green.
   const cleared = async () => {
-    const a = { source: 'googleStatusList', fetched_at: clock.getTime() - 1000, entries: [{ serial: 'aa', status: 'valid' }], sig: '' }
+    const entries = attested.chain.slice(0, -1).map((der) => ({ serial: parseCertificate(der).serialHex, status: 'valid' }))
+    const a = { source: 'googleStatusList', fetched_at: clock.getTime() - 1000, entries, sig: '' }
     a.sig = toBase64url(await sign(Uint8Array.from(statusMessage(hash, a))))
     return a
   }
+  // §7: green needs a trusted instant, so these proofs carry a timestamp token
+  // at the device's own clock; the key status is asked at that instant.
+  const tsa = await tsaSigner({ notBefore: new Date(clock.getTime() - 86_400_000), notAfter: new Date(clock.getTime() + 86_400_000) })
+  const timestamp = { tsr: toBase64url(await timestampToken(tsa.signer, hash, { genTime: clock })) }
   const run = (extra: object, o: object = {}) => verify(trailer.media, {
-    sidecar: new TextEncoder().encode(JSON.stringify({ ...proof, attestation: attested.chain.map(toBase64url), registry, ...extra })),
-    googleRoots: [parseCertificate(attested.root.der)], trustedLogs: trusted, now: clock, ...o
+    sidecar: new TextEncoder().encode(JSON.stringify({ ...proof, attestation: attested.chain.map(toBase64url), registry, timestamp, ...extra })),
+    googleRoots: [parseCertificate(attested.root.der)], trustedLogs: trusted, tsaRoots: [tsa.root.der], now: clock, ...o
   })
 
   it('says *revocation not checked* when it cannot ask, and stops at amber', async () => {
@@ -164,24 +170,37 @@ describe('the chain revocation, from either source, under one rule', async () =>
     expect(v.labels).not.toContain('attestation key revoked')
   })
 
-  it('reads an online revocation as *after the capture*, because that is all it can mean', async () => {
-    // Google's status list is a current-status list: it carries no revocation
-    // date, so the only instant it speaks for is the moment it was read, which
-    // is after every capture it is consulted about. This used to report *key
-    // revoked* and red — the device key's label, for a chain certificate, at
-    // the wrong instant — so the same chain read red with network and amber
-    // without it.
+  it('reads an online revocation with no date as revoked: a current-status list cannot place it after the capture', async () => {
+    // Google's status list carries no revocation date, and §6.2 never dates a
+    // revocation by when it was read, so nothing shows the capture came first.
     const v = await run({ revocation: async (s: string) => s === revokedSerial ? { status: 'REVOKED' } : null })
 
-    expect(v.labels).toContain('attestation key revoked after the capture')
-    expect(v.labels).not.toContain('attestation key revoked')
+    expect(v.labels).toContain('attestation key revoked')
     expect(v.labels).not.toContain('key revoked')
-    expect(v.level?.proven).toBe('tee')
-    expect(v.level?.ceiling).not.toBe('red')
+    expect(v.level).toMatchObject({ proven: 'none', ceiling: 'red' })
+  })
+
+  it('keeps the level when a token places the capture before the date the source gives, for a reason that is not a compromise', async () => {
+    const hash = await coreHashOf(proof)
+    const tsa = await tsaSigner({ notBefore: new Date(clock.getTime() - 86_400_000), notAfter: new Date(clock.getTime() + 86_400_000) })
+    const timestamp = { tsr: toBase64url(await timestampToken(tsa.signer, hash, { genTime: clock })) }
+    const later = clock.getTime() + 7 * 86_400_000
+    const revoked = (reason: string) => async (s: string) => s === revokedSerial ? { status: 'REVOKED', reason, revoked_at: later } : null
+    const superseded = await run({ revocation: revoked('SUPERSEDED'), tsaRoots: [tsa.root.der] }, { timestamp })
+    expect(superseded.labels).toContain('attestation key revoked after the capture')
+    expect(superseded.level?.proven).toBe('tee')
+    // A compromised key vouches for nothing it ever signed, whatever the date.
+    const compromised = await run({ revocation: revoked('KEY_COMPROMISE'), tsaRoots: [tsa.root.der] }, { timestamp })
+    expect(compromised.labels).toContain('attestation key revoked')
+    expect(compromised.level?.ceiling).toBe('red')
+    // And the device's own clock is not a trusted instant: whoever holds a
+    // leaked key sets it (vector 96).
+    const clockOnly = await run({ revocation: revoked('SUPERSEDED') })
+    expect(clockOnly.labels).toContain('attestation key revoked')
   })
 
   it('withdraws the level when a snapshot dates the revocation before the capture', async () => {
-    const entries = [{ serial: revokedSerial, status: 'revoked', reason: 'KEY_COMPROMISE' }]
+    const entries = [{ serial: revokedSerial, status: 'revoked', reason: 'KEY_COMPROMISE', revoked_at: clock.getTime() - 1000 }]
     const a = { source: 'googleStatusList', fetched_at: clock.getTime() - 1000, entries, sig: '' }
     a.sig = toBase64url(await sign(Uint8Array.from(statusMessage(await coreHashOf(proof), a))))
     // The online list agrees that it is revoked; only the snapshot knows when.

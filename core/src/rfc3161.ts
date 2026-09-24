@@ -20,7 +20,7 @@ const OID = {
 } as const
 const DIGEST: Record<string, string> = { [OID.sha256]: 'SHA-256', [OID.sha384]: 'SHA-384', [OID.sha512]: 'SHA-512' }
 
-export type TimestampCheckId = 'token_parsed' | 'imprint' | 'message_digest' | 'signature' | 'signer_chain' | 'signer_usage' | 'gen_time'
+export type TimestampCheckId = 'token_parsed' | 'imprint' | 'message_digest' | 'signature' | 'signer_chain' | 'signer_usage' | 'gen_time' | 'anchor_order'
 export interface TimestampVerdict {
   ok: boolean
   checks: { id: TimestampCheckId, outcome: 'pass' | 'fail' | 'skip', detail: string }[]
@@ -39,7 +39,14 @@ export interface TimestampVerdict {
   policy?: string
 }
 
-export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots: Certificate[], now = new Date()): Promise<TimestampVerdict> => {
+/**
+ * `anchoredBefore` is a verified anchor's block time, when the proof has one
+ * (§6.2 check 6): `genTime` must not exceed it and the signer must still have
+ * been valid at it. `genTime` is chosen by whoever holds the TSA key; a block
+ * time by nobody, so it is what bounds a key that leaked after its
+ * certificate expired.
+ */
+export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots: Certificate[], now = new Date(), anchoredBefore?: Date): Promise<TimestampVerdict> => {
   const checks: TimestampVerdict['checks'] = []
   const pass = (id: TimestampCheckId, detail: string) => checks.push({ id, outcome: 'pass', detail })
   const fail = (id: TimestampCheckId, detail: string) => checks.push({ id, outcome: 'fail', detail })
@@ -81,14 +88,25 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
   } catch { fail('imprint', 'TSTInfo malformed'); fail('gen_time', 'TSTInfo malformed') }
 
   // SignerInfo: version, sid, digestAlgorithm, [0] signedAttrs, signatureAlgorithm, signature
-  const sidNode = si[1] as Node
-  const attrsNode = si.find((n, i) => i > 1 && contextTag(n) === 0)
-  const digestAlg = oid(sequence(si[2] as Node, 'digestAlgorithm')[0] as Node, 'digestAlgorithm')
-  const sigAlgIndex = attrsNode ? si.indexOf(attrsNode) + 1 : -1
-  if (!attrsNode || sigAlgIndex < 0) { fail('message_digest', 'no signed attributes'); fail('signature', 'no signed attributes'); fail('signer_chain', 'no signer'); fail('signer_usage', 'no signer'); return verdict }
-  const signatureAlg = oid(sequence(si[sigAlgIndex] as Node, 'signatureAlgorithm')[0] as Node, 'signatureAlgorithm')
-  const signature = octets(si[sigAlgIndex + 1] as Node, 'signature')
-  const attrs = children(attrsNode, 'signedAttrs').map((a) => { const [t, v] = sequence(a, 'Attribute'); return { type: oid(t as Node, 'attrType'), values: set(v as Node, 'attrValues') } })
+  // Read inside a `try` like everything above it: a SignerInfo is the token
+  // writer's bytes, and a missing field used to throw out of `verify` instead
+  // of failing the checks it would have fed.
+  let sidNode: Node, attrsNode: Node | undefined, digestAlg: string, signatureAlg: string, signature: Bytes
+  let attrs: { type: string, values: Node[] }[]
+  try {
+    sidNode = si[1] as Node
+    attrsNode = si.find((n, i) => i > 1 && contextTag(n) === 0)
+    digestAlg = oid(sequence(si[2] as Node, 'digestAlgorithm')[0] as Node, 'digestAlgorithm')
+    const sigAlgIndex = attrsNode ? si.indexOf(attrsNode) + 1 : -1
+    if (!attrsNode || sigAlgIndex < 0) { fail('message_digest', 'no signed attributes'); fail('signature', 'no signed attributes'); fail('signer_chain', 'no signer'); fail('signer_usage', 'no signer'); return verdict }
+    signatureAlg = oid(sequence(si[sigAlgIndex] as Node, 'signatureAlgorithm')[0] as Node, 'signatureAlgorithm')
+    signature = octets(si[sigAlgIndex + 1] as Node, 'signature')
+    attrs = children(attrsNode, 'signedAttrs').map((a) => { const [t, v] = sequence(a, 'Attribute'); return { type: oid(t as Node, 'attrType'), values: set(v as Node, 'attrValues') } })
+  } catch (error) {
+    const why = `SignerInfo unreadable: ${error instanceof Asn1Error ? error.message : 'malformed'}`
+    fail('message_digest', why); fail('signature', why); fail('signer_chain', 'no signer'); fail('signer_usage', 'no signer')
+    return verdict
+  }
   const hashName = DIGEST[digestAlg]
   try {
     if (!hashName) throw new Error(`unsupported digest algorithm ${digestAlg}`)
@@ -130,6 +148,11 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
   const chain = await chainToRoot(signer, certs, roots)
   if (chain && chain.every((c) => withinValidity(c, at))) pass('signer_chain', `signer chains to a pinned TSA root, valid at ${at.toISOString()}`)
   else fail('signer_chain', chain ? `a certificate in the chain is outside its validity at ${at.toISOString()}` : 'signer does not chain to a pinned TSA root')
+  if (anchoredBefore) {
+    if (verdict.genTime && new Date(verdict.genTime).getTime() > anchoredBefore.getTime()) fail('anchor_order', `genTime is after the block that anchors this core (${anchoredBefore.toISOString()})`)
+    else if (!withinValidity(signer, anchoredBefore)) fail('anchor_order', `the signer certificate was not valid at the anchoring block (${anchoredBefore.toISOString()})`)
+    else pass('anchor_order', 'genTime precedes the anchoring block, and the signer was valid at it')
+  }
 
   const eku = signer.extensions.get(OID.extendedKeyUsage)
   let stamping = false

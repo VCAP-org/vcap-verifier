@@ -41,7 +41,7 @@ export interface Corpus {
 export const corpus = (): Corpus => {
   const dir = existsSync(SUBMODULE) && readdirSync(SUBMODULE).length > 0 ? SUBMODULE : SNAPSHOT
   if (!existsSync(dir)) throw new Error(`[vcap] no conformance corpus at ${SUBMODULE} or ${SNAPSHOT}: run \`git submodule update --init\``)
-  const names = readdirSync(dir).filter((d) => /^\d\d-/.test(d)).sort()
+  const names = readdirSync(dir).filter((d) => /^\d{2,3}-/.test(d)).sort()
   if (names.length === 0) throw new Error(`[vcap] the corpus at ${dir} holds no vectors: a run of zero vectors is a failure, not a pass`)
   const manifestFile = join(dir, 'MANIFEST.json')
   const versionFile = join(dir, 'VERSION')

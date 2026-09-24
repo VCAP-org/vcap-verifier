@@ -20,8 +20,22 @@ export type ChainStatus = 'complete' | 'clip' | 'tampered'
  * keyed by segment index; a segment absent from it was not recomputed and is
  * verified at message level, which is all a verifier without a demuxer can do.
  */
+// An entry is what §5 lists and nothing looser: `gop` a uint32 (it enters the
+// message as one), the three others strings. A `null` in the array used to
+// reach `s.gop` and throw out of `verify`.
+const isEntry = (s: unknown): s is SegmentEntry => {
+  if (typeof s !== 'object' || s === null) return false
+  const e = s as Record<string, unknown>
+  return Number.isSafeInteger(e.gop) && (e.gop as number) >= 0 && (e.gop as number) <= 0xffffffff &&
+    typeof e.hash === 'string' && typeof e.prev === 'string' && typeof e.sig === 'string'
+}
+
 export const verifyChain = async (captureId: Bytes, segmentCount: number, segments: SegmentEntry[], key: CryptoKey, recomputed?: Map<number, Bytes>): Promise<{ status: ChainStatus, verified: number[], contradicted?: number[], reason?: string }> => {
+  if (!Array.isArray(segments) || !segments.every(isEntry)) return { status: 'tampered', verified: [], reason: 'segments malformed' }
   const byIndex = new Map(segments.map((s) => [s.gop, s]))
+  // Two entries under one index would let a map keep either; neither is the
+  // writer's, since a writer emits `gop` contiguous from 0 (§5).
+  if (byIndex.size !== segments.length) return { status: 'tampered', verified: [], reason: 'a segment index appears twice in the proof' }
   const messages = new Map<number, Bytes>()
   const verified: number[] = []
   const contradicted: number[] = []
