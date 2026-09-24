@@ -6,8 +6,8 @@
  * deliberately does not define its internals; the bit layout is specified in
  * `vcap-spec/spec/watermark-layouts-1.0.md`. This file is the JavaScript port
  * that has to stay bit-identical to the reference encoder in our model
- * pipeline (not public), pinned by the vectors that pipeline exports (mirrored
- * in `test/layouts.json` and run by `test/layouts.test.ts`).
+ * pipeline (not public), pinned by the vectors that pipeline exports
+ * (`vcap-spec/vectors/_watermark/layouts.json`, run by `test/layouts.test.ts`).
  *
  * The two differ because the channels differ. A photo survives compression
  * with most bits intact, so it carries the whole 128-bit capture id under a
@@ -86,28 +86,38 @@ const T = 18
 
 /**
  * Berlekamp-Massey over GF(2^8): the error locator polynomial of the
- * syndromes, or the sequence that says there are more errors than the code can
- * place. Written for 2t = 36 syndromes, which is all this layout ever has.
+ * syndromes, and `L`, the number of errors it accounts for. Written for 2t = 36
+ * syndromes, which is all this layout ever has.
+ *
+ * `L` is tracked on its own and never read off the polynomial. The length
+ * update is the textbook one — when `2L <= n`, the new length is `n + 1 - L`
+ * and the old polynomial becomes the one to shift — and it is a statement about
+ * the linear recurrence, not about the array: a coefficient that cancels to
+ * zero, or an update that lands past the current end, makes the array's length
+ * a wrong `L`. An earlier port tested `sigma.length - 1` there and refused
+ * about 3 % of correctable words (0.3 % at four errors, 2.8 % at eighteen)
+ * while the reference decoder recovered them.
  */
-const errorLocator = (syndromes: number[]): number[] => {
+const errorLocator = (syndromes: number[]): { sigma: number[], errors: number } => {
   let sigma = [1]
   let previous = [1]
+  let errors = 0
   let shift = 1
   let lastDiscrepancy = 1
   for (let n = 0; n < syndromes.length; n++) {
     let discrepancy = syndromes[n]!
-    for (let i = 1; i < sigma.length; i++) discrepancy ^= mul(sigma[i]!, syndromes[n - i]!)
+    for (let i = 1; i <= errors; i++) discrepancy ^= mul(sigma[i] ?? 0, syndromes[n - i]!)
     if (discrepancy === 0) {
       shift++
       continue
     }
+    // σ(x) − (d / b) · x^shift · B(x), over a copy wide enough for both terms.
     const scale = div(discrepancy, lastDiscrepancy)
-    const updated = sigma.slice()
-    for (let i = 0; i < previous.length; i++) {
-      const at = i + shift
-      updated[at] = (updated[at] ?? 0) ^ mul(scale, previous[i]!)
-    }
-    if (sigma.length - 1 <= n - (shift - 1)) {
+    const updated = new Array<number>(Math.max(sigma.length, previous.length + shift)).fill(0)
+    sigma.forEach((c, i) => { updated[i] = c })
+    previous.forEach((c, i) => { updated[i + shift] = updated[i + shift]! ^ mul(scale, c) })
+    if (2 * errors <= n) {
+      errors = n + 1 - errors
       previous = sigma
       lastDiscrepancy = discrepancy
       shift = 1
@@ -116,18 +126,25 @@ const errorLocator = (syndromes: number[]): number[] => {
     }
     sigma = updated
   }
-  return sigma
+  return { sigma, errors }
 }
 
-/** Chien search: the codeword positions the locator points at, or null if it points outside. */
-const errorPositions = (sigma: number[]): number[] | null => {
-  const degree = sigma.length - 1
+/**
+ * Chien search: the codeword positions the locator points at, or null if they
+ * are not exactly `errors` positions inside the shortened word.
+ */
+const errorPositions = ({ sigma, errors }: { sigma: number[], errors: number }): number[] | null => {
+  // A locator whose degree is not the length Berlekamp-Massey settled on
+  // describes no error pattern of that weight: past the correction radius.
+  let degree = sigma.length - 1
+  while (degree > 0 && sigma[degree] === 0) degree--
+  if (degree !== errors) return null
   const found: number[] = []
   // Root α^-i of σ means an error at the coefficient of x^i; the codeword is
   // shortened by three bits, so only exponents inside CODE_BITS are real.
   for (let exponent = 0; exponent < 255; exponent++) {
     let sum = 0
-    for (let i = 0; i < sigma.length; i++) sum ^= mul(sigma[i]!, pow(EXP[exponent]!, i))
+    for (let i = 0; i <= degree; i++) sum ^= mul(sigma[i]!, pow(EXP[exponent]!, i))
     if (sum !== 0) continue
     const position = (255 - exponent) % 255
     if (position >= CODE_BITS) return null
