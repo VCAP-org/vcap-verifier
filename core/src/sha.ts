@@ -12,6 +12,11 @@ export const subtle = (): SubtleCrypto => {
 export const owned = (b: Bytes): Uint8Array<ArrayBuffer> => Uint8Array.from(b)
 
 export const sha256 = async (...parts: Bytes[]): Promise<Bytes> => {
+  // One part over an ordinary ArrayBuffer is digested where it lies: WebCrypto
+  // reads a view's own window, and copying a 100 MB recording to hash it once
+  // doubles what the page holds for nothing. Several parts are joined, once.
+  const only = parts.length === 1 ? parts[0]! : null
+  if (only && only.buffer instanceof ArrayBuffer) return new Uint8Array(await subtle().digest('SHA-256', only as Uint8Array<ArrayBuffer>))
   const total = parts.reduce((n, p) => n + p.length, 0)
   const joined = new Uint8Array(new ArrayBuffer(total))
   let offset = 0

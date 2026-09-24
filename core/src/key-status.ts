@@ -55,6 +55,12 @@ export const verifyKeyStatus = async (
   trusted: TrustedLog[]
 ): Promise<KeyStatusOutcome> => {
   if (keyId.length !== 32) return { ok: false, reason: 'device.key_id is not a 32-byte hash' }
+  // The statement comes back from the network through the caller: every
+  // integer becomes a uint64 in the signed message, and `BigInt` of anything
+  // but a safe integer throws.
+  const count = (v: unknown): boolean => Number.isSafeInteger(v) && (v as number) >= 0
+  if (typeof s !== 'object' || s === null || typeof s.log_id !== 'string' || !count(s.at) || !count(s.tree_size) || typeof s.signature !== 'string') return { ok: false, reason: 'status statement malformed' }
+  if (s.tree_head !== undefined && (typeof s.tree_head !== 'object' || s.tree_head === null || !count(s.tree_head.tree_size) || !count(s.tree_head.timestamp))) return { ok: false, reason: 'tree head malformed' }
   const log = trusted.find((t) => t.logId === s.log_id)
   if (!log) return { ok: false, reason: 'status signed by a log that is not trusted' }
   const key = await importP256Spki(log.spki)

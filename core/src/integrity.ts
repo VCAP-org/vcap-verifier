@@ -1,4 +1,4 @@
-import { type Bytes, concat, fromBase64 } from './bytes.js'
+import { type Bytes, concat, fromBase64, isInstant } from './bytes.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import type { TrustedLog } from './registry.js'
 
@@ -47,7 +47,7 @@ export const integrityMessage = (coreHash: Bytes, verdict: string): Bytes =>
 export const verifyIntegrity = async (a: IntegrityAttachment, coreHash: Bytes, trusted: TrustedLog[]): Promise<IntegrityOutcome> => {
   if (!SOURCES.has(a.source)) return { ok: false, reason: `unknown integrity source ${a.source}`, trusted: true }
   if (!VERDICTS.has(a.verdict)) return { ok: false, reason: `unknown integrity verdict ${a.verdict}`, trusted: true }
-  if (!Number.isInteger(a.evaluated_at) || a.evaluated_at < 0) return { ok: false, reason: 'evaluated_at is not an instant', trusted: true }
+  if (!isInstant(a.evaluated_at)) return { ok: false, reason: 'evaluated_at is not an instant', trusted: true }
   let sig: Bytes
   try { sig = fromBase64(a.sig) } catch { return { ok: false, reason: 'signature malformed', trusted: true } }
   if (sig.length !== 64) return { ok: false, reason: 'signature is not 64 bytes', trusted: true }

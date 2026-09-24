@@ -51,8 +51,18 @@ export const decodeGetAnchor = (result: unknown): { root: Bytes, treeSize: numbe
   if (typeof result !== 'string' || !/^0x[0-9a-fA-F]{256}$/.test(result)) throw new Error('getAnchor: the answer is not four 32-byte words')
   const word = (i: number): string => result.slice(2 + i * 64, 2 + (i + 1) * 64)
   if (/^0+$/.test(word(0))) return null
-  const uint = (i: number): number => Number(BigInt('0x' + word(i)))
-  return { root: fromHex(word(0)), treeSize: uint(1), blockNumber: uint(2), blockTime: new Date(uint(3) * 1000) }
+  // A word past 2^53 is not a number this reader can hold exactly, and a time
+  // past what `Date` holds becomes an Invalid Date that throws on
+  // `toISOString()` far from here. Both are an endpoint answering nonsense:
+  // thrown, so the anchor reads *not consulted* rather than a wrong value.
+  const uint = (i: number): number => {
+    const n = BigInt('0x' + word(i))
+    if (n > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`getAnchor: word ${i} is out of range`)
+    return Number(n)
+  }
+  const seconds = uint(3)
+  if (seconds > 8.64e12) throw new Error('getAnchor: the timestamp is out of range')
+  return { root: fromHex(word(0)), treeSize: uint(1), blockNumber: uint(2), blockTime: new Date(seconds * 1000) }
 }
 
 // A revert is the contract saying "no such id"; any other RPC error is the

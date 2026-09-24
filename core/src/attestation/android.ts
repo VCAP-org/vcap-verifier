@@ -91,11 +91,19 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
     if (expired.length > 0) result.expiredSince = new Date(Math.min(...expired)).toISOString()
   }
 
+  // The status list is the caller's network. A lookup that throws could not
+  // ask, which is *not checked* — never *clear*, and never a crash of the
+  // verdict it was only meant to inform.
+  let asked = o.revocation !== undefined
   if (o.revocation) {
-    for (const c of certs) {
-      const r = await o.revocation(c.serialHex)
-      if (r) { result.revoked = { serial: c.serialHex, status: r.status }; break }
-    }
+    try {
+      for (const c of certs) {
+        const r = await o.revocation(c.serialHex)
+        if (r) { result.revoked = { serial: c.serialHex, status: String(r.status) }; break }
+      }
+    } catch { asked = false; delete result.revoked }
+  }
+  if (asked) {
     result.revocation = result.revoked ? 'revoked' : 'clear'
     if (result.revoked) fail('chain_revocation', `certificate ${result.revoked.serial} is ${result.revoked.status}`)
     else pass('chain_revocation', 'no certificate in the chain is revoked')

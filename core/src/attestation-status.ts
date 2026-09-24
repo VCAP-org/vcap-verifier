@@ -1,4 +1,4 @@
-import { type Bytes, concat, fromBase64 } from './bytes.js'
+import { type Bytes, concat, fromBase64, isInstant } from './bytes.js'
 import { jcs, type Json } from './jcs.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import type { TrustedLog } from './registry.js'
@@ -52,12 +52,14 @@ export const statusMessage = (coreHash: Bytes, a: StatusAttachment): Bytes => {
 export const verifyStatus = async (a: StatusAttachment, coreHash: Bytes, trusted: TrustedLog[], preferredLogId?: string): Promise<StatusOutcome> => {
   if (!KNOWN_SOURCES.has(a.source)) return { ok: false, reason: `unknown status source ${a.source}` }
   if (trusted.length === 0) return { ok: false, reason: 'no trusted log key to check the countersignature with' }
-  if (!Number.isInteger(a.fetched_at) || a.fetched_at < 0) return { ok: false, reason: 'fetched_at is not an instant' }
+  if (!isInstant(a.fetched_at)) return { ok: false, reason: 'fetched_at is not an instant' }
+  if (!Array.isArray(a.entries) || !a.entries.every((e) => typeof e === 'object' && e !== null && typeof e.serial === 'string' && typeof e.status === 'string')) return { ok: false, reason: 'entries malformed' }
   let sig: Bytes
   try { sig = fromBase64(a.sig) } catch { return { ok: false, reason: 'signature malformed' } }
   if (sig.length !== 64) return { ok: false, reason: 'signature is not 64 bytes' }
 
-  const message = statusMessage(coreHash, a)
+  let message: Bytes
+  try { message = statusMessage(coreHash, a) } catch { return { ok: false, reason: 'entries malformed' } }
   const order = [...trusted].sort((x, y) => Number(y.logId === preferredLogId) - Number(x.logId === preferredLogId))
   for (const log of order) {
     const key = await importP256Spki(log.spki)

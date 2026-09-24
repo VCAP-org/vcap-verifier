@@ -68,12 +68,29 @@ export const toBase64url = (b: Bytes): string => {
   return out.replace(/\+/g, '-').replace(/\//g, '_')
 }
 
-export const readU32BE = (b: Bytes, at: number): number => ((b[at]! << 24) >>> 0) + (b[at + 1]! << 16) + (b[at + 2]! << 8) + b[at + 3]!
-export const readU16BE = (b: Bytes, at: number): number => (b[at]! << 8) + b[at + 1]!
+// A read past the end throws rather than returning NaN: every caller parses
+// untrusted bytes, and a NaN that reaches `BigInt` or a loop bound is a crash
+// or a hang somewhere far from the read that produced it.
+const inside = (b: Bytes, at: number, n: number): void => {
+  if (!Number.isInteger(at) || at < 0 || at + n > b.length) throw new RangeError(`read of ${n} bytes at ${at} past the end (${b.length})`)
+}
+export const readU32BE = (b: Bytes, at: number): number => { inside(b, at, 4); return ((b[at]! << 24) >>> 0) + (b[at + 1]! << 16) + (b[at + 2]! << 8) + b[at + 3]! }
+export const readU16BE = (b: Bytes, at: number): number => { inside(b, at, 2); return (b[at]! << 8) + b[at + 1]! }
 export const u32be = (n: number): Bytes => new Uint8Array([(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff])
 export const u64be = (n: number): Bytes => {
+  // `BigInt(1.5)` and `BigInt(undefined)` throw, and a value past 2^53 is not
+  // the number the signer meant: refuse both here, where the caller can catch.
+  if (!Number.isSafeInteger(n) || n < 0) throw new RangeError(`${String(n)} is not a non-negative safe integer`)
   const out = new Uint8Array(8)
   const big = BigInt(n)
   for (let i = 7; i >= 0; i--) out[i] = Number((big >> BigInt((7 - i) * 8)) & 0xffn)
   return out
 }
+
+/**
+ * An instant in milliseconds that `Date` can hold (±8.64e15 ms, ECMA-262
+ * §21.4.1.1) and that is a safe integer. Outside it `new Date(n)` is an
+ * Invalid Date and `toISOString()` throws, so every signed or relayed instant
+ * is checked with this before it becomes a `Date`.
+ */
+export const isInstant = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) <= 8.64e15

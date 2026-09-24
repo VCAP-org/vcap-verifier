@@ -81,14 +81,25 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
   } catch { fail('imprint', 'TSTInfo malformed'); fail('gen_time', 'TSTInfo malformed') }
 
   // SignerInfo: version, sid, digestAlgorithm, [0] signedAttrs, signatureAlgorithm, signature
-  const sidNode = si[1] as Node
-  const attrsNode = si.find((n, i) => i > 1 && contextTag(n) === 0)
-  const digestAlg = oid(sequence(si[2] as Node, 'digestAlgorithm')[0] as Node, 'digestAlgorithm')
-  const sigAlgIndex = attrsNode ? si.indexOf(attrsNode) + 1 : -1
-  if (!attrsNode || sigAlgIndex < 0) { fail('message_digest', 'no signed attributes'); fail('signature', 'no signed attributes'); fail('signer_chain', 'no signer'); fail('signer_usage', 'no signer'); return verdict }
-  const signatureAlg = oid(sequence(si[sigAlgIndex] as Node, 'signatureAlgorithm')[0] as Node, 'signatureAlgorithm')
-  const signature = octets(si[sigAlgIndex + 1] as Node, 'signature')
-  const attrs = children(attrsNode, 'signedAttrs').map((a) => { const [t, v] = sequence(a, 'Attribute'); return { type: oid(t as Node, 'attrType'), values: set(v as Node, 'attrValues') } })
+  // Read inside a `try` like everything above it: a SignerInfo is the token
+  // writer's bytes, and a missing field used to throw out of `verify` instead
+  // of failing the checks it would have fed.
+  let sidNode: Node, attrsNode: Node | undefined, digestAlg: string, signatureAlg: string, signature: Bytes
+  let attrs: { type: string, values: Node[] }[]
+  try {
+    sidNode = si[1] as Node
+    attrsNode = si.find((n, i) => i > 1 && contextTag(n) === 0)
+    digestAlg = oid(sequence(si[2] as Node, 'digestAlgorithm')[0] as Node, 'digestAlgorithm')
+    const sigAlgIndex = attrsNode ? si.indexOf(attrsNode) + 1 : -1
+    if (!attrsNode || sigAlgIndex < 0) { fail('message_digest', 'no signed attributes'); fail('signature', 'no signed attributes'); fail('signer_chain', 'no signer'); fail('signer_usage', 'no signer'); return verdict }
+    signatureAlg = oid(sequence(si[sigAlgIndex] as Node, 'signatureAlgorithm')[0] as Node, 'signatureAlgorithm')
+    signature = octets(si[sigAlgIndex + 1] as Node, 'signature')
+    attrs = children(attrsNode, 'signedAttrs').map((a) => { const [t, v] = sequence(a, 'Attribute'); return { type: oid(t as Node, 'attrType'), values: set(v as Node, 'attrValues') } })
+  } catch (error) {
+    const why = `SignerInfo unreadable: ${error instanceof Asn1Error ? error.message : 'malformed'}`
+    fail('message_digest', why); fail('signature', why); fail('signer_chain', 'no signer'); fail('signer_usage', 'no signer')
+    return verdict
+  }
   const hashName = DIGEST[digestAlg]
   try {
     if (!hashName) throw new Error(`unsupported digest algorithm ${digestAlg}`)
