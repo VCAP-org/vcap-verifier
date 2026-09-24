@@ -7,7 +7,7 @@
 //
 // This exists so a **mirror** can serve the same signed manifest as the
 // primary host without the private key ever reaching the machine that
-// publishes it (the key lives in `Ops/`, on one machine, and has no
+// publishes it (the key is held offline, on one machine, and has no
 // business on a CI runner). Nothing here signs anything: it decodes 64 bytes
 // that are already public, and refuses when the manifest in front of it is not
 // one of the manifests that were signed by hand.

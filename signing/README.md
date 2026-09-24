@@ -48,10 +48,10 @@ by itself get the key.
 
 ## Where the key lives
 
-The private key is `Ops/verifier-signing/ed25519-private.pem` in the project
-workspace — a folder that is **not a repository** and never becomes one, and
-that already holds the deploy SSH key and the environment secrets. It is a bare Ed25519 key with no
-passphrase, on one machine, backed up by hand with the rest of `Ops/`.
+The private key is a bare Ed25519 PEM with no passphrase, held by the key
+holder on one machine, in a folder that is **not a repository** and never
+becomes one, and backed up by hand. `bin/sign-build.mjs` has no default path
+for it: each run names it with `--key <path>` or `VCAP_SIGNING_KEY`.
 
 Stated plainly rather than dressed up: **whoever gets that machine's disk can
 sign manifests.** There is no HSM and no KMS to say otherwise. That is why the
@@ -169,7 +169,7 @@ rebuild is the one thing this signature must not cover.
 
 ```sh
 npm ci && npm run build --workspace web
-node bin/sign-build.mjs                       # reads the key from Ops/
+node bin/sign-build.mjs --key <path to the private key>   # or VCAP_SIGNING_KEY
 node bin/verify-build.mjs web/dist            # check before publishing
 # then upload web/dist, hashes.json.sig included, to the primary host
 ```
