@@ -79,7 +79,7 @@ describe('a media hash computed by the caller', () => {
   it('gives the whole file’s verdict from the trailer alone', async () => {
     const { file, media } = load('sealed')
     const trailerOnly = file.subarray(media.length)
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', media))
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(media)))
     const whole = await verify(file, { recomputeSegments: false })
     const alone = await verify(trailerOnly, { recomputeSegments: false, mediaHash: digest })
     expect(alone.outcome).toBe(whole.outcome)
