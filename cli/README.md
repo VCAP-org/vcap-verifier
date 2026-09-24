@@ -85,10 +85,17 @@ attests, never "verified by the operator".
 
 | | |
 |---|---|
-| `0` | authentic, or a verified clip |
-| `1` | the file does not verify — tampered, no proof, or an unreadable one |
+| `0` | authentic, or a verified clip whose frames were read back from the file |
+| `1` | the file does not verify — tampered, no proof, an unreadable proof, or a clip whose frames could not be compared (`frames_not_compared`, or `--no-recompute`) |
 | `2` | the verdict is not green and `--require-green` was given |
 | `64` | usage error |
+| `66` | a file could not be read — missing, a directory, a named sidecar absent; the others are still judged, and `--json` prints `{"file", "error"}` for it |
+| `70` | an internal error of this tool |
+
+`--require-green` cannot pass today: green needs the log's signed answer about
+the key's revocation, and this tool asks no log, so every file that verifies
+stays amber — at best *revocation not checked* — and exits `2` with it. It is a way to fail
+closed, not a gate anything clears yet.
 
 **The code answers "should I trust this file", not "did the tool run".** A
 tampered file is a successful run of the tool and a failure of the file. And

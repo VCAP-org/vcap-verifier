@@ -76,7 +76,11 @@ Options
   --chains <path.json>      the chains document to read anchors with, in the shape of
                             trust/chains.json, instead of the shipped one
   --offline                 read no chain: an anchor reads *anchoring not verified*
-  --require-green           exit 2 unless the ceiling is green
+  --require-green           exit 2 unless the ceiling is green. Green needs the log's
+                            signed answer about the key's revocation, and this tool
+                            asks no log: today every file that verifies stays
+                            amber and exits 2 with it. Use it to fail closed,
+                            not to expect a pass
   --at <iso8601>            the instant to verify at, instead of now
   -h, --help                this
 
@@ -109,10 +113,14 @@ Trust
   this tool, not a degraded one.
 
 Exit codes
-  0   authentic, or a verified clip
-  1   the file does not verify — tampered, no proof, or an unreadable one
+  0   authentic, or a verified clip whose frames were read back from the file
+  1   the file does not verify — tampered, no proof, an unreadable proof, a
+      clip whose frames could not be compared
   2   the verdict is not green and --require-green was given
   64  usage error
+  66  a file could not be read (missing, a directory, a named sidecar absent);
+      the other files are still judged and printed
+  70  an internal error of this tool
 
 The exit code answers "should I trust this file", not "did the tool run": a
 tampered file is a successful run of the tool and a failure of the file.

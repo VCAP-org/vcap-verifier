@@ -132,9 +132,38 @@ describe('vcap-verify', () => {
   })
 
   it('fails loudly on a named sidecar that is not there', async () => {
-    // Discovery may find nothing; a name given by the caller may not.
-    const { io } = capture()
-    await expect(run(['--json', '--sidecar', join(VECTORS, 'nope.vcap'), inputOf('01-jpeg-sealed')], io)).rejects.toThrow()
+    // Discovery may find nothing; a name given by the caller may not. The file
+    // was never judged, which is its own exit code and its own JSON line.
+    const { io, out } = capture()
+    expect(await run(['--json', '--sidecar', join(VECTORS, 'nope.vcap'), inputOf('01-jpeg-sealed')], io)).toBe(66)
+    const line = JSON.parse(out().trim())
+    expect(line.file).toBe(inputOf('01-jpeg-sealed'))
+    expect(line.error).toMatch(/ENOENT/)
+    expect(line.outcome).toBeUndefined()
+  })
+
+  it('judges every other file when one cannot be read', async () => {
+    const { io, out } = capture()
+    const code = await run(['--json', '--no-recompute', join(VECTORS, 'nope.jpg'), inputOf('01-jpeg-sealed')], io)
+    const lines = out().trim().split('\n').map((l) => JSON.parse(l))
+    expect(code).toBe(66)
+    expect(lines[0].error).toMatch(/ENOENT/)
+    expect(lines[1].outcome).toBe('authentic')
+    const human = capture()
+    await run(['--no-recompute', join(VECTORS, 'nope.jpg')], human.io)
+    expect(human.out()).toMatch(/nope\.jpg\n {2}error {5}ENOENT/)
+  })
+
+  it('does not pass a clip whose frames were not compared', async () => {
+    // A file that is not the sealed bytes, with recomputation off: the
+    // signatures hold and nothing ties the frames to them — exit 1.
+    const dir = mkdtempSync(join(tmpdir(), 'vcap-clip-'))
+    const bytes = Uint8Array.from(readFileSync(inputOf('36-mp4-container-verified')))
+    bytes[4000] = bytes[4000]! ^ 1
+    writeFileSync(join(dir, 'edited.mp4'), bytes)
+    const { io, out } = capture()
+    expect(await run(['--json', '--no-recompute', join(dir, 'edited.mp4')], io)).toBe(1)
+    expect(JSON.parse(out().trim()).outcome).toBe('frames_not_compared')
   })
 
   it('applies §3.1 precedence to a discovered sidecar', async () => {
