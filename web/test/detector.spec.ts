@@ -38,15 +38,15 @@ test.describe('with the published detector build', () => {
     // needs it pays for it. This one carries no proof, so its pixels are read.
     const asked: string[] = []
     page.on('request', (request) => asked.push(request.url()))
-    await expect(page.locator('#detector-state')).not.toContainText('running on')
+    await expect(page.locator('#status')).not.toContainText('running on')
     expect(asked.filter((u) => u.includes('.onnx'))).toHaveLength(0)
 
     const clicked = Date.now()
     await page.setInputFiles('#file', photo)
-    await expect(page.locator('#detector-state')).toContainText('running on', { timeout: 120_000 })
+    await expect(page.locator('#status')).toContainText('running on', { timeout: 120_000 })
     const loaded = Date.now()
     console.log(`[timing] photo — 34.2 MB downloaded, hashed and a session opened in ${took(clicked)}`)
-    await expect(page.locator('#detector-state')).toContainText('videoseal-y256b-1')
+    await expect(page.locator('#status')).toContainText('videoseal-y256b-1')
 
     const mark = page.locator('.panel.mark')
     await expect(mark.locator('h3')).toHaveText('An invisible mark is still in these pixels', { timeout: 120_000 })
@@ -69,13 +69,29 @@ test.describe('with the published detector build', () => {
     await page.goto(url)
     await page.setInputFiles('#file', photo)
 
-    await expect(page.locator('#detector-state')).toContainText('The detector did not load', { timeout: 120_000 })
-    await expect(page.locator('#detector-state')).toContainText('the manifest pins')
+    await expect(page.locator('#status')).toContainText('The detector did not load', { timeout: 120_000 })
+    await expect(page.locator('#status')).toContainText('the manifest pins')
     // Refused, and the page is exactly as useful as it was: the watermark is
     // not evaluated, which is a weaker verdict and not a failure.
     await expect(page.locator('.panel.mark a')).toHaveCount(0)
     await expect(page.locator('.verdict h2')).toHaveText('No proof found')
 
+    await stop(server)
+  })
+
+  test('runs a model the reader supplied instead of the pinned one, and names it custom', async ({ page }) => {
+    // The host has no model: the only copy is the reader's, and a digest
+    // check against the pin would have nothing to do with it.
+    const { server, url } = await serve({ absent: /\.onnx$/ })
+    await page.goto(url)
+    await page.locator('details#advanced summary').click()
+    await page.setInputFiles('#model', model)
+    await expect(page.locator('#detector-model')).toContainText('custom-a482af784d1a')
+    await page.setInputFiles('#file', photo)
+    const mark = page.locator('.panel.mark')
+    await expect(mark.locator('h3')).toHaveText('An invisible mark is still in these pixels', { timeout: 120_000 })
+    await expect(mark).toContainText('custom-a482af784d1a, a model you supplied')
+    await expect(page.locator('#status')).toContainText('Custom model custom-a482af784d1a, running on')
     await stop(server)
   })
 
@@ -89,9 +105,9 @@ test.describe('with the published detector build', () => {
     // seconds of silence reads as a hang and the reader has no other signal.
     // They arrive before the ready line, which the page prints once the clip
     // is done — so the frames are awaited first.
-    await expect(page.locator('#detector-state')).toContainText(/frame \d of 8/, { timeout: 120_000 })
+    await expect(page.locator('#status')).toContainText(/frame \d of 8/, { timeout: 120_000 })
     const loaded = Date.now()
-    await expect(page.locator('#detector-state')).toContainText('running on', { timeout: 120_000 })
+    await expect(page.locator('#status')).toContainText('running on', { timeout: 120_000 })
     // The clip carries no proof, so what comes back is the mark on its own:
     // an identifier, or the page saying why it names none.
     await expect(page.locator('.panel.mark')).toBeVisible({ timeout: 180_000 })

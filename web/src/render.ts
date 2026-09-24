@@ -217,14 +217,23 @@ const carriedParagraph = (w: { frames_with_id?: number | null, frames_sampled?: 
 const carriedLine = (w: WatermarkOutcome | undefined): string =>
   w !== undefined && w.result === 'matched' ? carriedParagraph(w, 'carried') : ''
 
+/**
+ * The labels that report evidence that held, not a gap. §8 and §7 emit them
+ * in the same list as the ceilings, so the list alone cannot say which is
+ * which; under "What this verdict does not cover", *watermark matched* read as
+ * a limit. They keep the specification's words and move to their own line.
+ */
+const CHECKED = new Set(['watermark matched', 'location corroborated', 'integrity hardware'])
+
 export const card = (name: string, v: Verdict): string => {
+  const checked = v.labels.filter((l) => CHECKED.has(l))
   // The ceilings, and they keep the specification's words: these are what the
   // verdict does **not** reach, and a paraphrase would be a different claim.
   // What changes is only how they are set — as chips under a line that
   // names them, rather than a bullet list of seven grey phrases inside a green
   // card, which read as a list of faults and is the opposite of a ceiling.
   const lines = [
-    ...v.labels.map((l) => `<li>${escape(l)}</li>`),
+    ...v.labels.filter((l) => !CHECKED.has(l)).map((l) => `<li>${escape(l)}</li>`),
     ...v.not_evaluated.map((k) => `<li>not evaluated: <code>${escape(k)}</code></li>`)
   ]
   // What the verdict rests on, as a description list: the name of each piece of
@@ -262,6 +271,9 @@ export const card = (name: string, v: Verdict): string => {
     <div class="file-line">${escape(name)}</div>
     ${position(v)}
     ${carriedLine(v.watermark)}
+    ${checked.length
+      ? `<div class="limits checked"><p class="limits-head">Also checked</p><ul class="chips">${checked.map((l) => `<li>${escape(l)}</li>`).join('')}</ul></div>`
+      : ''}
     ${lines.length
       ? `<div class="limits"><p class="limits-head">What this verdict does not cover</p><ul class="chips">${lines.join('')}</ul></div>`
       : ''}
@@ -316,10 +328,20 @@ export const bareMark = (evidence: WatermarkEvidence, traceUrl: string): string 
     <p><strong>This is not a verdict of authenticity.</strong> No signature covers these bytes, so nothing here says the picture is unedited or that it is the file that was sealed. What the pixels carry is an identifier, and that is all.</p>
     <p>It reads <code>${escape(decoded)}</code>${layout ? ` in <code>${escape(layout)}</code>` : ''}.</p>
     ${carriedParagraph(evidence)}
+    ${customModelNote(evidence)}
     <p class="muted">The registry that issued it can turn it back into the proof. Looking it up is a request to somebody's server, and the only one this page will ever suggest.</p>
     <p><a class="btn" href="${escape(traceUrl)}/${escape(decoded)}" rel="noreferrer">Look this identifier up in the registry</a></p>
   </div>`
 }
+
+/**
+ * A mark read by a model the reader supplied is named as such, so an
+ * identifier from an unpinned build never reads as one from the pinned build.
+ */
+const customModelNote = (w: WatermarkEvidence): string =>
+  w.model_version?.startsWith('custom-') === true
+    ? `<p class="muted">Read by <code>${escape(w.model_version)}</code>, a model you supplied — not the build this page pins.</p>`
+    : ''
 
 /**
  * Whether reading more of the clip would change a refusal — the question a

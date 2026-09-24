@@ -55,6 +55,7 @@ test('a reader can add a log and take one away, and the verdict follows', async 
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await expect(label(page, 'log not trusted')).toHaveCount(1)
 
+  await page.locator('details#advanced summary').click()
   await page.fill('#trust-line', corpusLog())
   await page.click('#trust-add')
   await expect(page.locator('#trust-logs li')).toHaveCount(2)
@@ -109,6 +110,7 @@ test('switching every authority off leaves a whole verdict, not an error', async
   await page.setInputFiles('#file', join(vectors, '59-jpeg-timestamped/input.jpg'))
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
 
+  await page.locator('details#advanced summary').click()
   await page.uncheck('#tsa-roots input[type=checkbox]')
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await expect(label(page, 'trusted time not evaluated')).toHaveCount(1)

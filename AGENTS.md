@@ -96,7 +96,16 @@ part of correctness:
   worker's precache, and `detector.json` pins the build's SHA-256 so nothing
   unverified runs. Never import it from the bundle, and never make a verdict
   depend on it — a page without a detector says *watermark not evaluated* and
-  is otherwise whole.
+  is otherwise whole. A reader may run their own model instead (*Advanced →
+  Use a different model*): unpinned, so it is hashed in the page and named
+  `custom-<sha256 prefix>` in every detection — never the pinned build's
+  `model_version`.
+- The **first view** is one question, one dropzone and one status line; the
+  detector, the sidecar and the three trust panels live in one closed
+  *Advanced* `<details>`. That is still *visible and refusable*: the panels are
+  one click away, and the summary line names what is in use and says *custom*
+  whenever the setup differs from what ships. Never fold a trust point
+  anywhere its summary does not reach.
 - The verdict's **colour is §7's ceiling**, not the outcome: the page paints the
   stricter of `level.ceiling` and the outcome's own colour, never greener, and
   names the labels that set it with the core's `ceilingLabels` — never a list

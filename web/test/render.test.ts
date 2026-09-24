@@ -159,3 +159,14 @@ describe('the verdict colour follows the §7 ceiling', () => {
     expect(colour({ ...base, outcome: 'corrupted_proof' })).toBe('red')
   })
 })
+
+describe('which labels are limits', () => {
+  it('lists a matched watermark as checked, never under what the verdict does not cover', () => {
+    const html = card('photo.jpg', { outcome: 'authentic', labels: ['watermark matched', 'revocation not checked'], not_evaluated: [] } as unknown as Verdict)
+    const limits = html.slice(html.indexOf('What this verdict does not cover'))
+    const checked = html.slice(html.indexOf('Also checked'), html.indexOf('What this verdict does not cover'))
+    expect(checked).toContain('<li>watermark matched</li>')
+    expect(limits).toContain('<li>revocation not checked</li>')
+    expect(limits).not.toContain('watermark matched')
+  })
+})

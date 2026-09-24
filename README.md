@@ -57,6 +57,12 @@ where enrolment puts it), a page that actually reaches a log or a status list.
   for it with a progress line. Its absence is *watermark not evaluated* with the
   reason — a weaker verdict, not an error. The verifier states which model
   looked.
+- **One drop on first visit, everything else one click away.** The page opens
+  on a question, one dropzone and one status line; dropping a file works with
+  the shipped defaults. The detector, a separate `.vcap` proof and the three
+  trust sets sit in one closed *Advanced* disclosure whose summary line names
+  what is in use (`Using: 1 log · 1 timestamp authority · 1 chain · pinned
+  detector`) and says *custom* as soon as anything was changed.
 - **Reproducible build**, every shipped file hashed and published, so an expert
   can prove which verifier produced a given verdict — by rebuilding it. The
   manifest carries a detached signature that proves **continuity of the signing
@@ -319,6 +325,13 @@ has been checked is code the manifest does not cover. Bytes that hash to
 anything else are refused with the two digests printed, and the page is left
 exactly as useful as it was — a Playwright test flips one byte of the model in
 flight and asserts both.
+
+**A model of your own.** *Advanced → Use a different model* takes a local
+`.onnx` file and runs it instead of the pinned build, on the same runtime and
+layouts. There is no pin to check it against, so it is not refused for its
+digest: the page hashes it, prints the SHA-256, and names every detection it
+makes `custom-<first 12 hex of the SHA-256>`, so a verdict never passes it off
+as the pinned build. The pinned model is not fetched while it is in place.
 
 The model is VideoSeal's y_256b detector, quantized to int8 (`model_version`
 `videoseal-y256b-1`). Frames are decoded by the browser, which applies the

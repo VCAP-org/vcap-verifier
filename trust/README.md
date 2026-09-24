@@ -8,7 +8,7 @@ is **ours**, and the authority in `tsa.json` is somebody else's. A reader who
 refuses the first and keeps the second has taken a perfectly coherent
 position, and one document with two arrays would have made that the awkward
 case instead of the obvious one. The switches are separate everywhere —
-`--no-default-logs` and `--no-default-tsa`, two panels on the page, two
+`--no-default-logs` and `--no-default-tsa`, two panels under the page's *Advanced* disclosure, two
 sections in the app's Settings.
 
 A third document, `chains.json`, is not about whom to believe for a signature
@@ -57,7 +57,7 @@ became a requirement would destroy the claim the product rests on.
 | where | how |
 |---|---|
 | CLI | `--show-trust` to read it, `--no-default-logs` to drop it, `--trust <file>` / `--log <id>:<spki>` to add |
-| page | the *Transparency logs this page trusts* panel: a switch per log, a file input for your own document, and a box for a single `<log_id>:<base64 spki>` line |
+| page | the *Transparency logs* panel under *Advanced*: a switch per log, a file input for your own document, and a box for a single `<log_id>:<base64 spki>` line |
 | library | `vcap-verify-core` ships **no** default set; `verify(bytes, { trustedLogs })` is the whole interface, and `parseTrustDocument` reads a document like this one |
 
 ## The shape
@@ -115,7 +115,7 @@ platform's provider minted, and the token was verified against it — by
 | where | how |
 |---|---|
 | CLI | `--show-trust` to read it, `--no-default-tsa` to drop it, `--tsa-root <file.pem>` to add |
-| page | the *Timestamping authorities this page trusts* panel: a switch per authority, a file input for your own document, and a box for a single `<sha256 fingerprint>:<base64 certificate>` line |
+| page | the *Timestamping authorities* panel under *Advanced*: a switch per authority, a file input for your own document, and a box for a single `<sha256 fingerprint>:<base64 certificate>` line |
 | library | `vcap-verify-core` ships **no** default set; `verify(bytes, { tsaRoots })` is the whole interface, and `parseTsaDocument` reads a document like this one |
 
 ### The shape
@@ -173,7 +173,7 @@ the anchor reads *anchoring not verified*, with the reason in its detail:
 | where | how |
 |---|---|
 | CLI | `--show-trust` to read it, `--chains <file>` to use another document, `--offline` to read no chain |
-| page | the *Public chains read for anchors* panel: a switch per chain |
+| page | the *Public chains read for anchors* panel under *Advanced*: a switch per chain |
 | library | `vcap-verify-core` ships **no** default; `verify(bytes, { readChain: rpcChainReader(parseChainsDocument(doc), post) })`, with `post` your own transport |
 
 ### The shape

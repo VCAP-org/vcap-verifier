@@ -154,6 +154,7 @@ interface TsaEntry {
   der: Uint8Array
   described: TsaAuthorityEntry
   source: string
+  shipped: boolean
   on: boolean
 }
 
@@ -162,11 +163,11 @@ const authorities: TsaEntry[] = []
 /** What the page will actually check a `timestamp` attachment against. */
 export const trustedTsaRoots = (): Uint8Array[] => authorities.filter((e) => e.on).map((e) => e.der)
 
-const addTsa = (parsed: { roots: Uint8Array[], entries: TsaAuthorityEntry[] }, source: string): void => {
+const addTsa = (parsed: { roots: Uint8Array[], entries: TsaAuthorityEntry[] }, source: string, shipped: boolean): void => {
   parsed.roots.forEach((der, at) => {
     const described = parsed.entries[at] as TsaAuthorityEntry
     if (authorities.some((e) => e.described.fingerprint_sha256 === described.fingerprint_sha256)) return
-    authorities.push({ der, described, source, on: true })
+    authorities.push({ der, described, source, shipped, on: true })
   })
 }
 
@@ -216,7 +217,7 @@ const drawTsa = (): void => {
 export const mountTsa = async (changed: () => void): Promise<void> => {
   onChange = changed
   try {
-    addTsa(await parseTsaDocument(defaultTsaDocument), 'shipped with this page')
+    addTsa(await parseTsaDocument(defaultTsaDocument), 'shipped with this page', true)
   } catch (error) {
     sayTsa(`the shipped timestamping authorities did not load: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -229,7 +230,7 @@ export const mountTsa = async (changed: () => void): Promise<void> => {
     void chosen.text()
       .then(async (text) => {
         const parsed = await parseTsaDocument(JSON.parse(text) as unknown)
-        addTsa(parsed, `from ${chosen.name}`)
+        addTsa(parsed, `from ${chosen.name}`, false)
         drawTsa(); onChange()
         sayTsa(`${parsed.roots.length} ${parsed.roots.length === 1 ? 'authority' : 'authorities'} added from ${chosen.name}`)
       })
@@ -243,7 +244,7 @@ export const mountTsa = async (changed: () => void): Promise<void> => {
     if (text === '') return
     void parseTsaRoot(text)
       .then(({ fingerprint, der }) => {
-        addTsa({ roots: [der], entries: [{ fingerprint_sha256: fingerprint, certificate: text.slice(text.indexOf(':') + 1), name: 'an authority you pinned' }] }, 'pasted here')
+        addTsa({ roots: [der], entries: [{ fingerprint_sha256: fingerprint, certificate: text.slice(text.indexOf(':') + 1), name: 'an authority you pinned' }] }, 'pasted here', false)
         line.value = ''
         drawTsa(); onChange()
         sayTsa(`${fingerprint} is now trusted in this page`)
@@ -315,3 +316,18 @@ export const mountChains = (changed: () => void): void => {
   }
   drawChains()
 }
+
+/**
+ * What the three sets hold right now, for the one line that stands in for the
+ * panels while they are folded away. `changed` is any departure from what
+ * ships — an entry switched off or one the reader added — so the line can say
+ * "custom" and a changed setup is never hidden behind a closed disclosure.
+ */
+export const trustInUse = (): { logs: number, tsa: number, chains: number, changed: boolean } => ({
+  logs: entries.filter((e) => e.on).length,
+  tsa: authorities.filter((e) => e.on).length,
+  chains: chains.filter((c) => c.on).length,
+  changed: entries.some((e) => !e.shipped || !e.on) ||
+    authorities.some((e) => !e.shipped || !e.on) ||
+    chains.some((c) => !c.on)
+})
