@@ -5,7 +5,8 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'no
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 
-// One bundle, one HTML file, no external requests: the page must be archivable
+// One bundle, one HTML file, no external requests but the chain read an anchor
+// needs (`chains.json`, only for a proof that carries one): the page must be archivable
 // and its hash publishable, so an expert can say which verifier produced a
 // verdict. The build is reproducible — two clean checkouts of the same commit
 // with the pinned toolchain yield byte-identical `dist/` — and it writes
@@ -123,6 +124,9 @@ copyFileSync('../trust/logs.json', 'dist/logs.json')
 // who refuses the log we run and keeps a third party's clock has taken a
 // position the page has to be able to represent.
 copyFileSync('../trust/tsa.json', 'dist/tsa.json')
+// The chains an anchor is read from and the RPC asked, likewise: the one
+// request a verdict can make is to an endpoint named in a published file.
+copyFileSync('../trust/chains.json', 'dist/chains.json')
 for (const name of ORT_ASSETS) copyFileSync(join(ortDist, name), `dist/${name}`)
 
 if (serve) {
@@ -155,7 +159,7 @@ if (serve) {
   // the old one goes; the worker itself is not in its own list (the browser
   // fetches it), nor is what is written after it — but the hash records are,
   // as URLs, so they are readable offline too.
-  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', 'logs.json', 'tsa.json', ...ORT_ASSETS, ...STATIC, ...FONTS]
+  const shipped = ['index.html', 'metafile.json', 'verifier.js', 'verifier.js.sha256', 'detector.js', 'detector-runtime.js', 'logs.json', 'tsa.json', 'chains.json', ...ORT_ASSETS, ...STATIC, ...FONTS]
   // Everything shipped is cached except the detector module: it is an explicit
   // choice of the user's, it pulls a model far larger than this page, and an
   // offline page that silently held a stale detector would be worse than one

@@ -1,7 +1,7 @@
 {
   "name": "VCAP Verifier",
   "short_name": "VCAP Verifier",
-  "description": "Verify a sealed photo or video in the browser. Nothing leaves the page.",
+  "description": "Verify a sealed photo or video in the browser. The file never leaves the page.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

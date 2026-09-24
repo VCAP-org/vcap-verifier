@@ -54,7 +54,8 @@ part of correctness:
   corpus version; `core/test/corpus.ts` throws rather than hand back an empty
   list. A floor (`>= 84`) is not that assertion: it passes while the corpus
   shrinks under it, and it passes loudest when nothing ran at all.
-- The **trust sets** are `trust/logs.json` and `trust/tsa.json`: two
+- The **trust sets** are `trust/logs.json` and `trust/tsa.json` (plus
+  `trust/chains.json`, below, for where anchors are read): two
   documents, because they are two decisions, with separate switches everywhere
   (`--no-default-logs` / `--no-default-tsa`, two panels, two Settings
   sections). Refusing the log we run must never also drop a third party's
@@ -77,9 +78,20 @@ part of correctness:
   is not a third party**: `registry` proves the sealing key was in *our* log
   before the capture and nothing else, so no wording anywhere may let it read
   as independent corroboration.
-- No analytics, no telemetry, no uploads. Nothing leaves the browser, and that
-  must stay auditable in a single read of the source.
-- The **detector** is the one thing the page fetches, and only on a click:
+- No analytics, no telemetry, no uploads. The file and the proof never leave
+  the browser, and that must stay auditable in a single read of the source.
+- The **chain read** is the one request a verdict makes: for a proof with an
+  `anchor`, the page and the CLI ask the public chain RPC listed in
+  `trust/chains.json` (never a server of ours) for the root the contract
+  stored, sending the anchor id only. The core stays transport-free
+  (`rpcChainReader(chains, post)`, the caller's `post`). The RPC is a **trust
+  point** — a lying endpoint could fake a root — and every surface says so and
+  lets the reader refuse it (`--offline`, `--chains`, the page's switch). A
+  reader that throws is *not consulted* (*anchoring not verified*), never
+  *not found*; offline must still give a whole verdict.
+- The **detector** is fetched only when a file needs it (a proof declaring a
+  `watermark`, or a file with no proof), never on load, and the verdict waits
+  for it with its progress shown:
   `web/src/detector.ts` is a separate artifact, excluded from the service
   worker's precache, and `detector.json` pins the build's SHA-256 so nothing
   unverified runs. Never import it from the bundle, and never make a verdict
@@ -101,7 +113,7 @@ part of correctness:
   configured on the platform's host), by hand, from a clean checkout. Nothing in
   this repository may come to depend on that: every URL the build produces is
   relative, the e2e suite runs at a root and under a sub-path, and a verdict
-  still needs no request of any kind. The host serves bytes whose hashes are
+  needs no request to our host. The host serves bytes whose hashes are
   published — it is not in the verification path, and a change that would put
   it there is the change to refuse.
 - The page is also mirrored on GitHub Pages

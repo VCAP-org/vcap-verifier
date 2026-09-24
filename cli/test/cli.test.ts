@@ -33,8 +33,10 @@ const trustArgs = (): string[] => {
   // The corpus's expectations are a verifier whose trust is exactly the
   // corpus's. The tool ships trusting one log of ours and one timestamping
   // authority, neither of which anybody wrote these vectors against, so both
-  // are dropped here — separately, because they are separate switches.
-  const args: string[] = ['--no-default-logs', '--no-default-tsa']
+  // are dropped here — separately, because they are separate switches. And
+  // `--offline`: the corpus's anchors were never written to any chain, and a
+  // test suite reads no network.
+  const args: string[] = ['--no-default-logs', '--no-default-tsa', '--offline']
   const tsa = join(TRUST, 'tsa-roots.pem')
   if (existsSync(tsa)) args.push('--tsa-root', tsa)
   const logsFile = join(TRUST, 'logs.json')
@@ -336,6 +338,34 @@ describe('trust set', () => {
     // And the authority is still there: dropping our log must not quietly
     // drop a third party's clock with it.
     expect(out()).toContain('FreeTSA')
+  })
+
+  it('--show-trust names the chain, its RPC and that the RPC is trusted; --offline reads none', async () => {
+    const { io, out } = capture()
+    expect(await run(['--show-trust'], io)).toBe(0)
+    expect(out()).toContain('0xC0cB4dB299ADE68Cc9CE6DC0B541FF870b272572')
+    expect(out()).toContain('https://sepolia.base.org')
+    expect(out()).toContain('a lying endpoint could return a forged root')
+
+    const offline = capture()
+    expect(await run(['--offline', '--show-trust'], offline.io)).toBe(0)
+    expect(offline.out()).toContain('no chain is read (--offline)')
+  })
+
+  it('--offline leaves an anchor *anchoring not verified*, and the verdict is otherwise whole', async () => {
+    const { io, out } = capture()
+    expect(await run(['--offline', '--no-recompute', '--at', '2025-09-09T12:00:00Z', inputOf('57-jpeg-anchor-on-chain')], io)).toBe(0)
+    expect(out()).toContain('  anchor    merkle path reaches the anchored root; chain not consulted')
+    expect(out()).toContain('· anchoring not verified')
+  })
+
+  it('--chains refuses a document it cannot use', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vcap-chains-'))
+    const bad = join(dir, 'chains.json')
+    writeFileSync(bad, JSON.stringify({ chains: { x: { chain_id: 1, contract: '0x12', rpc: [] } } }))
+    const { io, err } = capture()
+    expect(await run(['--chains', bad, inputOf('01-jpeg-sealed')], io)).toBe(64)
+    expect(err()).toContain('contract')
   })
 
   it('a timestamp is *trusted time not evaluated* with no authority, and the verdict is otherwise whole', async () => {

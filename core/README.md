@@ -2,7 +2,7 @@
 
 Verification of a vcap proof, isomorphic: the same verdict in a browser, in
 Node, and inside the platform. **WebCrypto only** — no `Buffer`, no Node API,
-no network.
+and no network of its own: what needs one is injected by the caller.
 
 ```ts
 import { verify } from 'vcap-verify-core'
@@ -26,11 +26,22 @@ await verify(bytes, {
   tsaRoots: [der],                  // else: trusted time not evaluated
   keyStatus: async (keyIdHex, at) => …,  // else: revocation not checked
   revocation: async (serialHex) => …,  // Google's status list; else: chain revocation not checked
-  readChain: async (chain, anchorId) => …, // else: anchoring not verified
+  readChain: rpcChainReader(parseChainsDocument(chains), post), // else, or if it throws: anchoring not verified
   watermark: async (claim) => …,    // else: watermark not evaluated
   now: new Date(…)                  // a §7 verdict depends on when it is asked
 })
 ```
+
+`rpcChainReader(chains, post)` reads an anchor over JSON-RPC: `chains` is
+`parseChainsDocument` of a document shaped like `trust/chains.json` (chain id,
+contract, RPC URLs per chain name) and `post(url, body) => Promise<string>` is
+**your** transport — the core never calls `fetch`. It checks `eth_chainId`,
+calls `getAnchor(anchor_id)` and decodes root, tree size and block time. A zero
+root or a revert is `null` (*anchor not found on chain*); an unknown chain, a
+wrong chain id, or a transport or RPC error **throws**, and `verify` reads a
+throw as *not consulted* — the detail says why, the label is *anchoring not
+verified*, never a failure. The RPC endpoint is a trust point: this is not a
+light client, and a lying endpoint could return a forged root.
 
 One more option is not about the network but about where the hashing runs.
 `mediaHash` is the SHA-256 of the canonical bytes (§4.1) when the caller

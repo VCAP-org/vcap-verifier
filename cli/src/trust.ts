@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { fingerprintOf, parseTrustDocument, parseTsaDocument, type TrustDocumentEntry, type TrustedLog, type TsaAuthorityEntry } from 'vcap-verify-core'
+import { fingerprintOf, parseChainsDocument, parseTrustDocument, parseTsaDocument, type ChainEntry, type TrustDocumentEntry, type TrustedLog, type TsaAuthorityEntry } from 'vcap-verify-core'
 
 /**
  * The logs this tool follows unless told otherwise.
@@ -83,6 +83,31 @@ export const describeTsa = async (set: TsaSet): Promise<string> => {
     if (entry?.independent === true) lines.push('    third     run by somebody else, so a token from it is evidence we did not make — but it proves\n              only that this hash existed before that instant, never who made the file')
     if (entry?.independent === false) lines.push('    warning   run by the same party that publishes this tool — not independent corroboration')
     for (const caveat of entry?.caveats ?? []) lines.push(`    caveat    ${caveat}`)
+  }
+  return lines.join('\n') + '\n'
+}
+
+/**
+ * The chains this tool reads an `anchor` from, and the RPC endpoints it asks
+ * (`trust/chains.json`). `--chains` replaces the file, `--offline` reads none.
+ * The endpoint is trusted to answer honestly, and `--show-trust` says so.
+ */
+export const DEFAULT_CHAINS_FILE = fileURLToPath(new URL('../../trust/chains.json', import.meta.url))
+
+export const readChainsFile = async (path: string): Promise<Record<string, ChainEntry>> =>
+  parseChainsDocument(JSON.parse(await readFile(path, 'utf8')) as unknown)
+
+/** One block per chain: the contract, the endpoints, and the sentence about trusting them. */
+export const describeChains = (chains: Record<string, ChainEntry> | null): string => {
+  if (chains === null) return 'no chain is read (--offline): every `anchor` attachment will read *anchoring not verified*\n'
+  const lines: string[] = []
+  for (const [name, entry] of Object.entries(chains)) {
+    lines.push(`  ${name}${entry.name ? ` — ${entry.name}` : ''}`)
+    lines.push(`    chain_id  ${entry.chain_id}`)
+    lines.push(`    contract  ${entry.contract}`)
+    for (const url of entry.rpc) lines.push(`    rpc       ${url}`)
+    lines.push('    warning   the RPC is trusted to answer honestly: a lying endpoint could return a forged root')
+    for (const caveat of entry.caveats ?? []) lines.push(`    caveat    ${caveat}`)
   }
   return lines.join('\n') + '\n'
 }

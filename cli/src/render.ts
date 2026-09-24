@@ -25,7 +25,7 @@ const MEANING: Record<string, string> = {
   'trusted time not evaluated': 'a timestamp is attached and no authority this run trusts issued it (--show-trust lists the ones it does; --tsa-root adds)',
   'timestamp evidence invalid': 'the attached timestamp does not hold up',
   'not anchored': 'nothing places this before a block on a public chain',
-  'anchoring not verified': 'the anchor\'s path is consistent; the chain was not consulted',
+  'anchoring not verified': 'the anchor\'s path is consistent; the chain was not read (--offline, or no endpoint answered)',
   'anchor evidence invalid': 'the attached anchor does not hold up',
   'key not in transparency log': 'nobody can confirm this signing key was registered',
   'log not trusted': 'the proof names a transparency log this verifier does not follow (--show-trust lists the ones it does; --trust and --log add)',
@@ -95,6 +95,8 @@ export const render = (path: string, verdict: Verdict): string => {
   if (verdict.registry) {
     lines.push(`  log       ${verdict.registry.ok ? `${verdict.registry.detail} — in a log this verifier trusts (--show-trust says which, and who runs it)` : verdict.registry.detail}`)
   }
+  // The anchor's own sentence: on chain, not read and why, or not holding up.
+  if (verdict.anchor) lines.push(`  anchor    ${verdict.anchor.detail}`)
   if (verdict.segments) {
     const verified = verdict.segments.verified
     const recomputed = verdict.content?.recomputed === true

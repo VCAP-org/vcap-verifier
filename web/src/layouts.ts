@@ -197,7 +197,7 @@ const REPS = 8
  * The agreement floor of `watermark-layouts-1.0.md`.
  *
  * Spelled out here rather than imported: this file is the detector's own
- * artifact, kept free of the core so the bundle the browser fetches on a click
+ * artifact, kept free of the core so the bundle the browser fetches only when a file needs it
  * stays the layout port and nothing else. `test/layouts.test.ts` pins it equal
  * to the core's `VIDEO_AGREEMENT_FLOOR`, which is the value that decides a
  * verdict — a detection from anywhere else reaches the same gate there.

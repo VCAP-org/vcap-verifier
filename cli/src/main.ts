@@ -1,18 +1,20 @@
 #!/usr/bin/env -S npx tsx
 import { readFile } from 'node:fs/promises'
-import { verify, pemToDer, parseTrustedLog, fingerprintOf, TrustDocumentError, type TrustedLog, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
+import { verify, rpcChainReader, pemToDer, parseTrustedLog, fingerprintOf, TrustDocumentError, type TrustedLog, type ChainReader, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
 import { type Options, USAGE, UsageError, parse } from './options.js'
 import { render } from './render.js'
-import { DEFAULT_TRUST_FILE, DEFAULT_TSA_FILE, describeTrust, describeTsa, readTrustFile, readTsaFile, type TrustSet, type TsaSet } from './trust.js'
+import { DEFAULT_CHAINS_FILE, DEFAULT_TRUST_FILE, DEFAULT_TSA_FILE, describeChains, describeTrust, describeTsa, readChainsFile, readTrustFile, readTsaFile, type TrustSet, type TsaSet } from './trust.js'
 
 /**
  * `vcap-verify`: a verdict from a shell.
  *
- * It contacts nothing. Every check this makes is one a file carries the
- * evidence for, which is the whole promise of the format — so *revocation not
- * checked* and *anchoring not verified* are the normal answers here, and they
- * are answers rather than failures. A caller who wants those closed reads the
- * log and the chain themselves and uses the library.
+ * It contacts one thing: the public chain an `anchor` attachment names, through
+ * the JSON-RPC endpoint `trust/chains.json` lists, to read the root the
+ * contract stored — so that anchoring is checkable without us. Only the anchor
+ * id is sent, never the file; `--offline` sends nothing, and a chain that
+ * cannot be read gives *anchoring not verified*, an answer and not a failure.
+ * Every other check is one the file carries the evidence for, so *revocation
+ * not checked* stays the normal answer here.
  *
  * The only thing it reads from disk beyond the files named is its trust
  * (`trust.ts`): which transparency logs it checks a `registry` attachment
@@ -88,11 +90,20 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
       tsa.entries.push({ fingerprint_sha256: await fingerprintOf(pemToDer(block)), certificate: '', name: `given on the command line (${path})`, independent: undefined })
     }
   }
+  let chains
+  try {
+    chains = options.offline ? null : await readChainsFile(options.chainsFile ?? DEFAULT_CHAINS_FILE)
+  } catch (error) {
+    io.err(`vcap-verify: ${error instanceof Error ? error.message : String(error)}\n`)
+    return EXIT.usage
+  }
   if (options.showTrust) {
     io.out('transparency logs\n' + describeTrust(trust))
     io.out('\ntimestamping authorities\n' + await describeTsa(tsa))
+    io.out('\nchains read for anchors\n' + describeChains(chains))
     return EXIT.ok
   }
+  const readChain: ChainReader | undefined = chains === null ? undefined : rpcChainReader(chains, post)
   const tsaRoots = tsa.roots
   // §8's watermark detection. This tool runs no detector and contacts nothing,
   // so the evidence is a file the caller produced — the `watermark` block of a
@@ -121,6 +132,7 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
         recomputeSegments: options.recompute,
         trustedLogs: trust.logs,
         tsaRoots,
+        readChain,
         ...(watermark ? { watermark: async () => watermark } : {}),
         now: options.now
       })
@@ -142,6 +154,17 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
   if (verdicts.some(({ verdict }) => !VERIFIES.has(verdict.outcome))) return EXIT.doesNotVerify
   if (options.requireGreen && verdicts.some(({ verdict }) => verdict.level?.ceiling !== 'green')) return EXIT.notGreen
   return EXIT.ok
+}
+
+/**
+ * The chain reader's transport: one JSON-RPC POST with Node's `fetch`. Bounded
+ * in time, because an endpoint that never answers must end as *anchoring not
+ * verified*, not as a hung shell.
+ */
+const post = async (url: string, body: string): Promise<string> => {
+  const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: AbortSignal.timeout(10_000) })
+  if (!response.ok) throw new Error(`${new URL(url).host} answered HTTP ${response.status}`)
+  return await response.text()
 }
 
 /**

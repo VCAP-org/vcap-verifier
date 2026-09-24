@@ -342,16 +342,16 @@ footer p { max-width: none; }
 <!-- What this page can and cannot check right now, said where the reader is
      about to need it instead of at the foot of the page. The watermark is the
      one capability that is off by default, and a verdict reading "watermark
-     not evaluated" with the remedy three screens below it reads as a page that
-     does not work. It is a statement of capability, not a setting. -->
+     not evaluated" with its reason three screens below it reads as a page that
+     does not work. It is a statement of capability, not a setting: the model
+     is fetched the first time a file needs it, and this bar says how far. -->
 <div class="capability" id="detector-bar">
   <span class="mark" aria-hidden="true">○</span>
   <div>
     <h3 id="detector-title">Invisible watermark: not checked</h3>
-    <p class="muted" id="detector-state">Reading a mark out of pixels needs a model of about 34 MB. This page never downloads it on its own and never keeps it.</p>
+    <p class="muted" id="detector-state">Reading a mark out of pixels needs a model of about 34 MB. This page downloads it only when a file needs it — never on load — checks it against the digest it pins before running it, and never keeps it.</p>
   </div>
   <div class="capability-actions">
-    <button type="button" class="btn" id="load-detector">Load the detector · 34 MB</button>
     <span class="file">
       <input type="file" id="evidence" class="file-input" accept=".json,application/json">
       <label class="btn" for="evidence">Use a detection you have</label>
@@ -426,6 +426,14 @@ footer p { max-width: none; }
       </div>
     </div>
     <p class="muted state" id="tsa-state"></p>
+  </div>
+
+  <div class="panel" id="chains">
+    <h3>Public chains read for anchors</h3>
+    <p class="muted">A sealed file can carry an anchor: a path to a batch root that a contract on a public chain stored. To check it this page asks that chain, through the public endpoint listed in <a href="chains.json"><code>chains.json</code></a>, which root the contract holds. That request carries the anchor id and nothing else — never the file, never the proof — and goes to the chain's endpoint, not to a server of ours.</p>
+    <ul id="chain-list"></ul>
+    <p class="muted">Switched off, or offline, an anchor reads <em>anchoring not verified</em>. The rest of the verdict is unchanged.</p>
+    <p class="muted state" id="chain-state"></p>
   </div>
 </section>
 </main>

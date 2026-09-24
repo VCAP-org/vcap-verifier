@@ -1,13 +1,15 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { dist, serve, stop, vectors } from './serve.js'
+import { RPC_ORIGINS, dist, serve, stop, vectors } from './serve.js'
 
 test('verifies vectors with the server gone and the browser offline', async ({ page, context }) => {
   const { server, url } = await serve()
   const origin = new URL(url).origin
   const requested: string[] = []
+  const answered: string[] = []
   page.on('request', (request) => requested.push(request.url()))
+  page.on('response', (response) => answered.push(response.url()))
 
   await page.goto(url)
   // The footer flips once the worker is active, which comes after install has
@@ -56,8 +58,19 @@ test('verifies vectors with the server gone and the browser offline', async ({ p
   await expect(page.locator('.verdict li', { hasText: 'location corroboration not verified' })).toHaveCount(1)
   await expect(page.locator('.verdict')).not.toContainText(/guaranteed|verified by the operator/)
 
-  // Every request the page made stayed on its own origin.
-  expect(requested.filter((u) => !u.startsWith(origin))).toEqual([])
+  // An anchored proof, offline: the chain cannot be read, and that is *not
+  // consulted* with the reason — never *not found*, never a failed verdict.
+  await page.setInputFiles('#file', join(vectors, '57-jpeg-anchor-on-chain/input.jpg'))
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await expect(page.locator('.verdict .chips > li', { hasText: /^anchoring not verified$/ })).toHaveCount(1)
+  await expect(page.locator('.verdict')).toContainText('the chain could not be read')
+  await expect(page.locator('.verdict')).not.toContainText('anchor evidence invalid')
+
+  // The only thing the page may try beyond its own origin is the chain an
+  // anchor names, at an endpoint `chains.json` publishes — and offline nothing
+  // out there answered.
+  expect(requested.filter((u) => !u.startsWith(origin) && !RPC_ORIGINS.includes(new URL(u).origin))).toEqual([])
+  expect(answered.filter((u) => !u.startsWith(origin))).toEqual([])
 })
 
 // The mirror's shape: a host that sends no COOP/COEP, under a sub-path. Both

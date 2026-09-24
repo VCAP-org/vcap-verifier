@@ -16,7 +16,7 @@ export interface AnchorAttachment {
 export type ChainReader = (chain: string, anchorId: number) => Promise<{ root: Bytes, treeSize: number, blockTime?: Date } | null>
 
 export type AnchorOutcome =
-  | { ok: true, onChain: boolean, chain: string, block: number, blockTime?: string }
+  | { ok: true, onChain: boolean, chain: string, block: number, blockTime?: string, unread?: string }
   | { ok: false, reason: string }
 
 export const verifyAnchor = async (a: AnchorAttachment, coreHash: Bytes, readChain?: ChainReader): Promise<AnchorOutcome> => {
@@ -24,7 +24,13 @@ export const verifyAnchor = async (a: AnchorAttachment, coreHash: Bytes, readCha
   try { root = fromBase64(a.root); path = a.merkle_path.map(fromBase64) } catch { return { ok: false, reason: 'anchor malformed' } }
   if (!await verifyInclusion(await leafHash(coreHash), a.index, a.tree_size, path, root)) return { ok: false, reason: 'merkle path does not reach the anchored root' }
   if (!readChain) return { ok: true, onChain: false, chain: a.chain, block: a.block }
-  const recorded = await readChain(a.chain, a.anchor_id)
+  // A reader that throws could not ask (no network, unknown chain, an RPC
+  // error): that is *not consulted*, with the reason, and never *not found* —
+  // a verifier offline must not report a genuine anchor as missing.
+  let recorded: Awaited<ReturnType<ChainReader>>
+  try { recorded = await readChain(a.chain, a.anchor_id) } catch (error) {
+    return { ok: true, onChain: false, chain: a.chain, block: a.block, unread: error instanceof Error ? error.message : String(error) }
+  }
   if (!recorded) return { ok: false, reason: 'anchor not found on chain' }
   const same = recorded.treeSize === a.tree_size && recorded.root.length === root.length && recorded.root.every((b, i) => b === root[i])
   return same ? { ok: true, onChain: true, chain: a.chain, block: a.block, blockTime: recorded.blockTime?.toISOString() } : { ok: false, reason: 'anchored root differs from the chain' }

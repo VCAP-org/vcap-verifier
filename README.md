@@ -15,10 +15,13 @@ API and the libraries import: `core/` verifies the signature layer of vcap/1.0
 and passes every conformance vector of `vcap-spec`, evaluates RFC 3161 tokens
 against injected TSA roots and Android attestation chains against the pinned
 Google roots (the §7 proven level and ceiling); `web/` is a first static page
-over it, carrying both trust sets — `trust/logs.json` and `trust/tsa.json` are
-bundled into the build and published unchanged beside the page.
-Both revocation questions §7 asks are implemented as *injected* lookups, because
-this core contacts nothing: the chain's status list and the log's signed answer
+over it, carrying its trust sets — `trust/logs.json`, `trust/tsa.json` and
+`trust/chains.json` are bundled into the build and published unchanged beside
+the page. The page and the CLI read an `anchor` from the public chain it names,
+through the JSON-RPC endpoint `trust/chains.json` lists, so anchoring is
+checkable without us; the core itself still contacts nothing (the caller
+injects the transport). Both revocation questions §7 asks are implemented as
+*injected* lookups too: the chain's status list and the log's signed answer
 about the device key. Given neither, a verdict says *chain revocation not
 checked* and *revocation not checked* and stops at amber — green is the one
 verdict that cannot be reached from the file alone, by design. The §7.1
@@ -27,8 +30,7 @@ coordinates, `corroborated` from a `location_corroboration` under an injected
 log key — and never moves the ceiling.
 
 Not yet: App Attest (the iOS proven level comes from the registry leaf, which is
-where enrolment puts it), a page that actually reaches a log or a status list
-(the static build ships no network).
+where enrolment puts it), a page that actually reaches a log or a status list.
 
 ## Design constraints
 
@@ -36,15 +38,25 @@ where enrolment puts it), a page that actually reaches a log or a status list
   platform API, the JavaScript library, the app's offline verdict). Same input, same verdict,
   same wording. The conformance suite from `vcap-spec` is a required CI gate in
   all of them.
-- **No network in the verification path.** Registry proofs, anchors and
-  timestamp chains are checked from data carried in the file; the answers that
-  need a network (revocation, the chain behind an anchor) are injected by the
-  caller, and without them the verdict degrades and says so.
-- **The detector is an explicit download, and the page is whole without it.**
+- **No server of ours in the verification path.** Registry proofs, anchor paths
+  and timestamp chains are checked from data carried in the file; the answers
+  that need a network are injected by the caller, and without them the verdict
+  degrades and says so. The one the page and the CLI do fetch is the root an
+  anchor's contract stored, read from a **public chain RPC** listed in
+  `trust/chains.json` — a third party's endpoint, never ours. That endpoint is
+  a **trust point**: the verifier is not a light client, it checks the
+  endpoint's chain id and then believes the root it returns, so a lying RPC
+  could fake a root. It is sent the anchor id, never the file or the proof.
+  Offline (or `--offline`, or the chain switched off on the page) the anchor is
+  *not consulted* — *anchoring not verified*, never a failure.
+- **The detector is a separate download, and the page is whole without it.**
   Distillation under 10 MB was dropped: what exists is the full
-  model at 34.2 MB, so it is never fetched on load, never precached, and its
-  absence is *watermark not evaluated* — a weaker verdict, not an error. The
-  verifier states which model looked.
+  model at 34.2 MB, so it is never fetched on load and never precached. It is
+  fetched the first time a file needs it — a proof that declares a watermark,
+  or a file with no proof — digest-checked before it runs, and the verdict waits
+  for it with a progress line. Its absence is *watermark not evaluated* with the
+  reason — a weaker verdict, not an error. The verifier states which model
+  looked.
 - **Reproducible build**, every shipped file hashed and published, so an expert
   can prove which verifier produced a given verdict — by rebuilding it. The
   manifest carries a detached signature that proves **continuity of the signing
@@ -58,7 +70,8 @@ core/    isomorphic verification core (TypeScript, WebCrypto only — no Buffer,
          built to dist/ with declarations for consumers that compile; see core/README.md
 cli/     `vcap-verify`, a verdict from a shell (see cli/README.md)
 trust/   what the page and the CLI trust by default, as data: the transparency
-         logs (`logs.json`) and the timestamping authorities (`tsa.json`), both
+         logs (`logs.json`), the timestamping authorities (`tsa.json`) and the
+         chains and RPC endpoints anchors are read from (`chains.json`), all
          published unchanged beside the page — see trust/README.md
 web/     the static verifier page (esbuild, one bundle with its SHA-256 published)
 spec/    vcap-spec as a git submodule: the conformance vectors the core runs in CI
@@ -77,7 +90,7 @@ differ, and CI runs both.
 git submodule update --init      # the spec and its vectors
 npm ci
 npm run typecheck && npm test    # core: the spec vectors, attachments, evidence; web: the layout ports
-npm run build --workspace web    # web/dist: index.html, verifier.js (+ .sha256), detector.js, detector-runtime.js, the engine's wasm, detector.json, logs.json, tsa.json, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon, the Geist fonts and their licence
+npm run build --workspace web    # web/dist: index.html, verifier.js (+ .sha256), detector.js, detector-runtime.js, the engine's wasm, detector.json, logs.json, tsa.json, chains.json, sw.js, hashes.json, HASHES.md, metafile.json, manifest, icon, the Geist fonts and their licence
 npm run test:e2e --workspace web # Playwright against web/dist: offline use, the verdict and the watermark paths (needs `npx playwright install chromium` once)
 npm run dev --workspace web      # serves the page with a watcher (no service worker: dev builds are not cached)
 ```
@@ -101,7 +114,8 @@ and all three are still why Pages is the *mirror* below and not the primary:
 
 What did not change is the part that matters: the page is static, nothing is
 fetched from our infrastructure to reach a verdict, and once the service worker
-has installed there is no request at all. **Our host serves the page; it is not
+has installed the only requests a verdict can make are the anchor read from the
+public chain RPC in `chains.json` and, when a file needs it, the detector. **Our host serves the page; it is not
 in the verification path** — which is why the hashes below, and not the
 hostname, are what the page asks to be trusted on. Anyone who would rather not
 fetch it from us can serve the same `dist/` anywhere, sub-path included: every
@@ -150,7 +164,7 @@ Two things the mirror does not have, said rather than discovered — it serves
 
 - **no detector**: the 34.2 MB model lives next to the primary, outside git and
   outside the manifest. The engine is mirrored, the model is not, so a
-  click on the detector there finds nothing. The page stays whole — *watermark
+  file that needs the detector there finds no model. The page stays whole — *watermark
   not evaluated*, every other verdict unchanged.
 - **no cross-origin isolation**: GitHub Pages does not send COOP/COEP, so no
   `SharedArrayBuffer` and one WASM thread instead of several — the 2.3–2.6×
@@ -170,9 +184,11 @@ build, precaches every shipped file under a cache named after a build id
 derived from their hashes, so a new deploy replaces the old cache and an old
 one never serves a new page's request. Once the footer says *available
 offline*, the page verifies files with no network at all — which is the
-product invariant made literal. It never fetches anything else: no
-analytics, no roots, no logs fetched: the trusted logs and the TSA roots are
-shipped **in** the build and hashed like the rest.
+product invariant made literal: an anchor then reads *anchoring not verified*
+(the chain could not be read), a declared watermark *watermark not evaluated*,
+and nothing else changes. It fetches nothing else: no analytics, no roots, no
+logs: the trusted logs, the TSA roots and the chain list are shipped **in** the
+build and hashed like the rest.
 
 This is tested, not asserted: `web/test/offline.spec.ts` (Playwright, the
 `offline` job in CI, run against the same `web-dist` artifact the
@@ -180,8 +196,12 @@ reproducibility job hashed) loads the page from a local static server that
 sends the live host's headers, waits for the worker, **stops the server and takes the
 browser offline**, reloads, and verifies four vectors — authentic, tampered,
 no proof, and a sidecar-only proof handed over through the page's second
-input — from the cache alone, checking that every request stayed on the
-page's origin. It serves at the root with the live host's headers;
+input — from the cache alone, plus an anchored proof that must read *not
+consulted* rather than *not found*, checking that nothing beyond the page's
+origin answered and that the only other origins even tried are the RPC
+endpoints `trust/chains.json` lists. `web/test/chain.spec.ts` covers the online
+half against a stubbed RPC: the anchor reads *anchored on base-sepolia, block
+N*, and only the listed RPC origins are contacted. It serves at the root with the live host's headers;
 `VCAP_TEST_BASE=/somewhere/ VCAP_TEST_ISOLATION=off npm run test:e2e --workspace web`
 runs the same suite under a sub-path with no COOP/COEP — the mirror's shape, and
 anybody else's — which is the cheapest proof that the build stayed path-agnostic
@@ -267,7 +287,7 @@ as `dirty: true` and will not match a CI build.
 
 The file people actually arrive with has usually been through a messaging app:
 re-encoded, its trailer stripped, its signature gone. The page says *no proof
-found* — correctly — and, when the detector is loaded, reads the pixels for
+found* — correctly — and fetches the detector to read the pixels for
 the watermark the capture was sealed with. Two rules hold it in place:
 
 - **A mark is never a verdict.** The verdict card keeps whatever the signature
@@ -291,7 +311,7 @@ none of them precached:
 | file | what it is | when it is fetched |
 |---|---|---|
 | `detector.json` | the manifest: url, bytes, SHA-256, `model_version`, providers | with the page (a few hundred bytes, cached offline) |
-| `detector.js` | the download and the digest check | on the click |
+| `detector.js` | the download and the digest check | the first time a file needs it |
 | `detector-runtime.js` + `ort-wasm-simd-threaded.jsep.*` | onnxruntime-web and the layout decoders | after the model's bytes hash to the manifest |
 
 The order is the point: an engine is code, and code that runs before the model
@@ -309,9 +329,9 @@ today that is `models/` next to the page on our own host, which is what makes
 the download same-origin and spares it CORS entirely. Nobody has to fetch it
 from us all the same: the digest is what makes the file trustworthy, not the
 host, and our model pipeline (not public) reproduces the same bytes, and so
-the same digest, from the same pinned inputs. The verification path is unchanged either way — the download is an
-explicit act of the user's, the page is whole without it, and no verdict
-depends on it.
+the same digest, from the same pinned inputs. The verification path is unchanged either way — the download happens
+only for a file that needs it, never on load, the page is whole without it,
+and a verdict never depends on it beyond the watermark label.
 
 **Backends.** `execution_providers` in the manifest is tried in order and the
 first session that initialises wins, so a browser with no WebGPU falls back to
@@ -341,14 +361,14 @@ loads is same-origin, and the whole e2e suite passes identically with the
 headers on. The download is unaffected, as it should be.
 
 Against the published host rather than a loopback, the same photo took **1.32 s**
-and the load **296 s** — because the wire, not the page, is what a first
-detector click pays for, and because that click fetches **more than the model**:
+and the load **296 s** — because the wire, not the page, is what the first
+file that needs the detector pays for, and because that load fetches **more than the model**:
 the engine (`ort-wasm-simd-threaded.jsep.wasm`, 27.8 MB) is deferred with it, so
 the first use moves about **62 MB**, not 34.2. The 296 s is one observer's route
 (88 ms to Helsinki, ~220 kB/s sustained from this machine, against 3.2 MB/s to a
 nearby CDN from the same machine and 167 MB/s out of the server); it is a fact
 about a link, not about the host, and it is why the page streams the download
-with a progress figure instead of blocking on it. A second click costs nothing:
+with a progress figure instead of blocking on it. A second load costs nothing:
 the engine revalidates to a 304 and the model is served `immutable`. That is
 why detection is **progressive**: every frame reports as it lands and the
 payload is shown as soon as it decodes — for `video-rep-v1` often on the first
@@ -497,7 +517,8 @@ unknown major: unsupported), the §8 labels for absent attachments, and — when
 present — the `registry` attachment against trusted log keys (signed tree head,
 RFC 6962 inclusion, key binding, *registered after the declared capture*) and
 the `anchor` attachment (root recomputed; compared with the chain only through
-an injected reader, otherwise *anchoring not verified*), the `timestamp`
+an injected reader — `rpcChainReader` over a caller's transport — otherwise, or
+when the reader throws, *anchoring not verified*), the `timestamp`
 attachment (CMS over TSTInfo: imprint = core hash, signed attributes, signature,
 chain to the given TSA roots, timeStamping usage, genTime) and the `attestation`
 attachment on Android (chain to a pinned Google root, leaf key = `sig.pub`,

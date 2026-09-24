@@ -136,6 +136,7 @@ describe('§8 — the three non-red outcomes', () => {
     // detector fell over gets the same answer as one that has none.
     expect(v.outcome).toBe('authentic')
     expect(v.labels).toContain('watermark not evaluated')
+    expect(v.watermark).toEqual({ result: 'not_evaluated', detail: 'no detection was available: the detector is down' })
   })
 
   it('*watermark not evaluated*: `video-rep-v1` with no `mark_id` binds the payload to nothing', async () => {

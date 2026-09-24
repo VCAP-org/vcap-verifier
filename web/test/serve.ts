@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -5,6 +6,10 @@ import { extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const dist = fileURLToPath(new URL('../dist/', import.meta.url))
+// The only origins beyond its own the page may contact: the RPC endpoints the
+// published `chains.json` lists, for a proof that carries an anchor.
+export const RPC_ORIGINS: string[] = Object.values((JSON.parse(readFileSync(fileURLToPath(new URL('../../trust/chains.json', import.meta.url)), 'utf8')) as { chains: Record<string, { rpc: string[] }> }).chains)
+  .flatMap((chain) => chain.rpc.map((url) => new URL(url).origin))
 export const vectors = fileURLToPath(new URL('../../core/vectors/', import.meta.url))
 export const fixtures = fileURLToPath(new URL('fixtures/', import.meta.url))
 
