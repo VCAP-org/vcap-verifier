@@ -460,11 +460,15 @@ describe('the ceiling line', () => {
   it('names a session key outside the log as amber (vector 01)', async () => {
     const { io, out } = capture()
     await run([...trustArgs(), '--no-recompute', inputOf('01-jpeg-sealed')], io)
-    expect(ceiling(out())).toBe('  ceiling   amber — origin not hardware-attested, key not in transparency log')
+    expect(ceiling(out())).toBe('  ceiling   amber — origin not hardware-attested, key not in transparency log, no trusted time')
   })
 
-  it('names the hardware on green (vector 54)', async () => {
-    expect(ceiling(render('photo.jpg', await vectorVerdict('54-jpeg-registry-green')))).toBe('  ceiling   green — sealed in the TEE')
+  it('names the hardware on green (vector 100)', async () => {
+    expect(ceiling(render('photo.jpg', await vectorVerdict('100-jpeg-registry-green-timestamped')))).toBe('  ceiling   green — sealed in the TEE')
+  })
+
+  it('names the device clock as what keeps a registered TEE key amber (vector 54)', async () => {
+    expect(ceiling(render('photo.jpg', await vectorVerdict('54-jpeg-registry-green')))).toBe('  ceiling   amber — no trusted time')
   })
 
   it('names the revocation on red, and nothing else (vector 44)', async () => {

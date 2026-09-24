@@ -59,6 +59,12 @@ const MEANING: Record<string, string> = {
   'attestation key revoked after the capture': 'a certificate was revoked later, which does not un-attest this capture',
   'key revoked': 'the log says this key was revoked at the capture time',
   'sidecar differs': 'the sidecar and the trailer carry different proofs',
+  'capture time not declared': 'nothing in the core dates the capture, so the registration cannot be placed before it',
+  'registered after the trusted time': 'the key was logged after the instant a timestamp authority placed the capture at',
+  'attestation evidence invalid': 'the attached attestation chain breaks a rule it must satisfy (roots, CA issuers, the extension in the leaf only)',
+  'attestation app not admitted': 'the key was made by an app build the log does not declare',
+  'attestation app not checked': 'the log declares no app builds, or the attestation names no app, so the app that made the key is unknown',
+  'level from registry records': 'the Secure Enclave level is the registry\'s word — our records — and nothing in the file shows it',
   // §7.1: the position level is on its own axis and never "guaranteed". The
   // words keep the spec's distinction between the device's word (declared),
   // the registry's word about an operator's cell-level answer (corroborated),

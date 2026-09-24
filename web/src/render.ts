@@ -21,11 +21,11 @@ export const escape = (s: string): string =>
  * whose key is a session key is amber there, never green.
  */
 export const COLOR: Record<Verdict['outcome'], string> = {
-  authentic: 'green', verified_clip: 'amber', tampered: 'red', nested_proof: 'amber',
+  // §8's outcome table: a nested proof is red, and *frames not compared* is
+  // amber — the signatures hold and nothing ties these frames to them.
+  authentic: 'green', verified_clip: 'amber', tampered: 'red', nested_proof: 'red',
   corrupted_proof: 'red', no_proof_found: 'grey', unsupported_format_version: 'grey',
-  // Grey, like *no proof found*: the signatures hold, and nothing on the page
-  // can say whether these frames are the ones they cover.
-  frames_not_compared: 'grey'
+  frames_not_compared: 'amber'
 }
 const STRICTNESS: Record<string, number> = { green: 0, amber: 1, red: 2 }
 
@@ -106,7 +106,7 @@ export const TITLE: Record<Verdict['outcome'], string> = {
   corrupted_proof: 'Corrupted proof — the trailer is damaged',
   no_proof_found: 'No proof found',
   unsupported_format_version: 'Unsupported format version',
-  frames_not_compared: 'Frames not compared — the signatures hold, and no frame of this file is tied to them'
+  frames_not_compared: 'Frames not compared — the core and segment signatures hold, and nothing ties them to these frames'
 }
 
 const SOURCE: Record<string, string> = {

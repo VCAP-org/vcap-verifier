@@ -556,26 +556,40 @@ run a chain minted by real hardware (`core/test/fixtures/`, dumped
 from a real phone): five certificates under Remote Key Provisioning
 down to the pinned 2025 Google root, clock pinned to capture time.
 
-Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
-`nested_proof`, `corrupted_proof`, `no_proof_found`, `unsupported_format_version`
-— and `frames_not_compared`, which the §5 binding rule needs (below).
+Verdict vocabulary is the spec's eight outcomes: `authentic`, `verified_clip`,
+`frames_not_compared`, `tampered`, `nested_proof`, `corrupted_proof`,
+`no_proof_found`, `unsupported_format_version`.
 
 ### Segments are bound to the file, not to the proof
 
 A video segment counts as verified only when the container yields exactly one
 GOP whose vcap SEI carries that index and the proof's `capture_id`, and the
 GOP's recomputed `content_hash` matches the signed one. The SEI is unsigned, so
-it locates and never proves: a GOP whose SEI names an index outside
-`[0, segment_count)`, two GOPs naming one index, indices out of file order, a
-vcap SEI that is not exactly one 36-byte message, or NAL framing that does not
-tile its sample are **tampered**. Segment boundaries are the IDRs in the
-samples, never `stss`. A GOP no SEI names is not placed by its position and
-earns nothing. With nothing located (no vcap SEI, not ISO-BMFF, recomputation
-off) there is no segment credit: where `media.hash` matches the whole file is
-the sealed bytes and stays *authentic*; where it does not, the outcome is
-**`frames_not_compared`** — the signatures hold, no frame is tied to them —
-never *verified clip*. A proof lifted onto unrelated bytes used to read
-*verified clip*.
+it locates and never proves, and once one GOP names the capture every GOP
+accounts for itself in decode order: a GOP with no vcap SEI, one naming another
+capture or an index the proof does not sign, more than one vcap SEI in a GOP,
+an index carried twice, indices not strictly increasing, a vcap SEI that is not
+exactly one 36-byte message, or NAL framing that does not tile its sample are
+**tampered** — and the verdict still reports which segments did verify.
+Segment boundaries are the IDRs in the samples, never `stss`. With nothing
+located (no GOP names the capture, not ISO-BMFF, recomputation off) there is no
+segment credit and `segments.verified` is empty: where `media.hash` matches the
+whole file is the sealed bytes and stays *authentic*; where it does not, the
+outcome is **`frames_not_compared`**, amber — the signatures hold, nothing ties
+them to these frames — never *verified clip*. A proof lifted onto unrelated
+bytes used to read *verified clip*.
+
+The proof level follows §7 of corpus 2.0.0: green needs a timestamp token or a
+verified anchor for the instant (the device clock alone is amber, *no trusted
+time*; a missing one is *capture time not declared*); an Android chain must
+have CA issuers with `keyCertSign` and the attestation extension in the leaf
+only (else *attestation evidence invalid*), a leaf that is not `sig.pub` is
+*tampered*, and the leaf's `attestationApplicationId` is compared with the
+`app_signing_digests` a trusted log declares (*attestation app not admitted* /
+*not checked*); a revoked chain certificate is red unless a trusted instant
+precedes the source's `revoked_at` for a reason that is not a compromise; iOS
+`secureEnclave` comes only from a registry leaf, *level from registry records*;
+a valid `integrity` of `failed` caps at amber.
 
 `verify` never throws on its input: every parser bounds its reads and counts,
 and a top-level guard turns anything that still escapes into *no proof found*
@@ -586,8 +600,8 @@ and a top-level guard turns anything that still escapes into *no proof found*
 The outcome says whether the file verifies; §7's `level.ceiling` says how far
 the evidence reaches, and **the ceiling is the verdict's light**. The page
 colours the card with the stricter of the two — the outcome's own colour
-(tampered and corrupted red, clip and nested amber, no proof and unsupported
-grey) and the ceiling — so it never paints greener than the core allows: an
+(tampered, corrupted and nested red, clip and frames-not-compared amber, no
+proof and unsupported grey) and the ceiling — so it never paints greener than the core allows: an
 *authentic* file with a session key, or a key the log never saw, is an amber
 card, never green. Beside the §8 title it prints the ceiling and the §7 labels
 that set it, in the core's words (`ceilingLabels`), e.g. *amber · origin not
@@ -599,9 +613,9 @@ level and keeps its outcome's colour.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 1.3.0, 85
-vectors** (manifest `69d8e6e08d620f54…`), the last of them an iOS video sealed
-on a device, whose segment chain a Secure Enclave signed:
+and the claim is only worth what it names. Today that is **corpus 2.0.0, 121
+vectors** (manifest `eaa3e2f51ebe…`); directory names and kinds are checked
+against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |
 |---|---|---|

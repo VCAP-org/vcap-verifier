@@ -46,9 +46,11 @@ part of correctness:
   (`verify(file, { recomputeSegments: false })`) for callers that hold a sidecar
   and no demuxable container, and the verdict always says which of the two ran
   (`verdict.content`). A segment is credited only when a GOP's vcap SEI of this
-  capture locates it and the GOP's bytes match; nothing located over bytes that
-  are not the sealed ones is `frames_not_compared`, never `verified_clip`. Never
-  infer an index from position, never let the SEI prove anything.
+  capture locates it and the GOP's bytes match; once one GOP names the capture
+  every GOP must (no SEI, a foreign one, an unsigned, repeated or decreasing
+  index → tampered); nothing located over bytes that are not the sealed ones is
+  `frames_not_compared`, never `verified_clip`. Never infer an index from
+  position, never let the SEI prove anything.
 - `verify` never throws on input. A new parser bounds every count by the bytes
   that hold it, checks `Number.isSafeInteger` before `BigInt`/`Date`, and keeps
   DER inside `try`; `core/test/hostile.test.ts` holds one case per crash found.

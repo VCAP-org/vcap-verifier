@@ -105,8 +105,8 @@ describe('the verdict colour follows the §7 ceiling', () => {
   const lede = (html: string): string => /<p class="lede">([^<]*)<\/p>/.exec(html)?.[1] ?? ''
   const ceiling = (html: string): string => (/<p class="ceiling">(.*?)<\/p>/.exec(html)?.[1] ?? '').replace(/<[^>]+>/g, '')
 
-  it('is green only when the ceiling is green (vector 54: registered TEE key)', async () => {
-    const v = await vectorVerdict('54-jpeg-registry-green')
+  it('is green only when the ceiling is green (vector 100: registered TEE key, timestamped)', async () => {
+    const v = await vectorVerdict('100-jpeg-registry-green-timestamped')
     const html = card('photo.jpg', v)
     expect(colour(v)).toBe('green')
     expect(html).toContain('<div class="verdict green">')
@@ -122,7 +122,7 @@ describe('the verdict colour follows the §7 ceiling', () => {
     // §8's title unchanged; the plain line no longer says "Yes".
     expect(html).toContain('Authentic</span><span class="rest"> — signed at capture, file complete')
     expect(lede(html)).toMatch(/^Intact, not fully proven — /)
-    expect(ceiling(html)).toBe('amber origin not hardware-attested · key not in transparency log')
+    expect(ceiling(html)).toBe('amber origin not hardware-attested · key not in transparency log · no trusted time')
     // The chips stay: the ceiling line adds, it does not replace.
     expect(html).toContain('<li>no trusted time</li>')
   })
@@ -185,9 +185,9 @@ describe('the headline of a clip says only what was compared', () => {
     expect(html).toContain('their frames were not compared with this file')
   })
 
-  it('reads frames not compared as grey, never as a clip', () => {
+  it('reads frames not compared as amber, never as a clip', () => {
     const v: Verdict = { outcome: 'frames_not_compared', labels: [], not_evaluated: [], segments: { verified: [] }, level: { claimed: 'tee', proven: 'none', ceiling: 'amber' } }
-    expect(colour(v)).toBe('grey')
+    expect(colour(v)).toBe('amber')
     expect(card('clip.mp4', v)).toContain('Frames not compared')
   })
 })
