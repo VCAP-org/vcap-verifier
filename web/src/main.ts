@@ -228,10 +228,13 @@ const ran = (loaded: Detector): void => {
  * *watermark not evaluated* with the reason. The core compares what comes
  * back against the signed claim.
  */
-const lookup = (bytes: Uint8Array, label: string) =>
+const lookup = (file: File) =>
   async (claim: WatermarkClaim): Promise<WatermarkEvidence | null> => {
     const loaded = await ensureDetector()
-    const evidence = await loaded.detect(bytes, claim, progress(label))
+    // The File itself, not the bytes already read for the core: the browser
+    // decodes it from where it lies, where wrapping the bytes in a new Blob
+    // would hold a third copy of a large video.
+    const evidence = await loaded.detect(file, claim, progress(file.name))
     ran(loaded)
     return evidence
   }
@@ -279,7 +282,7 @@ const verdictOf = (bytes: Uint8Array, sidecar: Uint8Array | undefined, watermark
  * printed as an identifier and never as a verdict. Choosing the layout from
  * the mime is the same rule §8 uses to tell a video proof from a photo one.
  */
-const markAlone = async (file: File, bytes: Uint8Array): Promise<string> => {
+const markAlone = async (file: File): Promise<string> => {
   let loaded: Detector
   try { loaded = await ensureDetector() } catch {
     return `<div class="panel mark">
@@ -295,9 +298,9 @@ const markAlone = async (file: File, bytes: Uint8Array): Promise<string> => {
     coreHash: ''
   }
   try {
-    // The bytes the verdict was computed from, not a second read of the file:
-    // a video held twice is a tab that runs out of memory.
-    const evidence = await loaded.detect(bytes, claim, progress(file.name))
+    // The File, decoded where it lies: not a second read into memory, and not
+    // a Blob wrapped around the bytes the verdict already holds.
+    const evidence = await loaded.detect(file, claim, progress(file.name))
     ran(loaded)
     return bareMark(evidence, TRACE_URL)
   } catch {
@@ -376,7 +379,7 @@ const check = async (): Promise<void> => {
       // Pass two, with the detector: it can change the verdict — a payload
       // that contradicts the proof is red (§8) — so the whole card is redrawn
       // from the core's second answer rather than patched.
-      const full = await verdictOf(bytes, sidecarBytes, lookup(bytes, file.name))
+      const full = await verdictOf(bytes, sidecarBytes, lookup(file))
       if (run !== generation) return
       out.innerHTML = card(name, full)
       offerAnchor(full, run)
@@ -392,14 +395,14 @@ const check = async (): Promise<void> => {
     // with — and reading its pixels costs a download the reader agrees to.
     if (verdict.outcome === 'no_proof_found') {
       if (detector) {
-        out.insertAdjacentHTML('beforeend', await markAlone(file, bytes))
+        out.insertAdjacentHTML('beforeend', await markAlone(file))
         if (run !== generation) return
       } else {
         out.insertAdjacentHTML('beforeend', markOffer(detectorDownload() / 1e6))
         const button = document.getElementById('read-mark') as HTMLButtonElement
         button.addEventListener('click', () => {
           button.disabled = true
-          void markAlone(file, bytes).then((html) => {
+          void markAlone(file).then((html) => {
             if (run !== generation) return
             document.getElementById('mark-offer')?.remove()
             out.insertAdjacentHTML('beforeend', html)

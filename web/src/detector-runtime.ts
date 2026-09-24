@@ -61,7 +61,9 @@ export interface Detector {
   model_version: string
   /** The execution provider that initialised, and its thread count. */
   backend: string
-  detect (media: Uint8Array, claim: WatermarkClaim, onProgress?: (p: DetectProgress) => void): Promise<WatermarkEvidence>
+  // A `Blob` (the dropped `File`) is read by the browser's decoder where it
+  // lies; bytes are wrapped in one, which copies them once more.
+  detect (media: Uint8Array | Blob, claim: WatermarkClaim, onProgress?: (p: DetectProgress) => void): Promise<WatermarkEvidence>
 }
 
 /**
@@ -111,8 +113,10 @@ const drawn = (source: CanvasImageSource, width: number, height: number): ImageD
   return context.getImageData(0, 0, width, height)
 }
 
-const stillFrame = async (media: Uint8Array, mime: string): Promise<ImageData> => {
-  const bitmap = await createImageBitmap(new Blob([media as BufferSource], { type: mime || 'image/jpeg' }))
+const blobOf = (media: Uint8Array | Blob, mime: string): Blob => media instanceof Blob ? media : new Blob([media as BufferSource], { type: mime })
+
+const stillFrame = async (media: Uint8Array | Blob, mime: string): Promise<ImageData> => {
+  const bitmap = await createImageBitmap(blobOf(media, mime || 'image/jpeg'))
   const { width, height } = scaled(bitmap.width, bitmap.height)
   const frame = drawn(bitmap, width, height)
   bitmap.close()
@@ -136,8 +140,8 @@ const settled = async (video: HTMLVideoElement, event: string): Promise<void> =>
  * the page carries no container parser for this, and a codec the browser
  * cannot open is a detection that did not happen, not a wrong one.
  */
-const videoFrames = async function * (media: Uint8Array, mime: string): AsyncGenerator<ImageData> {
-  const url = URL.createObjectURL(new Blob([media as BufferSource], { type: mime || 'video/mp4' }))
+const videoFrames = async function * (media: Uint8Array | Blob, mime: string): AsyncGenerator<ImageData> {
+  const url = URL.createObjectURL(blobOf(media, mime || 'video/mp4'))
   const video = document.createElement('video')
   video.muted = true
   video.preload = 'auto'
@@ -209,7 +213,7 @@ export const createDetector = async (model: Uint8Array, modelVersion: string, pr
   ort.env.wasm.numThreads = typeof SharedArrayBuffer === 'undefined' ? 1 : Math.min(navigator.hardwareConcurrency || 1, 10)
   const { session, backend } = await openSession(model, providers)
 
-  const detect = async (media: Uint8Array, claim: WatermarkClaim, onProgress?: (p: DetectProgress) => void): Promise<WatermarkEvidence> => {
+  const detect = async (media: Uint8Array | Blob, claim: WatermarkClaim, onProgress?: (p: DetectProgress) => void): Promise<WatermarkEvidence> => {
     const report = (p: DetectProgress): void => onProgress?.(p)
 
     if (claim.layout === 'video-rep-v1') {
