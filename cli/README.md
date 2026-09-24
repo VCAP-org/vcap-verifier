@@ -1,8 +1,11 @@
 # vcap-verify
 
-A verdict from a shell.
+A verdict from a shell. Not published to npm: it runs from a clone of this
+repository.
 
 ```
+git clone --recurse-submodules https://github.com/VCAP-org/vcap-verifier
+cd vcap-verifier && npm ci && npm run build -w core
 npx vcap-verify photo.jpg
 ```
 
