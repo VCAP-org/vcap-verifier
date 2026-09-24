@@ -4,7 +4,7 @@ import * as asn1js from 'asn1js'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { readU32BE, toBase64url, u64be, utf8 } from '../src/bytes.js'
-import { duplicateKey, jcs, type Json } from '../src/jcs.js'
+import { jcs, jsonProblem, type Json } from '../src/jcs.js'
 import { sha256, subtle } from '../src/sha.js'
 import { buildTrailer, parseTrailer } from '../src/trailer.js'
 import { canonicalBytes } from '../src/canonical.js'
@@ -64,10 +64,15 @@ describe('verify never throws on a hostile proof', () => {
     expect(v.registry).toEqual({ ok: false, detail: 'leaf malformed' })
   })
 
-  it('a device clock of 1e20, which `Date` cannot hold', async () => {
-    const v = await verify(photo.media, { sidecar: await resign((p) => { (p.time as Record<string, Json>).device_clock = 1e20 }) })
+  it('a device clock of 1e20 is not a proof this format reads, and one past what `Date` holds is no clock', async () => {
+    // Written as an exponent literal, outside ±(2^53 − 1): §6.1 refuses the text.
+    const huge = await verify(photo.media, { sidecar: await resign((p) => { (p.time as Record<string, Json>).device_clock = 1e20 }) })
+    expect(huge).toMatchObject({ outcome: 'no_proof_found', reason: 'payload number 100000000000000000000 is outside ±(2^53 − 1)' })
+    // 2^53 − 1 is a legal integer and still no instant `Date` can hold.
+    const v = await verify(photo.media, { sidecar: await resign((p) => { (p.time as Record<string, Json>).device_clock = Number.MAX_SAFE_INTEGER }) })
     expect(v.outcome).toBe('authentic')
     expect(v.device_clock).toBeUndefined()
+    expect(v.labels).toContain('capture time not declared')
     expect(v.validated_at?.source).toBe('verifier_clock')
   })
 
@@ -75,7 +80,8 @@ describe('verify never throws on a hostile proof', () => {
     const broken = Uint8Array.from(photo.media)
     broken[2] = 0x00  // the marker after SOI
     const v = await verify(broken, { sidecar: payload(photo.proof) })
-    expect(v.outcome).toBe('tampered')
+    // §4.1: no canonical bytes, *no proof found* — never an exception (vector 116).
+    expect(v.outcome).toBe('no_proof_found')
     expect(v.reason).toBe('the canonical bytes cannot be computed: JPEG: marker expected')
     expect(() => canonicalBytes(Uint8Array.of(0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff))).toThrow('JPEG: segment length out of range')
   })
@@ -206,10 +212,17 @@ describe('RFC 8785 as it is written', () => {
   })
 
   it('finds a duplicate key at any depth, decoded, and ignores equal values', () => {
-    expect(duplicateKey('{"a":1,"b":{"c":1,"c":2}}')).toBe('c')
-    expect(duplicateKey('{"a":1,"\\u0061":2}')).toBe('a')
-    expect(duplicateKey('{"a":"a","b":["a","a"],"c":{"a":1}}')).toBeNull()
-    expect(duplicateKey('[{"a":1},{"a":1}]')).toBeNull()
+    expect(jsonProblem('{"a":1,"b":{"c":1,"c":2}}')).toBe('payload repeats the key "c"')
+    expect(jsonProblem('{"a":1,"\\u0061":2}')).toBe('payload repeats the key "a"')
+    expect(jsonProblem('{"a":"a","b":["a","a"],"c":{"a":1}}')).toBeNull()
+    expect(jsonProblem('[{"a":1},{"a":1}]')).toBeNull()
+  })
+
+  it('reads every number as an integer literal within ±(2^53 − 1), and nothing inside a string', () => {
+    expect(jsonProblem('{"a":4032.0}')).toBe('payload number 4032.0 is not an integer literal')
+    expect(jsonProblem('{"a":1.25e3}')).toBe('payload number 1.25e3 is not an integer literal')
+    expect(jsonProblem('{"a":9007199254740992}')).toBe('payload number 9007199254740992 is outside ±(2^53 − 1)')
+    expect(jsonProblem('{"a":-9007199254740991,"b":0,"c":"1e3 and 1.5"}')).toBeNull()
   })
 
   it('refuses a proof that repeats a key', async () => {

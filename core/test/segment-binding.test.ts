@@ -9,9 +9,11 @@ import { verify } from '../src/verify.js'
  *
  * A signed segment `n` counts as verified only if the container yields
  * exactly one GOP whose vcap SEI carries `n` and this proof's `capture_id`,
- * and that GOP's bytes hash to the signed `content_hash`. The SEI is unsigned:
- * it locates and never proves — which is why every case below edits it, moves
- * GOPs around it, or takes it away, on files a real device sealed.
+ * and that GOP's bytes hash to the signed `content_hash`; once one GOP names
+ * the capture, every GOP must account for itself in decode order. The SEI is
+ * unsigned: it locates and never proves — which is why every case below edits
+ * it, moves GOPs around it, or takes it away, on files a real device sealed.
+ * A tampered verdict still reports the segments that did verify.
  */
 const fixture = (name: string) => {
   const file = new Uint8Array(readFileSync(new URL(`./fixtures/${name}.mp4`, import.meta.url)))
@@ -41,42 +43,37 @@ describe('the vcap SEI edited in place (sealed.mp4, H.264 + AAC)', () => {
     expect((await verify(file)).outcome).toBe('authentic')
   })
 
-  it('an index outside the signed range is tampered', async () => {
+  it('an index the proof does not sign is tampered', async () => {
     const v = await verify(edit((b) => { b[at[1]! + 36] = 5 }))
-    expect(v.outcome).toBe('tampered')
-    expect(v.reason).toBe('the container contradicts the proof: a GOP names segment 5, outside the 3 the proof signs')
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'the container contradicts the proof: GOP 1 (sample 30) names segment 5, which the proof does not sign', segments: { verified: [0, 2] } })
   })
 
   it('an index 257 written over segment 1 is tampered, not a clip', async () => {
     // The review's reproduction: this used to read *verified clip* {0, 1, 2}.
     const v = await verify(edit((b) => { b[at[1]! + 35] = 1 }))
-    expect(v.outcome).toBe('tampered')
-    expect(v.reason).toBe('the container contradicts the proof: a GOP names segment 257, outside the 3 the proof signs')
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'the container contradicts the proof: GOP 1 (sample 30) names segment 257, which the proof does not sign' })
   })
 
-  it('two GOPs naming one index is tampered', async () => {
+  it('two GOPs naming one index is tampered, and neither earns credit', async () => {
     const v = await verify(edit((b) => { b[at[1]! + 36] = 2 }))
-    expect(v.outcome).toBe('tampered')
-    expect(v.reason).toBe('the container contradicts the proof: two GOPs carry segment index 2')
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'the container contradicts the proof: segment index 2 is carried by 2 GOPs', segments: { verified: [0] } })
   })
 
-  it('indices out of file order are tampered', async () => {
-    const v = await verify(edit((b) => { b[at[2]! + 36] = 0 }))
-    expect(v.outcome).toBe('tampered')
-    expect(v.reason).toBe('the container contradicts the proof: segment index 0 follows 1 in the file')
+  it('two SEI indices swapped are tampered: the GOPs they point at are not the signed frames', async () => {
+    // Swapped in place, each index names the other GOP's bytes, so the content
+    // check speaks first; the remuxed reorder below is the order check.
+    const v = await verify(edit((b) => { b[at[1]! + 36] = 2; b[at[2]! + 36] = 1 }))
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'segment 1, 2: content differs from the container', segments: { verified: [0], contradicted: [1, 2] } })
   })
 
-  it('an SEI of another capture locates nothing, and its GOP earns no credit', async () => {
+  it('a GOP naming another capture is tampered, once the file names this one', async () => {
     const v = await verify(edit((b) => { b[at[1]! + 16] = b[at[1]! + 16]! ^ 1 }))
-    expect(v.outcome).toBe('verified_clip')
-    expect(v.segments).toEqual({ verified: [0, 2] })
-    expect(v.content?.detail).toBe('2 GOPs read from the container; 1 not located by a vcap SEI and not compared')
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'the container contradicts the proof: GOP 1 (sample 30) names another capture', segments: { verified: [0, 2] } })
   })
 
   it('a vcap SEI sized other than 36 is tampered', async () => {
     const v = await verify(edit((b) => { b[at[1]! - 1] = 0x25 }))
-    expect(v.outcome).toBe('tampered')
-    expect(v.reason).toBe('the container contradicts the proof: vcap SEI malformed: payloadSize 37, not 36')
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'the container contradicts the proof: GOP 1 (sample 30): vcap SEI malformed: payloadSize 37, not 36', segments: { verified: [0, 2] } })
   })
 
   it('a NAL length that overruns its sample is tampered, not skipped', async () => {
@@ -95,7 +92,9 @@ describe('a stolen proof', () => {
     const v = await verify(other, { sidecar: payload })
     expect(v.outcome).toBe('frames_not_compared')
     expect(v.segments).toEqual({ verified: [] })
-    expect(v.content).toEqual({ recomputed: false, detail: 'no vcap SEI locates a segment' })
+    // The container was read; nothing in it names this capture (vector 86).
+    expect(v.content).toEqual({ recomputed: true, detail: 'no vcap SEI names this capture' })
+    expect(v.labels).not.toContain('segment content not recomputed')
   })
 
   it('beside bytes that are not a container at all', async () => {
@@ -193,14 +192,13 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
 
   it('a GOP duplicated is tampered', async () => {
     const v = await check([g0, g1, g1, g2])
-    expect(v.outcome).toBe('tampered')
-    expect(v.reason).toBe('the container contradicts the proof: two GOPs carry segment index 1')
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'the container contradicts the proof: segment index 1 is carried by 2 GOPs', segments: { verified: [0, 2] } })
   })
 
   it('GOPs reordered are tampered', async () => {
     const v = await check([g0, g2, g1])
-    expect(v.outcome).toBe('tampered')
-    expect(v.reason).toBe('the container contradicts the proof: segment index 1 follows 2 in the file')
+    // Every GOP is the signed one; their order is not (vector 90).
+    expect(v).toMatchObject({ outcome: 'tampered', reason: 'the container contradicts the proof: segment index 1 follows 2 in decode order', segments: { verified: [0, 1, 2] } })
   })
 
   it('a GOP whose SEI was stripped is never placed by its position', async () => {
@@ -209,9 +207,9 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
     const stripped = g1.map((sample) => concat(...nals(sample).filter((n) => !vcap(n)).map((n) => concat(u32be(n.length), n))))
     const v = await check([g0, stripped, g2])
     // Its bytes are the signed bytes (the SEI is outside content_hash), and
-    // still it earns nothing: position is the index only in a file nobody cut.
-    expect(v.outcome).toBe('verified_clip')
-    expect(v.segments).toEqual({ verified: [0, 2] })
-    expect(v.content?.detail).toBe('2 GOPs read from the container; 1 not located by a vcap SEI and not compared')
+    // still it earns nothing, and the file is tampered: a GOP no SEI places is
+    // never placed by its position, and never skipped either.
+    expect(v).toMatchObject({ outcome: 'tampered', segments: { verified: [0, 2] } })
+    expect(v.reason).toMatch(/^the container contradicts the proof: GOP 1 \(sample \d+\) carries no vcap SEI$/)
   })
 })

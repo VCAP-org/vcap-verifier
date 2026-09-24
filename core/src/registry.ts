@@ -9,7 +9,13 @@ import { leafHash, verifyInclusion } from './merkle.js'
  * carried inline; verified against the public key of a trusted log, keyed by
  * log_id = base64url(SHA-256(SPKI)). No server of ours is involved.
  */
-export interface TrustedLog { logId: string, spki: Bytes }
+/**
+ * A log this verifier trusts. `appSigningDigests` is what its operator
+ * declares about the apps it admits keys from — SHA-256 of their signing
+ * certificates, lowercase hex — which §7 compares with an Android leaf's
+ * `attestationApplicationId`. Absent, that comparison is *not checked*.
+ */
+export interface TrustedLog { logId: string, spki: Bytes, appSigningDigests?: string[] }
 
 export interface RegistryAttachment {
   log_id: string

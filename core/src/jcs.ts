@@ -39,34 +39,45 @@ const serialize = (v: Json, depth: number): string => {
 export const jcs = (v: Json): Bytes => utf8(serialize(v, 0))
 
 /**
- * The first key that appears twice in one object of `text`, or null. `text`
- * must already be valid JSON.
+ * Why `text` is not a proof this format can read, or null. `text` must
+ * already be valid JSON; this is §6.1 *Reading the JSON*, the rules that leave
+ * two parsers no room to disagree:
  *
- * `JSON.parse` keeps the last of two equal keys and says nothing, so a payload
- * can show one reader `"secure_hw": "strongbox"` and another `"none"`,
- * depending on which occurrence each parser keeps. RFC 8785 accepts only
- * I-JSON, which forbids duplicates, and a verifier refuses such a payload
- * rather than silently choosing one of its two meanings. Iterative, so depth
- * costs nothing.
+ * - **no member name twice in one object**, at any depth. `JSON.parse` keeps
+ *   the last and says nothing, so a payload could show one reader
+ *   `"secure_hw": "strongbox"` and another `"none"`;
+ * - **every number an integer literal** `-?(0|[1-9][0-9]*)` — no fraction, no
+ *   exponent, not `4032.0` — **within ±(2^53 − 1)**, the range every JSON
+ *   implementation reads exactly. `JSON.parse` turns `1e3` and `1000` into
+ *   the same number and rounds 2^53 + 1, so the text is read, not the value.
+ *
+ * Iterative, so depth costs nothing.
  */
-export const duplicateKey = (text: string): string | null => {
+export const jsonProblem = (text: string): string | null => {
   // One entry per open container: the keys seen so far for an object, null for an array.
   const open: Array<Set<string> | null> = []
   let expectKey = false
   for (let i = 0; i < text.length; i++) {
-    const c = text[i]
+    const c = text[i]!
     if (c === '"') {
       let j = i + 1
       while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1
       const keys = open.at(-1)
       if (keys && expectKey) {
-        // Decoded, so `"a"` and `"a"` are the same key, as they are to a parser.
+        // Decoded, so `"a"` and `"\u0061"` are the same key, as they are to a parser.
         const key = JSON.parse(text.slice(i, j + 1)) as string
-        if (keys.has(key)) return key
+        if (keys.has(key)) return `payload repeats the key ${JSON.stringify(key)}`
         keys.add(key)
         expectKey = false
       }
       i = j
+    } else if (c === '-' || (c >= '0' && c <= '9')) {
+      let j = i + 1
+      while (j < text.length && /[0-9eE.+-]/.test(text[j]!)) j++
+      const literal = text.slice(i, j)
+      if (!/^-?(0|[1-9][0-9]*)$/.test(literal)) return `payload number ${literal} is not an integer literal`
+      if (!Number.isSafeInteger(Number(literal))) return `payload number ${literal} is outside ±(2^53 − 1)`
+      i = j - 1
     } else if (c === '{') {
       open.push(new Set())
       expectKey = true

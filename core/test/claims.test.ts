@@ -68,10 +68,11 @@ describe('the tree head against a timestamp token', async () => {
   it('flags a key logged after the token, even when the device clock says otherwise', async () => {
     // The tree head (clock − 1 s) precedes the device's own clock, so only the
     // token — a third party's instant, five seconds earlier — shows the key
-    // entered the log after the capture provably existed.
+    // entered the log after the capture was stamped.
     const v = await run(clock.getTime() - 1_000, clock.getTime() - 5_000)
     expect(v.timestamp?.ok).toBe(true)
-    expect(v.labels).toContain('registered after the declared capture')
+    expect(v.labels).toContain('registered after the trusted time')
+    expect(v.labels).not.toContain('registered after the declared capture')
   })
 })
 

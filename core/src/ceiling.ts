@@ -23,11 +23,16 @@ const AMBER = [
   'origin not hardware-attested',
   'key not in transparency log',
   'log not trusted',
+  'capture time not declared',
   'registered after the declared capture',
+  'registered after the trusted time',
   'revocation not checked',
   'chain revocation not checked',
   'attestation chain expired, capture time not proven',
-  'inconsistent claim'
+  'attestation app not admitted',
+  'attestation app not checked',
+  'inconsistent claim',
+  'integrity failed'
 ]
 
 /** A green ceiling has no fault to name, so §7 names what was proven. */
@@ -47,6 +52,11 @@ export const ceilingLabels = (verdict: Verdict): string[] => {
   const level = verdict.level
   if (!level) return []
   if (level.ceiling === 'green') return SEALED[level.proven] ? [SEALED[level.proven] as string] : []
-  const set = level.ceiling === 'red' ? RED : AMBER
-  return set.filter((label) => verdict.labels.includes(label))
+  if (level.ceiling === 'red') return RED.filter((label) => verdict.labels.includes(label))
+  const named = AMBER.filter((label) => verdict.labels.includes(label))
+  // §7: green needs a token or a verified anchor for the instant. *no trusted
+  // time* names the ceiling only when nothing else trusted dated the capture —
+  // beside a verified anchor it is a missing token and caps nothing.
+  const untrusted = verdict.validated_at?.source === 'device_clock' || verdict.validated_at?.source === 'verifier_clock'
+  return untrusted && verdict.labels.includes('no trusted time') ? [...named, 'no trusted time'] : named
 }

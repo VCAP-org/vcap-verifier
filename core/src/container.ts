@@ -19,19 +19,21 @@ const VCAP_SEI_UUID = fromHex('caa653d1ed1763c7af388aea76527336')
 export interface GopHash { index: number, hash: Bytes }
 
 /**
- * `hashes`: the GOPs a vcap SEI of this capture located, in file order, with
- * strictly increasing indices, each hashed; `unlocated` counts the GOPs no SEI
- * of this capture named (§5: never guessed from position, never hashed).
- * `unsupported`: nothing could be located — the container is not one this
- * reads, or no vcap SEI names a GOP — so no segment gets content credit.
- * `malformed`: the container contradicts itself where a segment lives (a NAL
- * framing that does not tile its sample, a sample outside the file, a vcap SEI
- * that is not one 36-byte message, two GOPs naming one index, indices out of
- * file order). That is not an unread file: it is bytes somebody arranged so
- * that a signed index would point at them, and it reads *tampered*.
+ * `hashes`: the container was read and a vcap SEI of this capture names at
+ * least one GOP. `gops` are the GOPs that earn credit — exactly one well-formed
+ * vcap SEI of this capture, an index the proof signs, carried by no other GOP
+ * — each hashed. `problems` is every way the rest of the file fails to account
+ * for itself, in decode order (§5 *Locating segments*); any one is *tampered*.
+ * `unlocated`: the container was read and no GOP names this capture — no
+ * segment credit, and nothing contradicts the proof either.
+ * `unsupported`: the container is not one this reads.
+ * `malformed`: NAL framing that does not tile its sample, or a sample outside
+ * the file — bytes inside a segment that no hash would cover — *tampered*,
+ * with no segment credited.
  */
 export type Recomputation =
-  | { kind: 'hashes', gops: GopHash[], unlocated: number }
+  | { kind: 'hashes', gops: GopHash[], problems: string[] }
+  | { kind: 'unlocated', reason: string }
   | { kind: 'unsupported', reason: string }
   | { kind: 'malformed', reason: string }
 
@@ -268,6 +270,8 @@ const isIdr = (nal: Bytes, codec: Track['codec']): boolean => {
   return codec === 'h265' ? type === 19 || type === 20 : type === 5
 }
 
+type Sei = { captureId: Bytes, index: number } | { malformed: string }
+
 /**
  * The vcap SEI a NAL unit carries, if it carries one: `capture_id || n`.
  *
@@ -276,9 +280,10 @@ const isIdr = (nal: Bytes, codec: Track['codec']): boolean => {
  * message, `payloadSize` 36, nothing after it but the RBSP trailing bits —
  * because it is the one NAL the hash excludes: a vcap SEI that also carried
  * another message would carry that message outside every signature, and one
- * sized 37 would carry a byte nobody signed. Anything else is `Malformed`.
+ * sized 37 would carry a byte nobody signed. Anything else is `malformed`,
+ * and the GOP holding it is *tampered* (vector 93).
  */
-const vcapSei = (nal: Bytes, codec: Track['codec']): { captureId: Bytes, index: number } | null => {
+const vcapSei = (nal: Bytes, codec: Track['codec']): Sei | null => {
   if (nal.length < 2) return null
   const type = nalType(nal, codec)
   if (!(codec === 'h265' ? type === 39 || type === 40 : type === 6)) return null
@@ -291,26 +296,24 @@ const vcapSei = (nal: Bytes, codec: Track['codec']): { captureId: Bytes, index: 
   while (at < rbsp.length && rbsp[at] !== 0x80) {
     let payloadType = 0
     while (rbsp[at] === 0xff) { payloadType += 255; at++ }
-    if (at >= rbsp.length) return ours === null ? null : malformedSei('truncated')
+    if (at >= rbsp.length) return ours === null ? null : { malformed: 'truncated' }
     payloadType += rbsp[at++]!
     let size = 0
     while (rbsp[at] === 0xff) { size += 255; at++ }
-    if (at >= rbsp.length) return ours === null ? null : malformedSei('truncated')
+    if (at >= rbsp.length) return ours === null ? null : { malformed: 'truncated' }
     size += rbsp[at++]!
-    if (at + size > rbsp.length) return ours === null ? null : malformedSei('truncated')
+    if (at + size > rbsp.length) return ours === null ? null : { malformed: 'truncated' }
     messages++
     if (payloadType === 5 && size >= 16 && equal(rbsp.subarray(at, at + 16), VCAP_SEI_UUID)) ours = { size, payload: at }
     at += size
   }
   if (ours === null) return null
-  if (messages !== 1) return malformedSei(`${messages} messages in one NAL`)
-  if (ours.size !== 36) return malformedSei(`payloadSize ${ours.size}, not 36`)
+  if (messages !== 1) return { malformed: `${messages} messages in one NAL` }
+  if (ours.size !== 36) return { malformed: `payloadSize ${ours.size}, not 36` }
   // rbsp_trailing_bits, then only the zero bytes framing leaves inside a unit.
-  if (rbsp[at] !== 0x80 || rbsp.subarray(at + 1).some((x) => x !== 0)) return malformedSei('bytes after the message')
+  if (rbsp[at] !== 0x80 || rbsp.subarray(at + 1).some((x) => x !== 0)) return { malformed: 'bytes after the message' }
   return { captureId: rbsp.slice(ours.payload + 16, ours.payload + 32), index: readU32BE(rbsp, ours.payload + 32) }
 }
-
-const malformedSei = (why: string): never => { throw new Malformed(`vcap SEI malformed: ${why}`) }
 
 /**
  * The NAL units of a sample, as the length prefixes frame them — and they must
@@ -336,41 +339,67 @@ const nalsOf = (media: Bytes, sample: Sample, nalLength: number): Bytes[] => {
   return out
 }
 
-interface Gop { first: number, last: number, index: number | null }
+interface Gop { first: number, last: number, seis: Sei[] }
 
 /**
- * The GOPs of the video track and the segment index each one's vcap SEI of
- * this capture names, if one does. Boundaries come from the IDRs in the
- * samples, never from `stss`, which is metadata anybody can write.
+ * The GOPs of the video track and every vcap SEI each one carries.
+ * Boundaries come from the IDRs in the samples, never from `stss`, which in
+ * H.265 lists CRA pictures too (vector 94) and is metadata anybody can write.
+ * Samples before the first IDR belong to no segment (§5).
  */
-const locate = (media: Bytes, video: Track, captureId: Bytes | undefined): Gop[] => {
+const locate = (media: Bytes, video: Track): Gop[] => {
   const gops: Gop[] = []
-  let seis = 0
-  const close = (): void => {
-    const gop = gops.at(-1)
-    if (gop && seis > 1) throw new Malformed(`GOP at sample ${gop.first} carries ${seis} vcap SEIs`)
-  }
   for (let s = 0; s < video.samples.length; s++) {
     const nals = nalsOf(media, video.samples[s]!, video.nalLength)
-    if (nals.some((nal) => isIdr(nal, video.codec))) {
-      close()
-      gops.push({ first: s, last: s, index: null })
-      seis = 0
-    }
+    if (nals.some((nal) => isIdr(nal, video.codec))) gops.push({ first: s, last: s, seis: [] })
     const gop = gops.at(-1)
+    if (!gop) continue
     for (const nal of nals) {
       const sei = vcapSei(nal, video.codec)
-      // Samples before the first IDR belong to no segment (§5), and their SEI
-      // locates nothing.
-      if (!sei || !gop) continue
-      seis++
-      // An SEI from another capture locates nothing here.
-      if (!captureId || equal(sei.captureId, captureId)) gop.index = sei.index
+      if (sei) gop.seis.push(sei)
     }
-    if (gop) gop.last = s
+    gop.last = s
   }
-  close()
   return gops
+}
+
+const isOurs = (sei: Sei, captureId: Bytes | undefined): sei is { captureId: Bytes, index: number } =>
+  'index' in sei && (!captureId || equal(sei.captureId, captureId))
+
+/**
+ * §5 *Locating segments*, applied whole: once one GOP names this capture,
+ * every GOP accounts for itself in decode order. Returns the index each GOP
+ * earns credit for (or null), and every problem, in order.
+ */
+const account = (gops: Gop[], captureId: Bytes | undefined, signed: Set<number> | undefined): { credit: Array<number | null>, problems: string[] } => {
+  const problems: string[] = []
+  const named: Array<number | null> = gops.map((gop, k) => {
+    const where = `GOP ${k} (sample ${gop.first})`
+    const bad = gop.seis.find((x): x is { malformed: string } => 'malformed' in x)
+    if (bad) { problems.push(`${where}: vcap SEI malformed: ${bad.malformed}`); return null }
+    if (gop.seis.length === 0) { problems.push(`${where} carries no vcap SEI`); return null }
+    if (gop.seis.length > 1) { problems.push(`${where} carries ${gop.seis.length} vcap SEIs`); return null }
+    const sei = gop.seis[0]!
+    if (!isOurs(sei, captureId)) { problems.push(`${where} names another capture`); return null }
+    if (signed && !signed.has(sei.index)) { problems.push(`${where} names segment ${sei.index}, which the proof does not sign`); return null }
+    return sei.index
+  })
+  // An index carried twice earns nothing for either GOP: which one is the
+  // signed frames is exactly what cannot be told (vector 91).
+  const seen = new Map<number, number>()
+  for (const n of named) if (n !== null) seen.set(n, (seen.get(n) ?? 0) + 1)
+  for (const [n, count] of seen) if (count > 1) problems.push(`segment index ${n} is carried by ${count} GOPs`)
+  // File order is signed order: an index that does not increase is a GOP
+  // moved, which the chain over messages cannot see because every message it
+  // checks is genuine (vector 90). The GOPs keep their credit; the file is
+  // still tampered.
+  let last: number | null = null
+  for (const n of named) {
+    if (n === null) continue
+    if (last !== null && n <= last && seen.get(n) === 1) problems.push(`segment index ${n} follows ${last} in decode order`)
+    last = n
+  }
+  return { credit: named.map((n) => n !== null && seen.get(n) === 1 ? n : null), problems }
 }
 
 /** Hashes a GOP's video NALs, vcap SEIs excluded, then its audio frames: §5's `content_hash`. */
@@ -378,6 +407,8 @@ const hashGop = async (media: Bytes, video: Track, gop: Gop, audio: Bytes[]): Pr
   const parts: Bytes[] = []
   for (let s = gop.first; s <= gop.last; s++) {
     for (const nal of nalsOf(media, video.samples[s]!, video.nalLength)) {
+      // Only a well-formed vcap SEI is outside `content_hash`; a GOP holding a
+      // malformed one earns no credit and is never hashed.
       if (!vcapSei(nal, video.codec)) parts.push(nal)
     }
   }
@@ -388,11 +419,12 @@ const hashGop = async (media: Bytes, video: Track, gop: Gop, audio: Bytes[]): Pr
 }
 
 /**
- * `signedCount` is the proof's `media.segment_count`, when the caller has one:
- * a GOP naming an index at or past it names a segment the device never
- * sealed, which is `malformed` before anything else is asked of the file.
+ * `signed` is the set of segment indices the proof carries entries for, when
+ * the caller has a proof: a GOP naming any other index names a segment this
+ * proof does not sign (vector 38 drops segment 0 from the proof and leaves it
+ * in the file), and that is *tampered*.
  */
-export const recomputeSegments = async (media: Bytes, captureId?: Bytes, signedCount?: number): Promise<Recomputation> => {
+export const recomputeSegments = async (media: Bytes, captureId?: Bytes, signed?: Set<number>): Promise<Recomputation> => {
   let video: Track
   let audio: Track | undefined
   try {
@@ -413,27 +445,12 @@ export const recomputeSegments = async (media: Bytes, captureId?: Bytes, signedC
   }
 
   try {
-    // §5: where no vcap SEI names a GOP, its index is not inferred from its
-    // position in the file, and nothing is recomputed for it. Filling the gaps
-    // by contiguity is what let one edited SEI byte relabel every GOP around
-    // it and read *verified clip*.
-    const gops = locate(media, video, captureId)
-    const located = gops.filter((g) => g.index !== null)
-    if (located.length === 0) return { kind: 'unsupported', reason: 'no vcap SEI locates a segment' }
-    // "Signed" is the range the core signs, `[0, segment_count)`, not the
-    // entries a proof happens to carry: a proof may leave an entry out (vector
-    // 38 drops segment 0 and stays a clip), and that GOP is then located and
-    // simply not credited.
-    const stray = signedCount === undefined ? undefined : located.find((g) => g.index! >= signedCount)
-    if (stray) throw new Malformed(`a GOP names segment ${stray.index}, outside the ${signedCount} the proof signs`)
-    // File order is signed order: a segment index that repeats or goes back is
-    // a GOP moved or copied, which the chain over messages cannot see because
-    // every message it checks is genuine.
-    for (let i = 1; i < located.length; i++) {
-      const [was, is] = [located[i - 1]!.index!, located[i]!.index!]
-      if (is === was) throw new Malformed(`two GOPs carry segment index ${is}`)
-      if (is < was) throw new Malformed(`segment index ${is} follows ${was} in the file`)
-    }
+    // §5: a GOP's index is never inferred from its position in the file, and
+    // a GOP that cannot be placed is never skipped: once one GOP names this
+    // capture, every GOP must.
+    const gops = locate(media, video)
+    if (!gops.some((g) => g.seis.some((x) => isOurs(x, captureId)))) return { kind: 'unlocated', reason: 'no vcap SEI names this capture' }
+    const { credit, problems } = account(gops, captureId, signed)
 
     // Audio by two pointers: both tracks are in decode order, so each frame's
     // presentation time is computed once and compared against one boundary,
@@ -455,9 +472,10 @@ export const recomputeSegments = async (media: Bytes, captureId?: Bytes, signedC
         if (sample.offset + sample.size > media.length) throw new Malformed('an audio sample lies outside the file')
         frames.push(media.subarray(sample.offset, sample.offset + sample.size))
       }
-      if (gop.index !== null) out.push({ index: gop.index, hash: await hashGop(media, video, gop, frames) })
+      const index = credit[g]
+      if (index !== null && index !== undefined) out.push({ index, hash: await hashGop(media, video, gop, frames) })
     }
-    return { kind: 'hashes', gops: out, unlocated: gops.length - located.length }
+    return { kind: 'hashes', gops: out, problems }
   } catch (e) {
     if (e instanceof Malformed) return { kind: 'malformed', reason: e.message }
     return { kind: 'unsupported', reason: e instanceof Error ? e.message : 'unreadable container' }

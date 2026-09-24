@@ -9,12 +9,17 @@ const BOX_HEADER = 8
 export type Trailer =
   | { kind: 'none' }
   | { kind: 'corrupted' }
+  // §3: `VCAP` with a major this reader does not implement. The rest of such a
+  // footer is not interpreted, and *no proof found* would tell a reader the
+  // proof was stripped when it is there in a version this reader cannot read.
+  | { kind: 'unsupported', major: number }
   | { kind: 'ok', payload: Bytes, flags: number, minor: number, media: Bytes }
 
 export const parseTrailer = (file: Bytes): Trailer => {
   if (file.length < FOOTER + BOX_HEADER) return { kind: 'none' }
   const footer = file.subarray(file.length - FOOTER)
-  if (!equal(footer.subarray(0, 4), MAGIC) || footer[4] !== 1) return { kind: 'none' }
+  if (!equal(footer.subarray(0, 4), MAGIC)) return { kind: 'none' }
+  if (footer[4] !== 1) return { kind: 'unsupported', major: footer[4] as number }
   const payloadLen = readU32BE(footer, 8)
   const total = BOX_HEADER + payloadLen + FOOTER
   if (total > file.length) return { kind: 'none' }
@@ -76,6 +81,7 @@ export const replaceTrailer = (file: Bytes, payload: Bytes): Replacement => {
   const current = parseTrailer(file)
   if (current.kind === 'none') return { kind: 'refused', reason: 'the file carries no trailer to replace' }
   if (current.kind === 'corrupted') return { kind: 'refused', reason: 'the trailer is corrupted' }
+  if (current.kind === 'unsupported') return { kind: 'refused', reason: `the trailer is of major version ${current.major}` }
   if (parseTrailer(current.media).kind !== 'none') return { kind: 'refused', reason: 'the canonical bytes end in another trailer' }
   if (payload.length > 0xffffffff - (BOX_HEADER + FOOTER)) return { kind: 'refused', reason: 'payload too large for a free box' }
   return { kind: 'ok', file: concat(current.media, buildTrailer(payload, current.flags, current.minor)) }

@@ -20,6 +20,19 @@ export interface AndroidResult {
   proven: 'strongbox' | 'tee' | 'none'
   checks: { id: string, outcome: 'pass' | 'fail' | 'skip', detail: string }[]
   bootState?: { locked: boolean, state: string }
+  // §7 rule 5: the leaf is not the signing key. Not weak evidence but a
+  // signature swap, which the caller reports as *tampered*.
+  keyMismatch: boolean
+  // §7: the chain fails rule 1, 2 or 3, or cannot be read — evidence that does
+  // not hold up (*attestation evidence invalid*), as against a genuine chain
+  // that proves too little (an unlocked boot, a software key).
+  invalid: boolean
+  // The leaf's `attestationApplicationId` signing-certificate digests, lowercase
+  // hex; null when the leaf names no app.
+  appDigests: string[] | null
+  // The serials a revocation answer must cover: every certificate of the chain
+  // but a pinned root (§6.2 *Coverage*).
+  serials: string[]
   revocation: 'clear' | 'revoked' | 'not_checked'
   // Which certificate the status list had an entry for, when it had one. The
   // *when* is missing on purpose: Google's list is a current-status list and
@@ -29,30 +42,48 @@ export interface AndroidResult {
   // which is why this result reports the finding and draws no conclusion from
   // it. Zeroing the proven level here would say a batch key withdrawn in 2028
   // un-attests a capture from 2026.
-  revoked?: { serial: string, status: string }
+  revoked?: { serial: string, status: string, reason?: string, revokedAt?: number }
   // Set when the chain was valid at the instant it was validated at but has
   // expired since: the earliest notAfter in the chain. The caller decides what
   // to say about it, because that depends on how the instant was proven (§7).
   expiredSince?: string
 }
 
-export type RevocationLookup = (serialHex: string) => Promise<{ status: string } | null>
+/**
+ * The caller's online status list. `revoked_at` is the revocation date as the
+ * source gives it, when it gives one (Google's list does not): §6.2 never
+ * dates a revocation by when it was read.
+ */
+export type RevocationLookup = (serialHex: string) => Promise<{ status: string, reason?: string, revoked_at?: number } | null>
 
 let cachedRoots: Certificate[] | null = null
 export const googleRoots = (): Certificate[] => (cachedRoots ??= GOOGLE_ROOT_PEMS.map((p) => parseCertificate(pemToDer(p))))
 
-interface Description { attestationLevel: SecureLevel, keyMintLevel: SecureLevel, rootOfTrust?: { locked: boolean, state: string } }
+interface Description { attestationLevel: SecureLevel, keyMintLevel: SecureLevel, rootOfTrust?: { locked: boolean, state: string }, appDigests: string[] | null }
+
+/**
+ * `attestationApplicationId` ([709], in either authorization list): an OCTET
+ * STRING holding `SEQUENCE { SET OF AttestationPackageInfo, SET OF OCTET
+ * STRING signature_digests }`. Only the digests are read.
+ */
+const applicationDigests = (entry: Node): string[] => {
+  const id = sequence(parseDer(octets(explicitContent(entry, 'attestationApplicationId'), 'attestationApplicationId')), 'AttestationApplicationId')
+  return set(id[1] as Node, 'signature_digests').map((d) => toHex(octets(d, 'signature_digest')))
+}
 
 const parseDescription = (value: Bytes): Description => {
   const f = sequence(parseDer(value), 'KeyDescription')
   if (f.length < 8) throw new Asn1Error('KeyDescription: expected 8 fields')
   const level = (n: Node, what: string): SecureLevel => { const l = LEVELS[enumerated(n, what)]; if (!l) throw new Asn1Error(`${what}: unknown level`); return l }
-  const d: Description = { attestationLevel: level(f[1] as Node, 'attestationSecurityLevel'), keyMintLevel: level(f[3] as Node, 'keyMintSecurityLevel') }
+  const d: Description = { attestationLevel: level(f[1] as Node, 'attestationSecurityLevel'), keyMintLevel: level(f[3] as Node, 'keyMintSecurityLevel'), appDigests: null }
   for (const entry of sequence(f[7] as Node, 'hardwareEnforced')) {
+    if (contextTag(entry) === 709) d.appDigests = applicationDigests(entry)
     if (contextTag(entry) !== 704) continue
     const rot = sequence(explicitContent(entry, 'rootOfTrust'), 'RootOfTrust')
     d.rootOfTrust = { locked: boolean(rot[1] as Node, 'deviceLocked'), state: BOOT[enumerated(rot[2] as Node, 'verifiedBootState')] ?? 'unknown' }
   }
+  // KeyMint puts the application id in softwareEnforced.
+  for (const entry of sequence(f[6] as Node, 'softwareEnforced')) if (contextTag(entry) === 709) d.appDigests = applicationDigests(entry)
   return d
 }
 
@@ -60,7 +91,7 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
   const checks: AndroidResult['checks'] = []
   const pass = (id: string, detail: string) => checks.push({ id, outcome: 'pass', detail })
   const fail = (id: string, detail: string) => checks.push({ id, outcome: 'fail', detail })
-  const result: AndroidResult = { proven: 'none', checks, revocation: 'not_checked' }
+  const result: AndroidResult = { proven: 'none', checks, revocation: 'not_checked', keyMismatch: false, invalid: false, appDigests: null, serials: [] }
   // §7: `now` is the proven instant of the capture, which is what path
   // validation uses; `clock` is the verifier's own clock, used only to notice
   // that a chain valid then has expired since. An RKP intermediate lives about
@@ -70,18 +101,31 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
   const clock = o.clock ?? new Date()
 
   let certs: Certificate[]
-  try { certs = chainB64.map(parseCertificate); if (!certs.length) throw new Error('empty') } catch { fail('chain_parsed', 'chain is empty or not DER certificates'); return result }
+  try { certs = chainB64.map(parseCertificate); if (!certs.length) throw new Error('empty') } catch { fail('chain_parsed', 'chain is empty or not DER certificates'); result.invalid = true; return result }
   pass('chain_parsed', `${certs.length} certificates`)
+  const pinned = o.roots ?? googleRoots()
+  result.serials = certs.filter((c) => !pinned.some((r) => equal(r.der, c.der))).map((c) => c.serialHex)
 
   const leaf = certs[0] as Certificate
-  if (!equal(leaf.spki, sigPub)) fail('key_binding', 'attestation leaf key differs from sig.pub')
-  else pass('key_binding', 'attestation leaf key is the signing key')
+  if (!equal(leaf.spki, sigPub)) { fail('key_binding', 'attestation leaf key differs from sig.pub'); result.keyMismatch = true } else pass('key_binding', 'attestation leaf key is the signing key')
+
+  // §7 rules 2 and 3: every certificate above the leaf is a CA that may sign
+  // certificates, and the key attestation extension is the leaf's alone.
+  // Together they stop a genuine attested key — a leaf, real hardware and all —
+  // from signing a "leaf" of its own with any KeyDescription it likes and
+  // having the chain still verify to the root (vector 105).
+  const notCa = certs.findIndex((c, i) => i > 0 && !(c.isCa === true && c.keyCertSign === true))
+  if (notCa !== -1) fail('chain_ca', `certificate ${notCa} is not a CA with keyCertSign`)
+  else pass('chain_ca', 'every issuer is a CA with keyCertSign')
+  const stray = certs.findIndex((c, i) => i > 0 && c.extensions.has(KEY_DESCRIPTION_OID))
+  if (stray !== -1) fail('extension_in_leaf', `certificate ${stray} carries the key attestation extension`)
+  else pass('extension_in_leaf', 'only the leaf carries the key attestation extension')
 
   // Every link signed by the next; the last one issued by (or equal to) a pinned root.
   let linked = true
   for (let i = 0; i < certs.length - 1; i++) if (!await issuedBy(certs[i] as Certificate, certs[i + 1] as Certificate)) { fail('chain_signatures', `certificate ${i} is not issued by certificate ${i + 1}`); linked = false; break }
   if (linked) pass('chain_signatures', 'every certificate is signed by the next')
-  const chain = await chainToRoot(certs[certs.length - 1] as Certificate, [], o.roots ?? googleRoots())
+  const chain = await chainToRoot(certs[certs.length - 1] as Certificate, [], pinned)
   if (chain) pass('chain_root', 'ends in a pinned Google attestation root'); else fail('chain_root', 'chain does not end in a pinned Google root')
   const outside = certs.findIndex((c) => !withinValidity(c, now))
   if (outside === -1) pass('chain_validity', `every certificate is within its validity period at ${now.toISOString()}`)
@@ -99,7 +143,10 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
     try {
       for (const c of certs) {
         const r = await o.revocation(c.serialHex)
-        if (r) { result.revoked = { serial: c.serialHex, status: String(r.status) }; break }
+        if (r) {
+          result.revoked = { serial: c.serialHex, status: String(r.status), ...(typeof r.reason === 'string' ? { reason: r.reason } : {}), ...(Number.isSafeInteger(r.revoked_at) ? { revokedAt: r.revoked_at as number } : {}) }
+          break
+        }
       }
     } catch { asked = false; delete result.revoked }
   }
@@ -112,9 +159,12 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
   }
 
   const ext = leaf.extensions.get(KEY_DESCRIPTION_OID)
-  if (!ext) { fail('extension', 'leaf carries no key attestation extension'); return result }
+  // Rules 1, 2 and 3 decide whether the chain is evidence at all.
+  result.invalid = checks.some((c) => ['chain_signatures', 'chain_root', 'chain_validity', 'chain_ca', 'extension_in_leaf'].includes(c.id) && c.outcome === 'fail')
+  if (!ext) { fail('extension', 'leaf carries no key attestation extension'); result.invalid = true; return result }
   let d: Description
-  try { d = parseDescription(ext); pass('extension', 'key attestation extension read') } catch (e) { fail('extension', `attestation extension unreadable: ${e instanceof Asn1Error ? e.message : 'malformed'}`); return result }
+  try { d = parseDescription(ext); pass('extension', 'key attestation extension read') } catch (e) { fail('extension', `attestation extension unreadable: ${e instanceof Asn1Error ? e.message : 'malformed'}`); result.invalid = true; return result }
+  result.appDigests = d.appDigests
 
   const rank: Record<SecureLevel, number> = { software: 0, tee: 1, strongbox: 2 }
   const weakest = rank[d.attestationLevel] <= rank[d.keyMintLevel] ? d.attestationLevel : d.keyMintLevel
@@ -124,7 +174,7 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
     else fail('boot_state', `boot state ${d.rootOfTrust.state}, device ${d.rootOfTrust.locked ? 'locked' : 'unlocked'}`)
   } else fail('boot_state', 'no hardware-enforced rootOfTrust')
 
-  const structural = checks.filter((c) => ['key_binding', 'chain_signatures', 'chain_root', 'chain_validity', 'boot_state'].includes(c.id)).every((c) => c.outcome === 'pass')
+  const structural = checks.filter((c) => ['key_binding', 'chain_signatures', 'chain_root', 'chain_validity', 'chain_ca', 'extension_in_leaf', 'boot_state'].includes(c.id)).every((c) => c.outcome === 'pass')
   if (weakest === 'software') fail('security_level', 'attestation or key is software')
   else pass('security_level', `attestation ${d.attestationLevel}, key ${d.keyMintLevel}`)
   // Revocation does not enter here: it is temporal (§6.2) and this function

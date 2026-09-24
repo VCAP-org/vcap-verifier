@@ -24,6 +24,8 @@ export interface TrustDocumentEntry {
   operator?: string
   /** Whether the log is run by somebody other than whoever ships the verifier. */
   independent?: boolean
+  /** SHA-256 of the signing certificates of the apps the log admits keys from, lowercase hex (§7). */
+  app_signing_digests?: string[]
 }
 
 export interface TrustDocument {
@@ -54,8 +56,12 @@ export const parseTrustDocument = async (document: unknown): Promise<{ logs: Tru
     try { spki = fromBase64(entry.spki) } catch { throw new TrustDocumentError(`the spki of ${entry.log_id} is not base64`) }
     const derived = await logIdOf(spki)
     if (derived !== entry.log_id) throw new TrustDocumentError(`log_id ${entry.log_id} is not the SHA-256 of its own spki (that key is ${derived})`)
+    const digests = entry.app_signing_digests
+    if (digests !== undefined && !(Array.isArray(digests) && digests.every((d) => typeof d === 'string' && /^[0-9a-f]{64}$/i.test(d)))) {
+      throw new TrustDocumentError(`app_signing_digests of ${entry.log_id} must be SHA-256 digests in hex`)
+    }
     entries.push(entry as unknown as TrustDocumentEntry)
-    logs.push({ logId: entry.log_id, spki })
+    logs.push({ logId: entry.log_id, spki, ...(digests ? { appSigningDigests: (digests as string[]).map((d) => d.toLowerCase()) } : {}) })
   }
   return { logs, entries }
 }
