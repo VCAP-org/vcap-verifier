@@ -5,16 +5,30 @@ import type { VideoPayload } from '../src/layouts.js'
 import { VIDEO_AGREEMENT_FLOOR as CORE_FLOOR } from 'vcap-verify-core'
 
 /**
- * The layout port against the vectors that pin it. `test/layouts.json` is the
- * mirror of the vectors our model pipeline (not public) exports from its
- * reference encoder: a port that decodes these reads the same bits as the
- * encoder that made the marks, and one that does not is a detector reporting
- * ids nobody embedded.
+ * The pinned vectors of `vcap-spec`, from the submodule — the source of truth —
+ * or from `core/vectors`, the snapshot `vectors-sync.mjs --check` keeps equal
+ * to it. Read from there rather than from a copy of our own: a mirror kept in
+ * this directory had already drifted from the published file (it lacked the
+ * `mark_id` derivation cases), and a gate that reads its own copy tests the
+ * copy. Neither being present is a failure, never a pass.
+ */
+const pinnedFile = (name: string): URL => {
+  const spec = new URL(`../../spec/vectors/_watermark/${name}`, import.meta.url)
+  const file = existsSync(spec) ? spec : new URL(`../../core/vectors/_watermark/${name}`, import.meta.url)
+  if (!existsSync(file)) throw new Error(`[vcap] no ${name} in the spec submodule or the snapshot: run \`git submodule update --init\` (a suite that runs no vectors is a failure, not a pass)`)
+  return file
+}
+
+/**
+ * The layout port against the vectors that pin it: `layouts.json`, which the
+ * reference encoder in our model pipeline (not public) exports. A port that
+ * decodes these reads the same bits as the encoder that made the marks, and
+ * one that does not is a detector reporting ids nobody embedded.
  *
  * The soft bits a detector produces are logits, so a vector's packed message
  * is read here as ±4 — the same substitution the reference encoder's own self-test uses.
  */
-const vectors = JSON.parse(readFileSync(new URL('./layouts.json', import.meta.url), 'utf8')) as {
+const vectors = JSON.parse(readFileSync(pinnedFile('layouts.json'), 'utf8')) as {
   message_bits: number
   'photo-bch-v3': { cases: Array<{ capture_id: string, message: string }> }
   'video-rep-v1': { cases: Array<{ mark_id: number, crc8: number, message: string }> }
@@ -49,6 +63,29 @@ describe('photo-bch-v3', () => {
     for (let errors = 1; errors <= 18; errors++) {
       const decoded = decodePhoto(flip(logits(message), errors, 13))
       expect(decoded, `${errors} flipped bits`).toEqual({ captureId: id, correctedBits: errors })
+    }
+  })
+
+  /**
+   * Every error pattern inside the radius decodes, not one fixed stride: the
+   * stride-13 case above passed while the Berlekamp-Massey length test was
+   * wrong, and that bug refused about 3 % of random correctable words (0.3 %
+   * at four errors, 2.8 % at eighteen). Deterministic, so a failure names a
+   * pattern that can be replayed.
+   */
+  it('corrects every random pattern of 1 to 18 errors', () => {
+    const { capture_id: id, message } = vectors['photo-bch-v3'].cases[1]!
+    const clean = logits(message)
+    let state = 0x5eed
+    const next = (): number => { state = (Math.imul(state, 1103515245) + 12345) >>> 0; return state }
+    for (let errors = 1; errors <= 18; errors++) {
+      for (let n = 0; n < 300; n++) {
+        const at = new Set<number>()
+        while (at.size < errors) at.add(next() % 252)
+        const soft = clean.slice()
+        for (const i of at) soft[i] = -soft[i]!
+        expect(decodePhoto(soft), `${errors} errors at ${[...at].sort((a, b) => a - b).join(',')}`).toEqual({ captureId: id, correctedBits: errors })
+      }
     }
   })
 
@@ -262,9 +299,7 @@ describe('video-rep-v1 clip reading, against the pinned vectors', () => {
   // The submodule is the source of truth and `core/vectors` is the snapshot
   // `vectors-sync.mjs --check` keeps equal to it, so a checkout without the
   // submodule still runs the vectors — and neither missing is a pass.
-  const dir = new URL('../../spec/vectors/_watermark/clip-reading.json', import.meta.url)
-  const file = existsSync(dir) ? dir : new URL('../../core/vectors/_watermark/clip-reading.json', import.meta.url)
-  if (!existsSync(file)) throw new Error('[vcap] no clip-reading.json in the spec submodule or the snapshot: run `git submodule update --init` (a suite that runs no vectors is a failure, not a pass)')
+  const file = pinnedFile('clip-reading.json')
 
   interface Reading { agreement: number, crc_passes: boolean, mark_id: number | null }
   const pinned = JSON.parse(readFileSync(file, 'utf8')) as {
@@ -295,5 +330,26 @@ describe('video-rep-v1 clip reading, against the pinned vectors', () => {
     expect(read.framesWithId).toBe(reported.frames_with_id)
     expect(read.agreement).toBe(reported.agreement)
     expect(frames.length).toBe(reported.sampled)
+  })
+})
+
+/**
+ * `vectors/_watermark/agreement-floor.json`: the floor as cases. The page's
+ * decoder applies it before it reports anything (`readClip`), and the core
+ * applies it to any detection it is handed; both are held to this file.
+ */
+describe('video-rep-v1 agreement floor, against the pinned vectors', () => {
+  const pinned = JSON.parse(readFileSync(pinnedFile('agreement-floor.json'), 'utf8')) as {
+    floor: number, cases: Array<{ agreement: number, crc_passes: boolean, resolves: boolean }>
+  }
+
+  it('pins the same floor the layout fixes', () => {
+    expect(pinned.floor).toBe(VIDEO_AGREEMENT_FLOOR)
+    expect(pinned.cases.length).toBeGreaterThan(0)
+  })
+
+  it.each(pinned.cases)('agreement $agreement, CRC passes $crc_passes → resolves $resolves', ({ agreement, crc_passes: passes, resolves }) => {
+    const read = readClip({ markId: passes ? 4242 : null, agreement, refused: false }, [])
+    expect(read.markId !== null).toBe(resolves)
   })
 })
