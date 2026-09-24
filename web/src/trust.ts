@@ -258,10 +258,17 @@ export const mountTsa = async (changed: () => void): Promise<void> => {
  *
  * The one request a verdict can make, and only for a proof that carries an
  * `anchor`: a read-only `eth_call` to the endpoint `chains.json` lists. It
- * sends the anchor id, never the file or the proof. The endpoint is trusted to
- * answer honestly — a lying RPC could return a forged root — and the panel
- * says so. Switched off, or offline, the anchor reads *anchoring not
- * verified* and the rest of the verdict is unchanged.
+ * sends the anchor id — and, as any request does, the reader's address —
+ * never the file or the proof. The endpoint is trusted to answer honestly — a
+ * lying RPC could return a forged root — and the panel says so.
+ *
+ * **Off until the reader asks.** The page promises that nothing leaves the
+ * browser, and a request that goes out on its own the moment an anchored file
+ * is dropped breaks that promise quietly: it tells a third party that
+ * somebody, at this address, is checking this anchor. So every chain ships
+ * switched off; an anchored verdict says *anchoring not verified* and offers
+ * the read, naming what is sent to whom, and one click (or the switch under
+ * Advanced) turns it on for this visit.
  */
 const chains: { name: string, entry: ChainEntry, on: boolean }[] = []
 
@@ -310,10 +317,27 @@ let onChainChange: () => void = () => {}
 export const mountChains = (changed: () => void): void => {
   onChainChange = changed
   try {
-    for (const [name, entry] of Object.entries(parseChainsDocument(defaultChainsDocument))) chains.push({ name, entry, on: true })
+    for (const [name, entry] of Object.entries(parseChainsDocument(defaultChainsDocument))) chains.push({ name, entry, on: false })
   } catch (error) {
     (document.getElementById('chain-state') as HTMLParagraphElement).textContent = `the shipped chains did not load: ${error instanceof Error ? error.message : String(error)}`
   }
+  drawChains()
+}
+
+/**
+ * A shipped chain the reader has not switched on, by the name a proof's
+ * anchor uses: what the page would ask, and where, before it asks.
+ */
+export const chainOffer = (name: string): { title: string, hosts: string[] } | null => {
+  const chain = chains.find((c) => c.name === name && !c.on)
+  return chain ? { title: chain.entry.name ?? chain.name, hosts: chain.entry.rpc.map((url) => new URL(url).host) } : null
+}
+
+/** Turns a chain's read on for this visit, as its switch under Advanced does. */
+export const enableChain = (name: string): void => {
+  const chain = chains.find((c) => c.name === name)
+  if (!chain) return
+  chain.on = true
   drawChains()
 }
 
@@ -327,7 +351,8 @@ export const trustInUse = (): { logs: number, tsa: number, chains: number, chang
   logs: entries.filter((e) => e.on).length,
   tsa: authorities.filter((e) => e.on).length,
   chains: chains.filter((c) => c.on).length,
+  // Chains ship off, so a chain switched on is the departure.
   changed: entries.some((e) => !e.shipped || !e.on) ||
     authorities.some((e) => !e.shipped || !e.on) ||
-    chains.some((c) => !c.on)
+    chains.some((c) => c.on)
 })

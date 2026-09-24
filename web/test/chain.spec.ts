@@ -34,7 +34,7 @@ const fakeChain = async (page: Page, origin: string): Promise<string[]> => {
   return outside
 }
 
-test('reads the anchor from the chain, and contacts only the RPC chains.json lists', async ({ page }) => {
+test('asks before reading the chain, says what is sent to whom, then reads only the RPC chains.json lists', async ({ page }) => {
   const { server, url } = await serve()
   const outside = await fakeChain(page, new URL(url).origin)
   await page.goto(url)
@@ -42,27 +42,38 @@ test('reads the anchor from the chain, and contacts only the RPC chains.json lis
   await expect(page.locator('#chain-list > li')).toHaveCount(1)
   await expect(page.locator('#chain-list')).toContainText('trusted to answer honestly')
 
+  // Dropped: the verdict is whole, the chain was not asked, and the offer
+  // names the endpoint and the one number it would learn.
   await page.setInputFiles('#file', input)
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await expect(page.locator('.verdict')).toContainText('chain not consulted')
+  await expect(chip(page, 'anchoring not verified')).toHaveCount(1)
+  const offer = page.locator('.panel.anchor')
+  await expect(offer).toContainText('sepolia.base.org')
+  await expect(offer).toContainText('for anchor ')
+  expect(outside).toEqual([])
+
+  await offer.locator('#read-anchor').click()
   await expect(page.locator('.verdict')).toContainText(`anchored on base-sepolia, block ${anchor.block}`)
   await expect(chip(page, 'anchoring not verified')).toHaveCount(0)
+  await expect(page.locator('.panel.anchor')).toHaveCount(0)
+  await expect(page.locator('#using')).toContainText('(custom)')
 
   expect(outside.length).toBeGreaterThan(0)
   expect(outside.filter((u) => !RPC_ORIGINS.includes(new URL(u).origin))).toEqual([])
   await stop(server)
 })
 
-test('a chain switched off is not read, and the anchor is not consulted', async ({ page }) => {
+test('a chain switched on under Advanced is read without asking', async ({ page }) => {
   const { server, url } = await serve()
   const outside = await fakeChain(page, new URL(url).origin)
   await page.goto(url)
 
   await page.locator('details#advanced summary').click()
-  await page.locator('#chain-list input[type=checkbox]').uncheck()
+  await page.locator('#chain-list input[type=checkbox]').check()
   await page.setInputFiles('#file', input)
-  await expect(page.locator('.verdict h2')).toContainText('Authentic')
-  await expect(page.locator('.verdict')).toContainText('chain not consulted')
-  await expect(chip(page, 'anchoring not verified')).toHaveCount(1)
-  expect(outside).toEqual([])
+  await expect(page.locator('.verdict')).toContainText(`anchored on base-sepolia, block ${anchor.block}`)
+  await expect(page.locator('.panel.anchor')).toHaveCount(0)
+  expect(outside.filter((u) => !RPC_ORIGINS.includes(new URL(u).origin))).toEqual([])
   await stop(server)
 })

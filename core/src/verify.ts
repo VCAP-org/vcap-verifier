@@ -46,7 +46,9 @@ export interface Verdict {
   reason?: string
   // What the attachments proved, when present and evaluated.
   registry?: { ok: boolean, detail: string, secure_hw?: string }
-  anchor?: { ok: boolean, detail: string, on_chain?: boolean, block_time?: string }
+  // `chain` and `anchor_id` are what a chain read would send: a surface that
+  // asks before reading can say exactly that, and to whom.
+  anchor?: { ok: boolean, detail: string, on_chain?: boolean, block_time?: string, chain?: string, anchor_id?: number }
   timestamp?: { ok: boolean, detail: string, gen_time?: string }
   attestation?: { proven: string, detail: string, boot_state?: { locked: boolean, state: string } }
   // §6.2: the chain's revocation status as frozen while the chain was current.
@@ -377,7 +379,7 @@ const verifyFile = async (file: Bytes, o: VerifyOptions, progress: { proof: bool
   if (isObj(proof.anchor)) {
     const a = await verifyAnchor(proof.anchor as unknown as AnchorAttachment, coreHash, o.readChain)
     const offChain = a.ok && a.unread !== undefined ? `merkle path reaches the anchored root; the chain could not be read (${a.unread})` : 'merkle path reaches the anchored root; chain not consulted'
-    verdict.anchor = a.ok ? { ok: true, detail: a.onChain ? `anchored on ${a.chain}, block ${a.block}` : offChain, on_chain: a.onChain, block_time: a.blockTime } : { ok: false, detail: a.reason }
+    verdict.anchor = a.ok ? { ok: true, detail: a.onChain ? `anchored on ${a.chain}, block ${a.block}` : offChain, on_chain: a.onChain, block_time: a.blockTime, chain: a.chain, anchor_id: a.anchorId } : { ok: false, detail: a.reason }
     // §8's rule for every attachment: present and not holding up carries the
     // absent label too. *not anchored* is what a reader is shown, *anchor
     // evidence invalid* is what an operator can act on.

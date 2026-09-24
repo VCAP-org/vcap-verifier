@@ -1,7 +1,7 @@
 import { verify, type Verdict, type WatermarkClaim, type WatermarkEvidence } from 'vcap-verify-core'
-import { bareMark, card, errorCard, escape, markOffer } from './render.js'
+import { anchorOffer, bareMark, card, errorCard, escape, markOffer } from './render.js'
 import { readEvidence } from './evidence.js'
-import { chainReader, mountChains, mountTrust, mountTsa, trustInUse, trustedLogs, trustedTsaRoots } from './trust.js'
+import { chainOffer, chainReader, enableChain, mountChains, mountTrust, mountTsa, trustInUse, trustedLogs, trustedTsaRoots } from './trust.js'
 import type { Detector, DetectorManifest, DetectProgress } from './detector.js'
 // The pin, bundled so the page can name the model before anything is fetched.
 // `detector.ts` still fetches and checks against the published copy.
@@ -11,8 +11,9 @@ import pinned from './detector.json'
  * The page: one file in (with its sidecar or a detection, when the user has
  * them), the shared core over it, one verdict out in the specification's
  * words. Nothing is uploaded. The one request a verdict may make is to the
- * public chain an `anchor` names (`chains.json`), and it carries the anchor id
- * only; offline, the verdict is whole and says *anchoring not verified*.
+ * public chain an `anchor` names (`chains.json`), it carries the anchor id
+ * only, and it is made only once the reader asks for it: until then, and
+ * offline, the verdict is whole and says *anchoring not verified*.
  *
  * The watermark is the piece that survives a trip through a messaging app,
  * and it is the piece the interface must not let anyone read backwards. It is
@@ -57,6 +58,11 @@ const inputs = {
  * and this is offered to a reader holding a stripped copy as a thing they may
  * choose to do, never as a step.
  *
+ * A build-time constant (`VCAP_TRACE_URL`, see `build.mjs`), defaulting to the
+ * reference deployment's registry, so a build for another deployment points at
+ * its own registry without a code change — and the published build, built
+ * with the default, reproduces its published hashes.
+ *
  * It links straight at the identifier rather than at the form. This page
  * prints the mark as hex, because that is what a 128-bit payload looks like
  * coming out of a model, while a proof spells the same sixteen bytes in
@@ -64,7 +70,8 @@ const inputs = {
  * the reader's job: paste what this page printed, and the registry answered
  * "not found" about a capture it had.
  */
-const TRACE_URL = 'https://console.vcap.gregoriogalante.com/t'
+declare const __VCAP_TRACE_URL__: string
+const TRACE_URL = __VCAP_TRACE_URL__
 
 const out = document.getElementById('out') as HTMLDivElement
 const status = document.getElementById('status') as HTMLParagraphElement
@@ -129,7 +136,7 @@ const drawUsing = (): void => {
   const trust = trustInUse()
   const changed = trust.changed || custom !== null || held.detection !== undefined
   const reader = held.detection ? 'your detection' : custom ? 'custom detector' : 'pinned detector'
-  using.textContent = `Using${changed ? ' (custom)' : ''}: ${plural(trust.logs, 'log', 'logs')} · ${plural(trust.tsa, 'timestamp authority', 'timestamp authorities')} · ${plural(trust.chains, 'chain', 'chains')} · ${reader}`
+  using.textContent = `Using${changed ? ' (custom)' : ''}: ${plural(trust.logs, 'log', 'logs')} · ${plural(trust.tsa, 'timestamp authority', 'timestamp authorities')} · ${trust.chains === 0 ? 'chains read on request' : plural(trust.chains, 'chain', 'chains')} · ${reader}`
   using.classList.toggle('custom', changed)
 }
 
@@ -301,6 +308,25 @@ const markAlone = async (file: File, bytes: Uint8Array): Promise<string> => {
 const done = 'Checked in this browser. Nothing was uploaded.'
 
 /**
+ * An anchor this page has not read, because its chain is off: say what reading
+ * it would send, and to whom, and read it only if the reader says so. The
+ * answer replaces the verdict, which is computed again with the chain on.
+ */
+const offerAnchor = (verdict: Verdict, run: number): void => {
+  const a = verdict.anchor
+  if (!a?.ok || a.on_chain === true || a.chain === undefined || a.anchor_id === undefined) return
+  const offer = chainOffer(a.chain)
+  if (!offer) return
+  out.insertAdjacentHTML('beforeend', anchorOffer(offer.title, offer.hosts, a.anchor_id))
+  const button = document.getElementById('read-anchor') as HTMLButtonElement
+  button.addEventListener('click', () => {
+    if (run !== generation) return
+    enableChain(a.chain as string)
+    void check()
+  })
+}
+
+/**
  * The verdict, in the order the reader needs it: the signature layer first,
  * because it needs no download, then the watermark when the detector has read
  * it. A proof that declares no watermark, or a detection the reader supplied,
@@ -332,6 +358,7 @@ const check = async (): Promise<void> => {
       const verdict = await verdictOf(bytes, sidecarBytes, async () => detection)
       if (run !== generation) return
       out.innerHTML = card(name, verdict, { detectionSupplied: true })
+      offerAnchor(verdict, run)
       say(note ?? done)
       return
     }
@@ -352,11 +379,13 @@ const check = async (): Promise<void> => {
       const full = await verdictOf(bytes, sidecarBytes, lookup(bytes, file.name))
       if (run !== generation) return
       out.innerHTML = card(name, full)
+      offerAnchor(full, run)
       say(note ?? done)
       return
     }
 
     out.innerHTML = card(name, verdict)
+    offerAnchor(verdict, run)
     // A file the signature layer could not speak for may still carry a mark:
     // the watermark is only evaluated for a proof that declares one, which a
     // stripped copy does not have. This is the file people actually arrive
