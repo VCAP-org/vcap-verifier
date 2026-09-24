@@ -557,7 +557,29 @@ from a real phone): five certificates under Remote Key Provisioning
 down to the pinned 2025 Google root, clock pinned to capture time.
 
 Verdict vocabulary is the spec's: `authentic`, `verified_clip`, `tampered`,
-`nested_proof`, `corrupted_proof`, `no_proof_found`, `unsupported_format_version`.
+`nested_proof`, `corrupted_proof`, `no_proof_found`, `unsupported_format_version`
+— and `frames_not_compared`, which the §5 binding rule needs (below).
+
+### Segments are bound to the file, not to the proof
+
+A video segment counts as verified only when the container yields exactly one
+GOP whose vcap SEI carries that index and the proof's `capture_id`, and the
+GOP's recomputed `content_hash` matches the signed one. The SEI is unsigned, so
+it locates and never proves: a GOP whose SEI names an index outside
+`[0, segment_count)`, two GOPs naming one index, indices out of file order, a
+vcap SEI that is not exactly one 36-byte message, or NAL framing that does not
+tile its sample are **tampered**. Segment boundaries are the IDRs in the
+samples, never `stss`. A GOP no SEI names is not placed by its position and
+earns nothing. With nothing located (no vcap SEI, not ISO-BMFF, recomputation
+off) there is no segment credit: where `media.hash` matches the whole file is
+the sealed bytes and stays *authentic*; where it does not, the outcome is
+**`frames_not_compared`** — the signatures hold, no frame is tied to them —
+never *verified clip*. A proof lifted onto unrelated bytes used to read
+*verified clip*.
+
+`verify` never throws on its input: every parser bounds its reads and counts,
+and a top-level guard turns anything that still escapes into *no proof found*
+(no proof object read) or *corrupted proof* (one was), with the reason.
 
 ### The verdict's colour
 

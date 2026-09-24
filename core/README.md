@@ -8,7 +8,7 @@ and no network of its own: what needs one is injected by the caller.
 import { verify } from 'vcap-verify-core'
 
 const verdict = await verify(new Uint8Array(bytes))
-verdict.outcome   // 'authentic' | 'verified_clip' | 'tampered' | …
+verdict.outcome   // 'authentic' | 'verified_clip' | 'frames_not_compared' | 'tampered' | …
 verdict.labels    // what is missing, sorted (§8)
 verdict.level     // { claimed, proven, ceiling } (§7)
 verdict.location  // { claimed, level, declared? } (§7.1): none | declared | corroborated | authenticated — never a ceiling
@@ -42,6 +42,17 @@ wrong chain id, or a transport or RPC error **throws**, and `verify` reads a
 throw as *not consulted* — the detail says why, the label is *anchoring not
 verified*, never a failure. The RPC endpoint is a trust point: this is not a
 light client, and a lying endpoint could return a forged root.
+
+`verify` never throws on what it is handed: a malformed proof, attachment,
+container or lookup answer is a labelled verdict, and a top-level guard turns
+anything that still escapes into *no proof found* or *corrupted proof* with a
+`reason`. A payload that repeats a key is refused (*no proof found*), because
+two parsers would read it two ways.
+
+A clip is *verified* only for segments whose GOP the container locates by its
+vcap SEI and whose bytes hash to the signed value; with nothing located and a
+file that is not the sealed bytes, the outcome is `frames_not_compared`
+(the signatures hold, no frame is tied to them) and never `verified_clip`.
 
 One more option is not about the network but about where the hashing runs.
 `mediaHash` is the SHA-256 of the canonical bytes (§4.1) when the caller
