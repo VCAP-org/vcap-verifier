@@ -1,8 +1,11 @@
 import { verify, type Verdict, type WatermarkClaim, type WatermarkEvidence } from 'vcap-verify-core'
-import { bareMark, card } from './render.js'
+import { bareMark, card, escape } from './render.js'
 import { readEvidence } from './evidence.js'
-import { chainReader, mountChains, mountTrust, mountTsa, trustedLogs, trustedTsaRoots } from './trust.js'
-import type { Detector, DetectProgress } from './detector.js'
+import { chainReader, mountChains, mountTrust, mountTsa, trustInUse, trustedLogs, trustedTsaRoots } from './trust.js'
+import type { Detector, DetectorManifest, DetectProgress } from './detector.js'
+// The pin, bundled so the page can name the model before anything is fetched.
+// `detector.ts` still fetches and checks against the published copy.
+import pinned from './detector.json'
 
 /**
  * The page: one file in (with its sidecar or a detection, when the user has
@@ -25,9 +28,16 @@ import type { Detector, DetectProgress } from './detector.js'
  * verdict is the one this page gave before a detector existed, with
  * *watermark not evaluated* and the reason on it: weaker, never a failure.
  *
+ * A reader may run a model of their own instead (Advanced, *Use a different
+ * model*). It has no pin, so it is hashed here and named by its own digest:
+ * every detection it makes says `custom-<sha256 prefix>`, never the pinned
+ * build's version.
+ *
  * The transparency logs it checks a `registry` attachment against are the
  * reader's to see and to change (`trust.ts`). The page ships trusting one, and
- * says on its face whose it is.
+ * says on its face whose it is. The first view shows none of this — the
+ * defaults work on their own — and the Advanced summary names what is in use,
+ * and says "custom" once any of it was changed.
  */
 const zones = {
   file: document.getElementById('drop') as HTMLDivElement,
@@ -36,7 +46,8 @@ const zones = {
 const inputs = {
   file: document.getElementById('file') as HTMLInputElement,
   sidecar: document.getElementById('sidecar') as HTMLInputElement,
-  evidence: document.getElementById('evidence') as HTMLInputElement
+  evidence: document.getElementById('evidence') as HTMLInputElement,
+  model: document.getElementById('model') as HTMLInputElement
 }
 /**
  * The registry a capture id can be looked up in, as a path the id is appended
@@ -54,6 +65,10 @@ const inputs = {
 const TRACE_URL = 'https://console.vcap.gregoriogalante.com/t'
 
 const out = document.getElementById('out') as HTMLDivElement
+const status = document.getElementById('status') as HTMLParagraphElement
+const using = document.getElementById('using') as HTMLSpanElement
+const modelLine = document.getElementById('detector-model') as HTMLParagraphElement
+const modelReset = document.getElementById('model-reset') as HTMLButtonElement
 const chosen = document.createElement('p')
 chosen.className = 'chosen'
 zones.file.append(chosen)
@@ -65,35 +80,95 @@ for (const span of document.querySelectorAll<HTMLSpanElement>('[data-name-for]')
   const input = document.getElementById(span.dataset.nameFor as string) as HTMLInputElement
   input.addEventListener('change', () => { span.textContent = input.files?.[0]?.name ?? '' })
 }
-const detectorState = document.getElementById('detector-state') as HTMLParagraphElement
-const detectorBar = document.getElementById('detector-bar') as HTMLDivElement
-const detectorTitle = document.getElementById('detector-title') as HTMLHeadingElement
-const detectorMark = detectorBar.querySelector('.mark') as HTMLSpanElement
 
 // What the user has handed over so far. Each arrives on its own and the
 // verdict is recomputed whenever any of them changes, so the order does not
 // matter. `detection` is a detector's report about the file.
-const held: { file?: File, sidecar?: File, detection?: WatermarkEvidence } = {}
+const held: { file?: File, sidecar?: File, detection?: WatermarkEvidence, detectionName?: string } = {}
+/**
+ * A model the reader chose instead of the pinned build. It has no digest to be
+ * checked against, so it is named by its own: every detection it makes carries
+ * `custom-<first 12 hex of its SHA-256>`, and a verdict can never pass it off
+ * as the build `detector.json` pins.
+ */
+let custom: { name: string, bytes: Uint8Array, sha256: string } | null = null
+const customVersion = (sha256: string): string => `custom-${sha256.slice(0, 12)}`
 let detector: Detector | null = null
 // The load in flight, shared by every file that needs it meanwhile; cleared on
 // failure so the next file tries again rather than inheriting a dead promise.
 let loading: Promise<Detector> | null = null
+// Bumped whenever the model changes: a pinned load still in flight when the
+// reader picks their own must not come back and replace it.
+let source = 0
 // Bumped by every check: a verdict that waited on a 34 MB download must not
 // overwrite the verdict of a file dropped after it.
 let generation = 0
+// What the status line keeps saying once the verdict is in: how the watermark
+// was read, or why it was not. Reset by every check.
+let note: string | null = null
+
+type State = 'idle' | 'working'
+/** The status line under the drop: the one place the page speaks while it works. */
+const say = (text: string, state: State = 'idle'): void => {
+  status.textContent = text
+  status.dataset.state = state
+}
+
+const toHex = (digest: ArrayBuffer): string =>
+  Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
+
+/**
+ * The Advanced summary: what is in use, in one line, visible while the panels
+ * are folded. Any departure from what ships reads "custom", so a changed setup
+ * is never hidden behind a closed disclosure.
+ */
+const drawUsing = (): void => {
+  const trust = trustInUse()
+  const changed = trust.changed || custom !== null || held.detection !== undefined
+  const reader = held.detection ? 'your detection' : custom ? 'custom detector' : 'pinned detector'
+  using.textContent = `Using${changed ? ' (custom)' : ''}: ${plural(trust.logs, 'log', 'logs')} · ${plural(trust.tsa, 'timestamp authority', 'timestamp authorities')} · ${plural(trust.chains, 'chain', 'chains')} · ${reader}`
+  using.classList.toggle('custom', changed)
+}
+
+/**
+ * Which model reads the pixels, said before anything is fetched. The pin is
+ * the bundled copy of `detector.json`, the same bytes the detector module
+ * fetches and checks against at load, so showing it costs no request.
+ */
+const drawModel = (): void => {
+  modelReset.hidden = custom === null
+  if (custom) {
+    modelLine.innerHTML = `In use: <strong>a model you supplied</strong>, <code>${escape(custom.name)}</code>, SHA-256 <code>${custom.sha256}</code>. Not pinned: it runs as it is, and every verdict names it <code>${customVersion(custom.sha256)}</code>.`
+    return
+  }
+  const build = (pinned as DetectorManifest).build
+  modelLine.innerHTML = build
+    ? `In use: the pinned build <code>${escape(build.model_version)}</code>, ${(build.bytes / 1e6).toFixed(1)} MB, SHA-256 <code>${escape(build.sha256)}</code>.`
+    : `No detector build is published with this page${(pinned as DetectorManifest).reason ? `: ${escape((pinned as DetectorManifest).reason ?? '')}` : ''}.`
+}
+
+const resetDetector = (): void => {
+  detector = null
+  loading = null
+  source++
+}
 
 /**
  * The detector, loaded the first time a file needs it, with every phase said
- * out loud: the download (MB loaded of total), the digest check, the engine.
- * Rejects with the reason, which the bar prints and the verdict carries.
+ * out loud on the status line: the download (MB loaded of total), the digest
+ * check, the engine. Rejects with the reason, which the status line keeps and
+ * the verdict carries.
  */
 const ensureDetector = async (): Promise<Detector> => {
   if (detector) return detector
+  const mine = source
   loading ??= fetchDetector().then(
-    (loaded) => { detector = loaded; return loaded },
+    (loaded) => { if (mine === source) detector = loaded; return loaded },
     (error: Error) => {
-      loading = null
-      say(`The detector did not load: ${error.message}. Watermarks stay unevaluated, which is a weaker verdict and not a failure.`, 'off', 'Invisible watermark: not checked')
+      if (mine === source) loading = null
+      note = `The detector did not load: ${error.message}. Watermarks stay unevaluated, which is a weaker verdict and not a failure.`
+      say(note)
       throw error
     }
   )
@@ -101,28 +176,41 @@ const ensureDetector = async (): Promise<Detector> => {
 }
 
 const fetchDetector = async (): Promise<Detector> => {
-  say('Fetching the model…', 'working', 'Invisible watermark: loading')
+  say('Fetching the watermark detector…', 'working')
   const url = new URL('detector.js', location.href).href
   const started = performance.now()
-  const module = await import(url) as { loadDetector: typeof import('./detector.js').loadDetector }
-  const loaded = await module.loadDetector(
+  const module = await import(url) as typeof import('./detector.js')
+  if (custom) {
+    const version = customVersion(custom.sha256)
+    return await module.loadCustomDetector(custom.bytes, version, () => {
+      say(`Starting the WebAssembly engine for your model (${version}) — about 28 MB, once.`, 'working')
+    })
+  }
+  return await module.loadDetector(
     (done, total) => {
       const seconds = (performance.now() - started) / 1000
       const speed = seconds > 0 ? ` · ${(done / 1e6 / seconds).toFixed(1)} MB/s` : ''
-      say(`${(done / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB${speed}`, 'working', 'Invisible watermark: downloading the model')
+      say(`Downloading the watermark model: ${(done / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB${speed}`, 'working')
     },
     // The two phases after the bytes arrive, which together take longer than
     // the download on a slow link and used to happen in silence.
     (phase) => {
-      if (phase === 'checking') say('Checking the model against the digest this page pins.', 'working', 'Invisible watermark: checking the model')
-      else say('Fetching the WebAssembly engine — about 28 MB more, once.', 'working', 'Invisible watermark: starting the engine')
+      if (phase === 'checking') say('Checking the model against the digest this page pins.', 'working')
+      else say('Fetching the WebAssembly engine — about 28 MB more, once.', 'working')
     }
   )
-  // The backend is part of the answer: the same build is 2.3-2.6x slower on
-  // one thread, which is what a page served without cross-origin isolation
-  // gets, and a timing nobody can place is not a measurement.
-  say(`Model ${loaded.model_version} on ${loaded.backend}, downloaded and verified in ${((performance.now() - started) / 1000).toFixed(1)} s.`, 'ready', 'Invisible watermark: checked in this page')
-  return loaded
+}
+
+/**
+ * The backend is part of the answer: the same build is 2.3-2.6x slower on one
+ * thread, which is what a page served without cross-origin isolation gets,
+ * and a timing nobody can place is not a measurement. A custom model says so
+ * every time it is named.
+ */
+const ran = (loaded: Detector): void => {
+  note = loaded.model_version.startsWith('custom-')
+    ? `Custom model ${loaded.model_version}, running on ${loaded.backend} — not the pinned build.`
+    : `Model ${loaded.model_version}, running on ${loaded.backend}.`
 }
 
 /**
@@ -134,7 +222,10 @@ const fetchDetector = async (): Promise<Detector> => {
 const lookup = (bytes: Uint8Array, own: WatermarkEvidence | undefined, label: string) =>
   async (claim: WatermarkClaim): Promise<WatermarkEvidence | null> => {
     if (own) return own
-    return await (await ensureDetector()).detect(bytes, claim, progress(label))
+    const loaded = await ensureDetector()
+    const evidence = await loaded.detect(bytes, claim, progress(label))
+    ran(loaded)
+    return evidence
   }
 
 /**
@@ -146,12 +237,12 @@ const lookup = (bytes: Uint8Array, own: WatermarkEvidence | undefined, label: st
 const progress = (label: string) => ({ done, total, partial, frameMs }: DetectProgress): void => {
   const rate = frameMs === undefined ? '' : ` · ${(frameMs / 1000).toFixed(1)} s per frame`
   const found = partial ? ` · payload ${partial}` : ''
-  say(total > 1 ? `reading ${label}: frame ${done} of ${total}${found}${rate}` : `reading ${label}${rate}`)
+  say(total > 1 ? `Reading the watermark of ${label}: frame ${done} of ${total}${found}${rate}` : `Reading the watermark of ${label}${rate}`, 'working')
 }
 
 const verdictOf = async (file: File, extra: { sidecar?: Uint8Array, detection?: WatermarkEvidence }): Promise<Verdict> => {
   const bytes = new Uint8Array(await file.arrayBuffer())
-  const verdict = await verify(bytes, {
+  return await verify(bytes, {
     sidecar: extra.sidecar,
     // Read at every verdict, not captured once: switching a log off in the
     // panel has to change the next verdict, or the control is decoration.
@@ -163,8 +254,6 @@ const verdictOf = async (file: File, extra: { sidecar?: Uint8Array, detection?: 
     readChain: chainReader(),
     watermark: lookup(bytes, extra.detection, file.name)
   })
-  if (detector) say(`Model ${detector.model_version}, running on ${detector.backend}.`, 'ready', 'Invisible watermark: checked in this page')
-  return verdict
 }
 
 /**
@@ -192,7 +281,7 @@ const markAlone = async (file: File): Promise<string> => {
   }
   try {
     const evidence = await loaded.detect(new Uint8Array(await file.arrayBuffer()), claim, progress(file.name))
-    say(`Model ${loaded.model_version}, running on ${loaded.backend}.`, 'ready', 'Invisible watermark: checked in this page')
+    ran(loaded)
     return bareMark(evidence, TRACE_URL)
   } catch {
     return ''
@@ -200,7 +289,8 @@ const markAlone = async (file: File): Promise<string> => {
 }
 
 const check = async (): Promise<void> => {
-  const { file, sidecar, detection } = held
+  drawUsing()
+  const { file, sidecar, detection, detectionName } = held
   // Nothing rather than a card telling the reader to drop a file: the dropzone
   // directly above already says that, and the same sentence twice reads as an
   // answer the page has already given.
@@ -210,9 +300,11 @@ const check = async (): Promise<void> => {
   if (!file) { out.innerHTML = ''; return }
 
   // Verifying a large video takes seconds of hashing, and the first file that
-  // needs the detector waits for its download. Without this the page looks
-  // like it ignored the file; `say` writes the detector's progress here too.
-  out.innerHTML = '<div class="verdict grey"><p class="lede" id="pending">Reading the file…</p></div>'
+  // needs the detector waits for its download. The status line says so, and
+  // the previous verdict goes: it answered a different question.
+  out.innerHTML = ''
+  note = detection ? `Watermark read from ${detectionName ?? 'the detection you supplied'}. No detector ran in this page.` : null
+  say(`Reading ${file.name}…`, 'working')
 
   const sidecarBytes = sidecar ? new Uint8Array(await sidecar.arrayBuffer()) : undefined
   const name = sidecar ? `${file.name} + ${sidecar.name}` : file.name
@@ -224,58 +316,69 @@ const check = async (): Promise<void> => {
   const mark = verdict.outcome === 'no_proof_found' ? await markAlone(file) : ''
   if (run !== generation) return
   out.innerHTML = card(name, verdict) + mark
+  say(note ?? 'Checked in this browser. Nothing was uploaded.')
 }
+
+/**
+ * The reader's own model: hashed here, shown with its digest, and used for
+ * every file from now on instead of the pinned build — which is not fetched
+ * while it is in place.
+ */
+const useModel = async (model: File): Promise<void> => {
+  say(`Hashing ${model.name}…`, 'working')
+  const bytes = new Uint8Array(await model.arrayBuffer())
+  custom = { name: model.name, bytes, sha256: toHex(await crypto.subtle.digest('SHA-256', bytes as BufferSource)) }
+  resetDetector()
+  drawModel()
+  say(`${model.name} will read watermarks in this page, named ${customVersion(custom.sha256)}.`)
+  if (held.file) void check()
+  else drawUsing()
+}
+
+modelReset.addEventListener('click', () => {
+  custom = null
+  inputs.model.value = ''
+  resetDetector()
+  drawModel()
+  say('The pinned model will read watermarks again.')
+  if (held.file) void check()
+  else drawUsing()
+})
 
 const isSidecar = (f: File): boolean => f.name.endsWith('.vcap')
 const isDetection = (f: File): boolean => f.name.endsWith('.json')
+const isModel = (f: File): boolean => f.name.endsWith('.onnx')
 
 /**
  * Any zone takes any kind: the extension decides what a file is. So dropping
- * a file and its sidecar together works, and a detection dropped on the wrong
- * box is not lost.
+ * a file and its sidecar together works, and a detection or a model dropped on
+ * the wrong box is not lost.
  */
 const take = async (files: FileList | File[]): Promise<void> => {
   const list = Array.from(files)
-  const media = list.find((f) => !isSidecar(f) && !isDetection(f))
+  const media = list.find((f) => !isSidecar(f) && !isDetection(f) && !isModel(f))
   const sidecar = list.find(isSidecar)
   const detection = list.find(isDetection)
+  const model = list.find(isModel)
   if (media) held.file = media
   if (sidecar) held.sidecar = sidecar
   let detectionRead = false
   if (detection) {
     try {
       held.detection = readEvidence(await detection.text())
+      held.detectionName = detection.name
       detectionRead = true
-      say(`A detection from ${detection.name} is in use. No detector ran in this page.`, 'ready', 'Invisible watermark: read from a detection you supplied')
+      say(`A detection from ${detection.name} is in use. No detector ran in this page.`)
     } catch {
       // A file that is not a detection changes nothing: the page keeps the
       // verdict it had and says why, rather than failing over a side input.
       say(`${detection.name} is not a readable detection; nothing was loaded`)
     }
   }
+  if (model) { await useModel(model); return }
   // An unreadable detection changes nothing, so it re-verifies nothing: a
   // second pass would only try the detector again and bury the reason above.
   if (media || sidecar || detectionRead) void check()
-}
-
-/**
- * The detector bar's state, in one place.
- *
- * It used to be a line of grey text under a button at the foot of the page,
- * which is why a verdict saying "watermark not evaluated" read as a broken
- * page: the sentence naming the absence and the control that fills it were
- * three screens apart. The bar says what the page can check, next to the file
- * it is checking, and the three states are visible without reading.
- */
-type Capability = 'off' | 'working' | 'ready'
-const say = (text: string, state: Capability = 'off', title?: string): void => {
-  detectorState.textContent = text
-  const pending = document.getElementById('pending')
-  if (pending && state === 'working') pending.textContent = `${detectorTitle.textContent ?? ''} — ${text}`
-  if (title !== undefined) detectorTitle.textContent = title
-  detectorBar.classList.toggle('working', state === 'working')
-  detectorBar.classList.toggle('ready', state === 'ready')
-  detectorMark.textContent = state === 'ready' ? '✓' : state === 'working' ? '◍' : '○'
 }
 
 for (const input of Object.values(inputs)) {
@@ -287,11 +390,12 @@ for (const zone of Object.values(zones)) {
   zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('over'); if (e.dataTransfer?.files) void take(e.dataTransfer.files) })
 }
 
-// The trust panel, before anything can be dropped: a verdict computed against
+// The trust panels, before anything can be dropped: a verdict computed against
 // a set the reader has not been shown is the thing this page must not produce.
-void mountTrust(() => { void check() })
-void mountTsa(() => { void check() })
+// `check` redraws the Advanced summary too, file or no file.
+drawModel()
 mountChains(() => { void check() })
+void Promise.all([mountTrust(() => { void check() }), mountTsa(() => { void check() })]).then(drawUsing)
 
 // Offline: the worker precaches this exact build (`sw.js` is generated by the
 // build with the list of shipped files). `ready` resolves once the worker is

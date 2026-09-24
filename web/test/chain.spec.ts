@@ -57,6 +57,7 @@ test('a chain switched off is not read, and the anchor is not consulted', async 
   const outside = await fakeChain(page, new URL(url).origin)
   await page.goto(url)
 
+  await page.locator('details#advanced summary').click()
   await page.locator('#chain-list input[type=checkbox]').uncheck()
   await page.setInputFiles('#file', input)
   await expect(page.locator('.verdict h2')).toContainText('Authentic')

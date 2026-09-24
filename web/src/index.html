@@ -112,6 +112,7 @@ header.top .brand { margin: 0; font-weight: 600; font-size: 14px; text-transform
 .page { max-width: 880px; margin: 0 auto; padding: 40px 20px 64px; }
 .intro p { color: var(--fg-muted); font-size: 16px; margin-top: 12px; }
 .intro p strong { color: var(--fg); font-weight: 500; }
+.intro .promise { font-size: 14px; margin-top: 8px; }
 
 /* ── Controls ──────────────────────────────────────────────────────────────
    One idiom and one height everywhere. Every file input is the same pair — a
@@ -130,6 +131,8 @@ header.top .brand { margin: 0; font-weight: 600; font-size: 14px; text-transform
 .btn-primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
 .btn-primary:hover { background: var(--primary); opacity: .88; }
 .btn[disabled] { opacity: .45; cursor: not-allowed; }
+/* `display` above would otherwise override the attribute. */
+.btn[hidden] { display: none; }
 
 .file-input {
   position: absolute; width: 1px; height: 1px; padding: 0;
@@ -186,23 +189,19 @@ body.has-file .drop { padding: 18px 22px; }
 body.has-file .drop .muted { display: none; }
 body.has-file .drop .btn { margin-top: 8px; }
 
+/* ── Status line ──────────────────────────────────────────────────────────
+   One line under the drop, the only place the page talks while it works:
+   hashing, the detector's download and its digest check, the frames of a
+   clip. Muted at rest, full strength while something is happening. */
+.status { margin-top: 12px; font-size: 13px; color: var(--fg-muted); max-width: none; overflow-wrap: anywhere; }
+.status[data-state=working] { color: var(--fg); }
+
 /* ── Cards ────────────────────────────────────────────────────────────────
-   Bordered, not shadowed. The capability bar, the extra files, the verdict,
-   the trust panels: one shape. */
-.capability, .verdict, .panel {
+   Bordered, not shadowed. The verdict and the mark panel: one shape. */
+.verdict, .panel {
   margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--bg); padding: 16px;
 }
-
-/* What the page can check, next to the thing it checks. The mark is only a
-   glyph; the title beside it says the state in words. */
-.capability { display: grid; grid-template-columns: auto 1fr; gap: 0 12px; align-items: start; }
-.capability .mark { width: 16px; text-align: center; font-size: 14px; line-height: 1.4; color: var(--fg-subtle); }
-.capability .muted { margin-top: 2px; }
-.capability-actions { grid-column: 2; display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
-.capability.ready .mark { color: var(--success); }
-.capability.working .mark { color: var(--info); }
-.capability.ready .capability-actions { display: none; }
 
 /* ── Disclosures ──────────────────────────────────────────────────────────
    The browser's triangle is the one piece of chrome a reader is guaranteed to
@@ -211,17 +210,6 @@ summary { cursor: pointer; list-style: none; }
 summary::-webkit-details-marker { display: none; }
 summary > .chev { display: inline-block; width: 1em; color: var(--fg-subtle); transition: transform .12s ease; }
 details[open] > summary > .chev { transform: rotate(90deg); }
-
-.more { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); }
-.more > summary { font-weight: 500; font-size: 13px; padding: 12px 16px; border-radius: var(--radius-lg); }
-.more > summary:hover { background: var(--bg-subtle); }
-.more[open] > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
-.more .extra { padding: 16px; display: grid; gap: 20px; }
-.more .extra .muted { margin-top: 4px; }
-.more .extra .file { margin-top: 12px; }
-/* The sidecar still accepts a drop, so it still has to show one. */
-.more .extra > div.over { outline: 1px dashed var(--fg); outline-offset: 8px; border-radius: var(--radius); }
-
 /* ── Verdict ──────────────────────────────────────────────────────────────
    The plain answer is the only large text, because it is the answer. The
    specification's title sits under it with its status word as a badge. */
@@ -249,7 +237,8 @@ details[open] > summary > .chev { transform: rotate(90deg); }
    neutral badges under a line that names them, they read as the edge of what
    was checked rather than as a list of faults. */
 .verdict .limits { margin-top: 20px; }
-.verdict .limits-head, .settings > .section-label {
+.verdict .limits.checked + .limits { margin-top: 14px; }
+.verdict .limits-head {
   margin: 0 0 8px; font-size: 12px; font-weight: 500;
   letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted);
 }
@@ -276,25 +265,36 @@ details.tech .reason { margin: 0 20px 12px; font-size: 13px; }
 
 .absent { color: var(--fg-subtle); font-style: italic; }
 
-/* ── What this page trusts ────────────────────────────────────────────────
-   Demoted under the verdict but never hidden: that this set is visible and
-   switchable is part of what the page claims, so it is a section with a rule
-   above it and not a drawer. */
-.settings { margin-top: 56px; border-top: 1px solid var(--border); padding-top: 24px; }
-.settings > .muted { margin-top: 0; }
-.panel { padding: 20px; }
-.panel > h3 + .muted { margin-top: 4px; }
-/* The trusted logs and authorities: rows inside the card, one left edge. */
-.panel > ul { list-style: none; margin: 16px 0 0; padding: 0; max-width: none; border: 1px solid var(--border); border-radius: var(--radius); }
-.panel > ul > li { padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.panel > ul > li:last-child { border-bottom: 0; }
-.panel > ul > li > label { display: flex; align-items: center; gap: 10px; font-weight: 500; font-size: 13px; cursor: pointer; }
-.panel > ul > li > .muted { margin-top: 4px; padding-left: 26px; }
-.panel > ul > li ul { margin: 6px 0 0; padding-left: 44px; font-size: 13px; color: var(--fg-muted); }
-.panel > ul > li.absent { font-style: normal; color: var(--fg-muted); }
-.panel .state { margin-top: 12px; }
-.panel .state:empty { display: none; }
-
+/* ── Advanced ─────────────────────────────────────────────────────────────
+   Everything the page trusts and every way to change it, one click away and
+   never hidden: the summary line says what is in use, and says "custom" the
+   moment the reader changed anything. */
+.advanced { margin-top: 40px; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.advanced > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 12px 16px; border-radius: var(--radius-lg); font-weight: 500; font-size: 13px; }
+.advanced > summary:hover { background: var(--bg-subtle); }
+.advanced > summary .using { font-weight: 400; color: var(--fg-muted); }
+.advanced > summary .using.custom { color: var(--warning); }
+.advanced[open] > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.advanced > .sections { padding: 4px 16px 16px; }
+.section { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.section:last-child { border-bottom: 0; padding-bottom: 0; }
+.section > h3 + .muted { margin-top: 4px; }
+.section .file { margin-top: 12px; }
+.section .actions { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.section .actions .file { margin-top: 0; }
+.section > .model { margin-top: 10px; font-size: 13px; }
+/* The sidecar still accepts a drop, so it still has to show one. */
+.section.over { outline: 1px dashed var(--fg); outline-offset: 4px; border-radius: var(--radius); }
+/* The trusted logs and authorities: rows inside the section, one left edge. */
+.section > ul { list-style: none; margin: 12px 0 0; padding: 0; max-width: none; border: 1px solid var(--border); border-radius: var(--radius); }
+.section > ul > li { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.section > ul > li:last-child { border-bottom: 0; }
+.section > ul > li > label { display: flex; align-items: center; gap: 10px; font-weight: 500; font-size: 13px; cursor: pointer; }
+.section > ul > li > .muted { margin-top: 4px; padding-left: 26px; }
+.section > ul > li ul { margin: 6px 0 0; padding-left: 44px; font-size: 13px; color: var(--fg-muted); }
+.section > ul > li.absent { font-style: normal; color: var(--fg-muted); }
+.section .state { margin-top: 12px; }
+.section .state:empty { display: none; }
 footer { max-width: 880px; margin: 0 auto; padding: 20px 20px 48px; border-top: 1px solid var(--border);
   font-size: 12px; line-height: 1.6; color: var(--fg-muted); }
 footer p { max-width: none; }
@@ -310,10 +310,10 @@ footer p { max-width: none; }
   details.tech .reason { margin: 0 16px 12px; }
   .kv { grid-template-columns: 1fr; gap: 2px 0; padding: 4px 16px 16px; }
   .kv dd { margin-bottom: 8px; }
-  .panel { padding: 16px; }
-  .capability { grid-template-columns: 1fr; }
-  .capability .mark { display: none; }
-  .capability-actions { grid-column: 1; }
+  .advanced > .sections { padding: 4px 12px 12px; }
+  .section > ul > li { padding: 12px; }
+  .section > ul > li > .muted { padding-left: 0; }
+  .section > ul > li ul { padding-left: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -326,7 +326,8 @@ footer p { max-width: none; }
 <main class="page">
 <div class="intro">
   <h1>Is this photo or video real?</h1>
-  <p>Drop the file below and this page tells you whether it was signed by the camera that took it, and whether anything changed since. <strong>The file never leaves your browser</strong> — no upload, no account, no server of ours.</p>
+  <p>Drop a photo or video and this page tells you whether the camera that took it signed it, and whether anything changed since.</p>
+  <p class="promise"><strong>The file never leaves your browser</strong> — no upload, no account, no server of ours.</p>
 </div>
 
 <div class="drop" id="drop">
@@ -338,55 +339,52 @@ footer p { max-width: none; }
   <input type="file" id="file" class="file-input" multiple>
   <label class="btn btn-primary" for="file">Choose a file</label>
 </div>
-
-<!-- What this page can and cannot check right now, said where the reader is
-     about to need it instead of at the foot of the page. The watermark is the
-     one capability that is off by default, and a verdict reading "watermark
-     not evaluated" with its reason three screens below it reads as a page that
-     does not work. It is a statement of capability, not a setting: the model
-     is fetched the first time a file needs it, and this bar says how far. -->
-<div class="capability" id="detector-bar">
-  <span class="mark" aria-hidden="true">○</span>
-  <div>
-    <h3 id="detector-title">Invisible watermark: not checked</h3>
-    <p class="muted" id="detector-state">Reading a mark out of pixels needs a model of about 34 MB. This page downloads it only when a file needs it — never on load — checks it against the digest it pins before running it, and never keeps it.</p>
-  </div>
-  <div class="capability-actions">
-    <span class="file">
-      <input type="file" id="evidence" class="file-input" accept=".json,application/json">
-      <label class="btn" for="evidence">Use a detection you have</label>
-      <span class="file-name" data-name-for="evidence"></span>
-    </span>
-  </div>
-</div>
-
-<!-- The sidecar helps in one specific situation, not the common one. Behind a
-     disclosure so the page asks one question at a time. -->
-<details class="more" id="more">
-  <summary><span class="chev" aria-hidden="true">›</span> The proof came as a separate <code>.vcap</code> file</summary>
-  <div class="extra">
-    <div id="sidecar-drop">
-      <p class="muted">When the proof travels beside the file rather than inside it (<code>&lt;filename&gt;.vcap</code>). It is read here, not looked for anywhere. Dropping both files on the zone above works too.</p>
-      <span class="file">
-        <input type="file" id="sidecar" class="file-input" accept=".vcap,application/json">
-        <label class="btn" for="sidecar">Choose the sidecar</label>
-        <span class="file-name" data-name-for="sidecar"></span>
-      </span>
-    </div>
-  </div>
-</details>
+<!-- The one line the page speaks on while it works: reading, the detector's
+     download and digest check, the frames of a clip. -->
+<p class="status" id="status" role="status" aria-live="polite">No file chosen yet.</p>
 
 <div id="out"></div>
 
-<section class="settings">
-  <p class="section-label">What this page trusts</p>
-  <p class="muted">Every check below can be switched off, and switching one off never turns a verdict into an error — it turns a line of evidence into <em>not evaluated</em>, which is a weaker answer and an honest one.</p>
+<!-- Everything a first visit does not need, and nothing a reader cannot see:
+     the defaults work on their own, and every trust point stays one click
+     away and refusable. The summary says what is in use, and says "custom"
+     once anything was changed, so a changed setup is never hidden. -->
+<details class="advanced" id="advanced">
+  <summary><span><span class="chev" aria-hidden="true">›</span> Advanced</span> <span class="using" id="using">Using: the shipped defaults · pinned detector</span></summary>
+  <div class="sections">
 
-  <div class="panel" id="trust">
+  <section class="section" id="detector">
+    <h3>Watermark detector</h3>
+    <p class="muted">Reading a mark out of pixels needs a model. It is downloaded only when a file needs it — never on load — and checked against the digest this page pins before it runs.</p>
+    <p class="model" id="detector-model"></p>
+    <div class="actions">
+      <span class="file">
+        <input type="file" id="model" class="file-input" accept=".onnx">
+        <label class="btn" for="model">Use a different model</label>
+      </span>
+      <button type="button" class="btn" id="model-reset" hidden>Use the pinned model</button>
+      <span class="file">
+        <input type="file" id="evidence" class="file-input" accept=".json,application/json">
+        <label class="btn" for="evidence">Use a detection you have</label>
+        <span class="file-name" data-name-for="evidence"></span>
+      </span>
+    </div>
+  </section>
+
+  <section class="section" id="sidecar-drop">
+    <h3>Proof as a separate <code>.vcap</code> file</h3>
+    <p class="muted">When the proof travels beside the file (<code>&lt;filename&gt;.vcap</code>). It is read here, not looked for anywhere. Dropping both files on the zone above works too.</p>
+    <span class="file">
+      <input type="file" id="sidecar" class="file-input" accept=".vcap,application/json">
+      <label class="btn" for="sidecar">Choose the sidecar</label>
+      <span class="file-name" data-name-for="sidecar"></span>
+    </span>
+  </section>
+
+  <section class="section" id="trust">
     <h3>Transparency logs</h3>
-    <p class="muted">A sealed file can prove its signing key was published in a transparency log before the capture. Checking that needs the log's public key, so this page ships with a set — visible here, switchable, replaceable with your own. The same set is published beside this page as <a href="logs.json"><code>logs.json</code></a>: fetch it, recompute each <code>log_id</code> from its key, and decide for yourself.</p>
+    <p class="muted">Used to check that a file's signing key was published before the capture. Published beside this page as <a href="logs.json"><code>logs.json</code></a>; a proof naming a log you do not follow reads <em>log not trusted</em>.</p>
     <ul id="trust-logs"></ul>
-    <p class="muted">A proof naming a log you do not follow reads <em>log not trusted</em>. The rest of the verdict is unchanged.</p>
     <div class="field">
       <span class="label">Your own trust document</span>
       <span class="file">
@@ -403,13 +401,12 @@ footer p { max-width: none; }
       </div>
     </div>
     <p class="muted state" id="trust-state"></p>
-  </div>
+  </section>
 
-  <div class="panel" id="tsa">
+  <section class="section" id="tsa">
     <h3>Timestamping authorities</h3>
-    <p class="muted">A sealed file can carry an RFC 3161 token binding its proof to an instant. Checking it needs that authority's root certificate, so this page ships with a set, published beside it as <a href="tsa.json"><code>tsa.json</code></a>. Unlike the logs above these authorities are run by other people — which is what makes a token worth having, and why what it proves has to be stated narrowly.</p>
+    <p class="muted">Used to check an RFC 3161 token binding a proof to an instant. Run by other people, published beside this page as <a href="tsa.json"><code>tsa.json</code></a>. With all of them off, a timestamp reads <em>trusted time not evaluated</em>.</p>
     <ul id="tsa-roots"></ul>
-    <p class="muted">With all of them off, a timestamp reads <em>trusted time not evaluated</em> and certificates are validated at the instant the device claims instead.</p>
     <div class="field">
       <span class="label">Your own TSA trust document</span>
       <span class="file">
@@ -426,16 +423,17 @@ footer p { max-width: none; }
       </div>
     </div>
     <p class="muted state" id="tsa-state"></p>
-  </div>
+  </section>
 
-  <div class="panel" id="chains">
+  <section class="section" id="chains">
     <h3>Public chains read for anchors</h3>
-    <p class="muted">A sealed file can carry an anchor: a path to a batch root that a contract on a public chain stored. To check it this page asks that chain, through the public endpoint listed in <a href="chains.json"><code>chains.json</code></a>, which root the contract holds. That request carries the anchor id and nothing else — never the file, never the proof — and goes to the chain's endpoint, not to a server of ours.</p>
+    <p class="muted">For a proof with an anchor, this page asks the chain's public endpoint in <a href="chains.json"><code>chains.json</code></a> which root the contract stored. The request carries the anchor id only — never the file or the proof. Off, or offline, an anchor reads <em>anchoring not verified</em>.</p>
     <ul id="chain-list"></ul>
-    <p class="muted">Switched off, or offline, an anchor reads <em>anchoring not verified</em>. The rest of the verdict is unchanged.</p>
     <p class="muted state" id="chain-state"></p>
+  </section>
+
   </div>
-</section>
+</details>
 </main>
 
 <footer>

@@ -120,3 +120,22 @@ export const loadDetector = async (
   const module = await import(new URL(runtime, location.href).href) as Runtime
   return await module.createDetector(model, modelVersion, providers)
 }
+
+/**
+ * A model the reader chose from their own disk instead of the pinned build.
+ *
+ * There is no digest to check it against — the reader vouches for these
+ * bytes, not this page — so it is run as it is, on the same runtime and the
+ * same layouts, under a name that cannot pass for the pinned one: the caller
+ * passes `custom-<sha256 prefix>`, and that is the `model_version` every
+ * detection from it carries into the verdict.
+ */
+export const loadCustomDetector = async (
+  model: Uint8Array,
+  modelVersion: string,
+  onPhase: (phase: LoadPhase) => void = () => {}
+): Promise<Detector> => {
+  onPhase('engine')
+  const module = await import(new URL('detector-runtime.js', location.href).href) as Runtime
+  return await module.createDetector(model, modelVersion)
+}

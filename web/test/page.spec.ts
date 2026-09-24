@@ -57,6 +57,9 @@ test('a detection about a proof that declares a watermark lands in the verdict i
   // The core compared it against the signed claim, so the label is §8's and
   // the no-proof panel stays away: the file's own signature already answered.
   await expect(page.locator('.verdict li', { hasText: 'watermark matched' })).toHaveCount(1)
+  // Evidence that held, so it is listed as checked and not as a limit.
+  await expect(page.locator('.verdict .limits.checked li', { hasText: 'watermark matched' })).toHaveCount(1)
+  await expect(page.locator('.verdict .limits:not(.checked) li', { hasText: 'watermark matched' })).toHaveCount(0)
   await expect(page.locator('.panel.mark')).toHaveCount(0)
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await stop(server)
@@ -68,7 +71,7 @@ test('an unreadable detection changes nothing and says so', async ({ page }) => 
   await page.setInputFiles('#file', sealed)
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await page.setInputFiles('#evidence', join(fixtures, 'detection-unreadable.json'))
-  await expect(page.locator('#detector-state')).toContainText('is not a readable detection')
+  await expect(page.locator('#status')).toContainText('is not a readable detection')
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await expect(page.locator('.verdict li', { hasText: 'watermark not evaluated' })).toHaveCount(1)
   await stop(server)
@@ -82,7 +85,9 @@ test('the detector is fetched when a file needs it and never on load, and its ab
   const requested: string[] = []
   page.on('request', (request) => requested.push(new URL(request.url()).pathname))
   await page.goto(url)
-  await expect(page.locator('#detector-title')).toHaveText('Invisible watermark: not checked')
+  await expect(page.locator('#status')).toHaveText('No file chosen yet.')
+  // The model is named before anything is fetched: the pin is in the bundle.
+  await expect(page.locator('#detector-model')).toContainText('the pinned build videoseal-y256b-1')
 
   // Loaded and idle: nothing about the detector has been asked for.
   expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(false)
@@ -94,8 +99,7 @@ test('the detector is fetched when a file needs it and never on load, and its ab
   await expect(page.locator('.verdict h2')).toContainText('Authentic')
   await expect(page.locator('.verdict .chips > li', { hasText: /^watermark not evaluated$/ })).toHaveCount(1)
   await expect(page.locator('.verdict')).toContainText('no detection was available: the model could not be fetched: 404')
-  await expect(page.locator('#detector-state')).toContainText('The detector did not load: the model could not be fetched: 404')
-  await expect(page.locator('#detector-title')).toHaveText('Invisible watermark: not checked')
+  await expect(page.locator('#status')).toContainText('The detector did not load: the model could not be fetched: 404')
   expect(requested.some((p) => p.endsWith('/detector.js'))).toBe(true)
   expect(requested.some((p) => p.endsWith('.onnx'))).toBe(true)
   await stop(server)
@@ -155,5 +159,49 @@ test('an authentic file under an amber ceiling is an amber card that says why', 
   await expect(verdict).toHaveClass(/\bred\b/)
   await expect(verdict.locator('h2')).toContainText('Tampered')
   await expect(verdict.locator('.ceiling')).toHaveCount(0)
+  await stop(server)
+})
+
+/**
+ * The first view is the console's: a question, one drop, one status line. The
+ * rest — the detector, the sidecar, the three trust sets — is one native
+ * disclosure below it, closed, and its summary says what is in use so that a
+ * folded panel never hides a changed setup.
+ */
+test('the first view is one drop and one line, and Advanced says what is in use', async ({ page }) => {
+  const { server, url } = await serve()
+  await page.goto(url)
+
+  const advanced = page.locator('details#advanced')
+  await expect(advanced).not.toHaveAttribute('open')
+  await expect(page.locator('#using')).toHaveText('Using: 1 log · 1 timestamp authority · 1 chain · pinned detector')
+  // Folded, not gone: every trust point is in the page and one click away.
+  await expect(page.locator('#trust-logs li')).toHaveCount(1)
+  await expect(page.locator('#trust-logs')).toBeHidden()
+  await advanced.locator('summary').click()
+  await expect(page.locator('#trust-logs')).toBeVisible()
+
+  // Dropping a file needs nothing from Advanced.
+  await page.setInputFiles('#file', sealed)
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await expect(page.locator('#status')).not.toBeEmpty()
+
+  // Any change reads "custom" on the summary line.
+  await page.uncheck('#tsa-roots input[type=checkbox]')
+  await expect(page.locator('#using')).toHaveText('Using (custom): 1 log · 0 timestamp authorities · 1 chain · pinned detector')
+  await stop(server)
+})
+
+test('the page fits a phone: no horizontal scroll at 390 px, Advanced open or not', async ({ page }) => {
+  const { server, url } = await serve()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(url)
+  const overflow = async (): Promise<number> => await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  expect(await overflow()).toBeLessThanOrEqual(0)
+  await page.locator('details#advanced summary').click()
+  await page.setInputFiles('#file', sealed)
+  await expect(page.locator('.verdict h2')).toContainText('Authentic')
+  await page.locator('.verdict details.tech summary').click()
+  expect(await overflow()).toBeLessThanOrEqual(0)
   await stop(server)
 })
