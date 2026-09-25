@@ -54,6 +54,30 @@ part of correctness:
 - `verify` never throws on input. A new parser bounds every count by the bytes
   that hold it, checks `Number.isSafeInteger` before `BigInt`/`Date`, and keeps
   DER inside `try`; `core/test/hostile.test.ts` holds one case per crash found.
+- **Content Credentials are a carrier, never a verdict.** `core/src/carrier.ts`
+  (`extractProof`, over `jumbf.ts` and `cbor.ts`) finds a C2PA store — JPEG
+  APP11 by En/Z, a top-level BMFF `uuid` box, or a `.c2pa` the caller hands
+  over when the file embeds none, never fetched — and the one assertion
+  `io.github.vcap-org.vcap.proof`. Precedence is §3.1's with the store in it:
+  intact trailer; broken CRC is *corrupted proof* whatever the store says;
+  then the active manifest (depth 0), the sidecar, the nearest proof up the
+  `parentOf` chain (depth 1–16, no revisits, `componentOf`/`inputTo` never).
+  A manifest copy is compared as JCS (*manifest copy differs*), trailer and
+  sidecar as bytes. A depth ≥ 1 proof that does not fit the file is *no proof
+  found* (`SOURCE_CAPTURE`), never *tampered*. `proof_source` is diagnostic
+  and never a label. The core checks no COSE, X.509, hashed URI or hard
+  binding, and nothing C2PA says reaches the outcome, a label or the ceiling.
+  The two parsers are hostile-input parsers like the rest: every length
+  bounded by its box, nesting and counts capped, a map key twice refused, and
+  a store that cannot be read is `content_credentials.unread`, never an
+  exception.
+- The page shows a store in its own **Content Credentials lane**
+  (`contentCredentials` in `web/src/render.ts`): a `.panel.cc` beside the
+  verdict card, never inside it, never in a verdict colour, naming no signer,
+  and saying the C2PA signature was not checked. Reading a store needs no
+  wasm, no worker and no request, so it added no CSP directive; C2PA signature
+  validation would (a wasm validator), and that directive needs its reason
+  written here before it lands.
 - `spec/` is the `vcap-spec` submodule; `core/test/conformance.test.ts` runs
   every vector in it. A vector that fails is a spec conversation, never a local
   expectation edit.
@@ -119,8 +143,8 @@ part of correctness:
 - Every line of evidence in the verdict says **where it comes from**, in
   words (`FROM` in `web/src/render.ts`): *from the file alone*, *VCAP
   transparency log key*, *third-party timestamp authority*, *public chain via
-  RPC*, *VCAP online lookup*. A new row carries one; a row that rests on our
-  log never reads as independent.
+  RPC*, *VCAP online lookup*, *Content Credentials, signature not checked*. A
+  new row carries one; a row that rests on our log never reads as independent.
 - `check()` never leaves the page on "Reading…": any failure is `errorCard`,
   which says what to do.
 - The **first view** is one question, one dropzone and one status line; the

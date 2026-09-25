@@ -564,6 +564,7 @@ proof* whatever sits beside it; a sidecar alone is the full verdict over the
 whole file, with no label for where the proof came from — the core takes it
 as `verify(file, { sidecar })`, the CLI reads `<file>.vcap` next to the file
 and the page takes it from a second input, never from a search or a fetch),
+a proof carried in C2PA Content Credentials (*Content Credentials* below),
 canonical bytes (JPEG APP11 JUMBF stripped, BMFF untouched), the
 signed core (`ES256` over `JCS(core)`, P1363, `key_id` derived), video segment
 chains over messages, the version policy (unknown minor: *not evaluated*;
@@ -651,6 +652,73 @@ hardware-attested · key not in transparency log*; the plain line above says
 same labels. A verdict the core returns before §7 (tampered, no proof) has no
 level and keeps its outcome's colour.
 
+## Content Credentials
+
+A file may come with a C2PA manifest store, and a store may carry the vcap
+proof as the assertion `io.github.vcap-org.vcap.proof` — a JUMBF JSON box
+holding the proof exactly as a trailer holds it (`vcap-spec`,
+`c2pa-interop-1.0.md` §2.1). The verifier reads the store **for that proof and
+for nothing else**. It is a carrier, never a verdict.
+
+**What is read** (`core/src/carrier.ts`, over `jumbf.ts` and `cbor.ts`):
+
+- **Where the store is.** JPEG: APP11 packets with CI `JP`, reassembled by box
+  instance (En) and sequence (Z). ISO-BMFF: a top-level `uuid` box of the C2PA
+  type with purpose `manifest`, `original` or `update`, past its 8-byte merkle
+  offset. When the file embeds none, a `.c2pa` store the reader hands over —
+  `verify(file, { c2paStore })`, `vcap-verify --c2pa`, the page's *Advanced*
+  input — and never one that is looked for or fetched. More than one embedded
+  store is no store at all.
+- **Which copy is the proof**, §3.1's precedence with the store in it: an
+  intact trailer; a trailer whose CRC fails is *corrupted proof* whatever the
+  store holds; a footer of another major is *unsupported format version*; with
+  no footer, the active manifest (the store's last, depth 0), then the sidecar,
+  then the nearest proof up the `parentOf` ingredient chain, depth 1 to 16,
+  never the same manifest twice. `componentOf` and `inputTo` are never
+  followed. A copy in a manifest that is not the same proof as
+  `JCS(parse(a)) == JCS(parse(b))` is *manifest copy differs* — as JCS because
+  a C2PA writer re-serializes the JSON it is given; trailer and sidecar keep
+  the byte rule.
+- **What counts as the assertion**: one box under exactly that label (`__n`
+  instances are ignored, two boxes under the label are neither), listed by its
+  claim (`created_assertions`, `gathered_assertions`, or a v1 claim's
+  `assertions`), a JSON box whose description toggles are `0x03` or `0x13`
+  with a `c2sh` salt. A redaction — named in a later claim's
+  `redacted_assertions`, or the box replaced by the redaction UUID box — is
+  absence, and the chain goes on past it. Standard, update and legacy `c2md`
+  manifests are read; a compressed one is not evaluated.
+- **The verdict over it.** A proof from the active manifest is judged like a
+  sidecar: the whole received file, *authentic* when `media.hash` matches, §5
+  locating, *verified clip* or *tampered* when it does not. A proof from
+  further up the chain is a **source capture's**: over bytes it does not fit,
+  the verdict is *no proof found* with the reason *Content Credentials carry the
+  proof of a source capture*, never *tampered* — an edit C2PA declares is not
+  accused. `proof_source` (`{ kind, manifest?, depth? }`) says where the proof
+  was read and is a diagnostic, never a label; `frames_name_capture` says
+  whether a clip's GOPs name the capture, a hint and never evidence.
+- **Two mechanical facts about vcap's own bytes**: *manifest copy differs*, and
+  *Content Credentials sealed with the capture* — on ISO-BMFF, the store box
+  sits inside the bytes `media.hash` covers and they match.
+
+**What is not checked, at all:** the C2PA claim signature (COSE), the signer's
+certificate, the C2PA trust list, time-stamps and OCSP, hashed URIs, the hard
+binding (`c2pa.hash.data`, `c2pa.hash.bmff.v3`), actions, ingredients' own
+validation results and soft bindings. So this verifier never says who made a
+file's Content Credentials or whether they hold: the page shows the store in a
+**lane of its own**, beside the verdict card and never inside it, in none of
+the verdict's colours, every row sourced *Content Credentials, signature not
+checked*, and nothing in it reaches the outcome, a label or the ceiling. A
+C2PA validator answers the other questions, over a different set of bytes
+(`c2pa-interop-1.0.md` §3), and the two can disagree without either being
+wrong.
+
+Reading a store is bounded parsing and no cryptography: no wasm, no worker and
+no request, so the page's Content-Security-Policy is unchanged. A store that
+cannot be read is `content_credentials.unread` with the reason, never an
+exception; `core/test/carrier.test.ts`, `jumbf.test.ts` and `cbor.test.ts`
+build every store byte by byte — truncated boxes, lengths past the file,
+cycles, repeated labels, both redactions — with no C2PA tool involved.
+
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
@@ -674,6 +742,12 @@ Two rules, and they are the point of the table:
   throws on a missing or empty corpus instead of handing back an empty list, so
   no loop here can be green for having no body. `vcap-spec/vectors/CONFORMANCE.md`
   is the same rule written for implementations that are not ours.
+
+A vector that keeps a C2PA store beside its file (`*.c2pa`) has it handed over
+as the reader's store, the way the CLI's `--c2pa` and the page's input take
+one; a `c2pa` block in `expected.json` states what a C2PA validator should
+report about the same file and is not compared here, because no C2PA state is
+part of this verdict.
 
 The snapshot in `core/vectors` is kept byte-equal to the submodule by
 `vectors-sync.mjs` (`npm run vectors:check`, run in CI), so a checkout without

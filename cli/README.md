@@ -131,6 +131,39 @@ full verdict over the whole file, with no label for where the proof came from.
 --no-sidecar         ignore any sidecar, verify the file alone
 ```
 
+## Content Credentials
+
+A file's C2PA manifest store may carry the proof (spec `c2pa-interop` §2.1),
+and the tool reads it there in §3.1's order: an intact trailer first, then the
+active manifest, then the sidecar, then the proof of a source capture up the
+`parentOf` chain. A store kept beside the file is read only when you name it —
+the tool does not look for one:
+
+```
+--c2pa <store>       a C2PA manifest store (.c2pa) for a file that embeds none (single file only)
+```
+
+Where the proof was read is a line of the verdict, not a label (`proof read
+from the active manifest of the Content Credentials (urn:…)`), and `--json`
+carries it as `proof_source`. The store gets a `c2pa` line of its own that says
+every time that its **C2PA signature is not checked**: the proof in it is judged
+by its own signature, and nothing C2PA says moves the outcome or the exit code.
+
+## Extracting a proof
+
+```
+vcap-verify extract photo.jpg > photo.jpg.vcap
+```
+
+`extract` prints the proof a file carries, byte for byte, from wherever the
+precedence above finds it — trailer, Content Credentials, or a sidecar — and
+says on stderr where that was. It judges nothing: a tampered file still carries
+a proof and exits `0`; only a file with no proof to print exits `1`. `--json`
+prints `{ file, proof_source, labels, content_credentials, payload }` instead.
+A proof read from further up the `parentOf` chain is a *source* capture's, and
+the stderr line says so: as a sidecar of this file it would read *tampered*,
+because it is not this file's proof.
+
 ## The watermark
 
 A proof may declare a `watermark` (§6.1): the writer saying a mark was embedded
