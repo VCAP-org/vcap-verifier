@@ -64,7 +64,9 @@ describe(`vcap-spec conformance vectors (corpus ${CORPUS.version}, manifest ${CO
       // expectations (`vector-verdict.ts` hands them over). `c2pa` is what a
       // C2PA validator is expected to say about the same file — a gate for
       // c2patool, never a part of this verdict, which no C2PA state reaches.
-      const { kind, debug: _d, schema_valid: _s, verifier_clock: _clock, key_status: _k, chain_read: _r, c2pa: _c, ...want } = JSON.parse(readFileSync(join(path, 'expected.json'), 'utf8'))
+      // `writer` is for writer suites (vector 131's refusal, NOT_COVERED on
+      // every carried proof) and says nothing about what a reader answers.
+      const { kind, debug: _d, schema_valid: _s, verifier_clock: _clock, key_status: _k, chain_read: _r, c2pa: _c, writer: _w, ...want } = JSON.parse(readFileSync(join(path, 'expected.json'), 'utf8'))
       if (kind === 'file' || kind === 'container') {
         // A container vector is a file vector with one more question asked of
         // the same bytes: recompute every segment's content_hash from the GOPs

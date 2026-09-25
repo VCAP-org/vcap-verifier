@@ -565,12 +565,14 @@ whole file, with no label for where the proof came from — the core takes it
 as `verify(file, { sidecar })`, the CLI reads `<file>.vcap` next to the file
 and the page takes it from a second input, never from a search or a fetch),
 a proof carried in C2PA Content Credentials (*Content Credentials* below),
-canonical bytes (JPEG APP11 JUMBF stripped, BMFF untouched), the
-signed core (`ES256` over `JCS(core)`, P1363, `key_id` derived), video segment
-chains over messages, the version policy (unknown minor: *not evaluated*;
-unknown major: unsupported), the §8 labels for absent attachments, and — when
-present — the `registry` attachment against trusted log keys (signed tree head,
-RFC 6962 inclusion, key binding, *registered after the declared capture*) and
+canonical bytes (JPEG: the APP11 segments of the C2PA store and of any JUMBF
+box whose type cannot be read stripped, every other JUMBF box kept, as C2PA
+hashes it; BMFF untouched), the signed core (`ES256` over `JCS(core)`, P1363,
+`key_id` derived), video segment chains over messages, the version policy
+(unknown minor: *not evaluated*; unknown major: unsupported), the §8 labels for
+absent attachments, and — when present — the `registry` attachment against
+trusted log keys (signed tree head, RFC 6962 inclusion, key binding,
+*registered after the declared capture*) and
 the `anchor` attachment (root recomputed; compared with the chain only through
 an injected reader — `rpcChainReader` over a caller's transport — otherwise, or
 when the reader throws, *anchoring not verified*), the `timestamp`
@@ -621,7 +623,7 @@ outcome is **`frames_not_compared`**, amber — the signatures hold, nothing tie
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 2.0.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 2.1.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
@@ -662,8 +664,9 @@ for nothing else**. It is a carrier, never a verdict.
 
 **What is read** (`core/src/carrier.ts`, over `jumbf.ts` and `cbor.ts`):
 
-- **Where the store is.** JPEG: APP11 packets with CI `JP`, reassembled by box
-  instance (En) and sequence (Z). ISO-BMFF: a top-level `uuid` box of the C2PA
+- **Where the store is.** JPEG: APP11 packets with CI `JP`, grouped by box
+  instance (En) and reassembled in file order, Z = 1, 2, 3 …; a broken sequence
+  is a store that cannot be read. ISO-BMFF: a top-level `uuid` box of the C2PA
   type with purpose `manifest`, `original` or `update`, past its 8-byte merkle
   offset. When the file embeds none, a `.c2pa` store the reader hands over —
   `verify(file, { c2paStore })`, `vcap-verify --c2pa`, the page's *Advanced*
@@ -692,10 +695,11 @@ for nothing else**. It is a carrier, never a verdict.
   locating, *verified clip* or *tampered* when it does not. A proof from
   further up the chain is a **source capture's**: over bytes it does not fit,
   the verdict is *no proof found* with the reason *Content Credentials carry the
-  proof of a source capture*, never *tampered* — an edit C2PA declares is not
-  accused. `proof_source` (`{ kind, manifest?, depth? }`) says where the proof
-  was read and is a diagnostic, never a label; `frames_name_capture` says
-  whether a clip's GOPs name the capture, a hint and never evidence.
+  proof of a source capture*, the source's `core_hash` still named, never
+  *tampered* — an edit C2PA declares is not accused. `proof_source`
+  (`{ kind, manifest?, depth? }`) says where the proof was read and is a
+  diagnostic, never a label; `frames_name_capture` says whether a clip's GOPs
+  name the capture, a hint and never evidence.
 - **Two mechanical facts about vcap's own bytes**: *manifest copy differs*, and
   *Content Credentials sealed with the capture* — on ISO-BMFF, the store box
   sits inside the bytes `media.hash` covers and they match.
@@ -722,8 +726,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 2.0.0, 121
-vectors** (manifest `eaa3e2f51ebe…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 2.1.0, 147
+vectors** (manifest `2e4ee0e72b96…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |
@@ -747,7 +751,7 @@ A vector that keeps a C2PA store beside its file (`*.c2pa`) has it handed over
 as the reader's store, the way the CLI's `--c2pa` and the page's input take
 one; a `c2pa` block in `expected.json` states what a C2PA validator should
 report about the same file and is not compared here, because no C2PA state is
-part of this verdict.
+part of this verdict, and neither is `writer`, which is for writer suites.
 
 The snapshot in `core/vectors` is kept byte-equal to the submodule by
 `vectors-sync.mjs` (`npm run vectors:check`, run in CI), so a checkout without

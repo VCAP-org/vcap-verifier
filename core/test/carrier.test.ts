@@ -1,15 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { concat, fromUtf8, toBase64url, utf8 } from '../src/bytes.js'
+import { concat, fromUtf8, toBase64url, toHex, utf8 } from '../src/bytes.js'
 import { jcs, type Json } from '../src/jcs.js'
 import { sha256, subtle } from '../src/sha.js'
 import { buildTrailer, parseTrailer } from '../src/trailer.js'
 import { PROOF_LABEL, extractProof } from '../src/carrier.js'
-import { SOURCE_CAPTURE, extractCore, verify } from '../src/verify.js'
+import { SOURCE_CAPTURE, coreHashOf, extractCore, verify } from '../src/verify.js'
 import { bmffWithStore, box, c2paUuidBox, jpegWithStore, manifest, redactedAssertion, store, superbox } from './c2pa-fixtures.js'
 import { corpus } from './corpus.js'
-import { isJumbfSegment, jpegSegments } from '../src/canonical.js'
+import { canonicalBytes, isJumbfSegment, jpegSegments } from '../src/canonical.js'
 
 /**
  * The C2PA carrier: where a store is found, which copy of the proof wins, how
@@ -56,13 +56,13 @@ describe('where the store is found', () => {
     expect(x.c2pa).toEqual({ store: 'embedded', manifests: 1, active: { label: 'urn:c2pa:one', generator: 'Acme Cam 1.0' }, proof: { manifest: 'urn:c2pa:one', depth: 0, listed_as: 'gathered_assertions' }, notes: [] })
   })
 
-  it('JPEG: packets reassembled by Z, in any file order', () => {
+  it('JPEG: packets reassembled in file order, Z = 1, 2, 3 …; the same packets out of order are a store that cannot be read', () => {
     const s = one({ label: 'urn:c2pa:split', proof, listed: 'created_assertions' })
-    for (const reorder of [false, true]) {
-      const x = extractProof(jpegWithStore(photo.media, s, { packet: 100, reorder }))
-      expect(x.kind === 'proof' && fromUtf8(x.payload)).toBe(fromUtf8(proof))
-      expect(x.c2pa?.proof?.listed_as).toBe('created_assertions')
-    }
+    const x = extractProof(jpegWithStore(photo.media, s, { packet: 100 }))
+    expect(x.kind === 'proof' && fromUtf8(x.payload)).toBe(fromUtf8(proof))
+    expect(x.c2pa?.proof?.listed_as).toBe('created_assertions')
+    // §3.2 and C2PA A.3.1: a broken sequence is not re-sorted into a store.
+    expect(extractProof(jpegWithStore(photo.media, s, { packet: 100, reorder: true }))).toMatchObject({ kind: 'refused', outcome: 'no_proof_found', c2pa: { unread: 'the manifest store cannot be read: its APP11 packets are not numbered 1 to n in file order' } })
   })
 
   it('JPEG: a missing packet, or one that does not repeat the box header, is a store that cannot be read', () => {
@@ -71,7 +71,7 @@ describe('where the store is found', () => {
     const packet = jpegSegments(file).segments.filter(isJumbfSegment)[1]!.bytes
     const second = packet.byteOffset
     const gap = concat(file.subarray(0, second), file.subarray(second + packet.length))
-    expect(extractProof(gap)).toMatchObject({ kind: 'refused', outcome: 'no_proof_found', c2pa: { unread: 'the manifest store cannot be read: its APP11 packets are not numbered 1 to n' } })
+    expect(extractProof(gap)).toMatchObject({ kind: 'refused', outcome: 'no_proof_found', c2pa: { unread: 'the manifest store cannot be read: its APP11 packets are not numbered 1 to n in file order' } })
     const bent = Uint8Array.from(file)
     bent[second + 15] = bent[second + 15]! ^ 1
     expect(extractProof(bent).c2pa?.unread).toBe('the manifest store cannot be read: an APP11 packet does not repeat the box header')
@@ -81,6 +81,20 @@ describe('where the store is found', () => {
     const two = jpegWithStore(jpegWithStore(photo.media, one({ label: 'urn:c2pa:a', proof }), { en: 1 }), one({ label: 'urn:c2pa:b', proof }), { en: 2 })
     const x = extractProof(two, undefined, one({ label: 'urn:c2pa:ext', proof }))
     expect(x).toMatchObject({ kind: 'refused', outcome: 'no_proof_found', reason: 'no trailer and no sidecar', c2pa: { store: 'embedded', unread: 'more than one C2PA manifest store is embedded' } })
+  })
+
+  it('§4.1: the canonical bytes lose the C2PA store and any JUMBF of no readable type, and keep every other JUMBF box', () => {
+    const base = canonicalBytes(photo.media)
+    const app11 = (payload: Uint8Array): Uint8Array => concat(Uint8Array.of(0xff, 0xeb, (payload.length + 2) >> 8, (payload.length + 2) & 0xff), payload)
+    const inserted = (segment: Uint8Array): Uint8Array => concat(photo.media.subarray(0, 2), segment, photo.media.subarray(2))
+    expect(canonicalBytes(jpegWithStore(photo.media, one({ label: 'urn:c2pa:m', proof }), { packet: 100 }))).toEqual(base)
+    // No En, no Z = 1 packet, no jumb/jumd: JUMBF-shaped, of no type anyone can read (vectors 02, 68).
+    for (const junk of [utf8('JP'), concat(utf8('JP'), Uint8Array.of(0, 1, 0, 0, 0, 2), utf8('jumbjumd')), concat(utf8('JP'), Uint8Array.of(0, 1, 0, 0, 0, 1), utf8('not a box'))]) {
+      expect(canonicalBytes(inserted(app11(junk)))).toEqual(base)
+    }
+    // A JPEG 360 or privacy box is content, as C2PA hashes it (15.12.1.2, vector 122).
+    const other = jpegWithStore(photo.media, superbox('json', 'jpeg360', [box('json', utf8('{}'))]))
+    expect(canonicalBytes(other)).toEqual(other)
   })
 
   it('JPEG: a JUMBF that is not a C2PA store is not one, and the external store is read instead', () => {
@@ -282,7 +296,7 @@ describe('the verdict over a carried proof', () => {
 
   it('depth ≥ 1 over bytes that are not the sealed ones is no proof found, never tampered', async () => {
     const v = await verify(jpegWithStore(edited, chain(2, 1)))
-    expect(v).toEqual({ outcome: 'no_proof_found', labels: [], not_evaluated: [], reason: SOURCE_CAPTURE, proof_source: { kind: 'c2pa', manifest: 'urn:c2pa:1', depth: 1 }, content_credentials: expect.objectContaining({ proof: { manifest: 'urn:c2pa:1', depth: 1, listed_as: 'gathered_assertions' } }) })
+    expect(v).toEqual({ outcome: 'no_proof_found', labels: [], not_evaluated: [], core_hash: toHex(await coreHashOf(JSON.parse(fromUtf8(proof)))), reason: SOURCE_CAPTURE, proof_source: { kind: 'c2pa', manifest: 'urn:c2pa:1', depth: 1 }, content_credentials: expect.objectContaining({ proof: { manifest: 'urn:c2pa:1', depth: 1, listed_as: 'gathered_assertions' } }) })
   })
 
   it('depth ≥ 1 over the sealed bytes is the verdict of those bytes', async () => {

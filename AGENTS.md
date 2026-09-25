@@ -64,9 +64,13 @@ part of correctness:
   `parentOf` chain (depth 1–16, no revisits, `componentOf`/`inputTo` never).
   A manifest copy is compared as JCS (*manifest copy differs*), trailer and
   sidecar as bytes. A depth ≥ 1 proof that does not fit the file is *no proof
-  found* (`SOURCE_CAPTURE`), never *tampered*. `proof_source` is diagnostic
-  and never a label. The core checks no COSE, X.509, hashed URI or hard
-  binding, and nothing C2PA says reaches the outcome, a label or the ceiling.
+  found* (`SOURCE_CAPTURE`, the source's `core_hash` kept), never *tampered*.
+  `proof_source` is diagnostic and never a label. §4.1 reads a JPEG JUMBF
+  box's type the way the store finder does (`jumbfGroups` in `canonical.ts`):
+  the canonical bytes lose the C2PA store and any JUMBF of no readable type,
+  and keep every other JUMBF box, which C2PA hashes too. The core checks no
+  COSE, X.509, hashed URI or hard binding, and nothing C2PA says reaches the
+  outcome, a label or the ceiling.
   The two parsers are hostile-input parsers like the rest: every length
   bounded by its box, nesting and counts capped, a map key twice refused, and
   a store that cannot be read is `content_credentials.unread`, never an

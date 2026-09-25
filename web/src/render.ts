@@ -352,7 +352,9 @@ export const card = (name: string, v: Verdict, o: CardOptions = {}): string => {
     // rather than leaving the reader to assume it was checked.
     v.key_status ? ['key revocation', escape(v.key_status.detail), FROM.lookup] : null,
     v.anchor ? ['anchor', escape(v.anchor.detail), v.anchor.on_chain === true ? FROM.chain : FROM.file] : null,
-    v.core_hash ? ['proof identity', `<code>${v.core_hash}</code>`, FROM.file] : null,
+    // Up the parentOf chain the core read is a source capture's (§3.2): its
+    // identity is shown as that, never as this file's.
+    v.core_hash ? [fromAncestor(v) ? 'proof identity of the source capture' : 'proof identity', `<code>${v.core_hash}</code>`, FROM.file] : null,
     // Where the proof sat is not evidence (§3.1), so it is a row and never a
     // label — and only where it is not the trailer or a sidecar the reader chose.
     v.proof_source?.kind === 'c2pa' ? ['proof read from', escape(proofSource(v.proof_source)), FROM.cc] : null

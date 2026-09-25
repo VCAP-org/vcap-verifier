@@ -1,7 +1,7 @@
-import { type Bytes, concat, equal, fromHex, fromUtf8, readU16BE, readU32BE, toHex } from './bytes.js'
+import { type Bytes, concat, equal, fromHex, fromUtf8, readU32BE } from './bytes.js'
 import { jcs, jsonProblem, type Json } from './jcs.js'
 import { parseTrailer } from './trailer.js'
-import { detectContainer, isJumbfSegment, jpegSegments } from './canonical.js'
+import { C2PA_STORE_TYPE, detectContainer, jpegSegments, jumbfGroups } from './canonical.js'
 import { boxes } from './container.js'
 import { type CborMap, decodeCbor } from './cbor.js'
 import { CBOR_BOX, JSON_BOX, type Superbox, contentOf, isRedacted, jumbfUuid, parseJumbf, superboxes } from './jumbf.js'
@@ -50,7 +50,6 @@ export type Extraction =
   | { kind: 'proof', payload: Bytes, media: Bytes, flags: number | null, source: ProofSource, labels: string[], c2pa?: ContentCredentials }
   | { kind: 'refused', outcome: 'no_proof_found' | 'corrupted_proof' | 'unsupported_format_version' | 'nested_proof', reason: string, c2pa?: ContentCredentials }
 
-const STORE = jumbfUuid('c2pa')
 const ASSERTIONS = jumbfUuid('c2as')
 const CLAIM = jumbfUuid('c2cl')
 // C2PA 2.4 §11.2.2: standard, update and the legacy `c2md` are read; a
@@ -76,32 +75,19 @@ const embedded = (file: Bytes): Found[] => {
   } catch { return [] }
 }
 
-// Annex A.3.1 over ISO 19566-5: CI 'JP', En (u16), Z (u32), then the box.
-// Every packet after the first repeats the box header before its share of
-// the body. A JUMBF that is not a C2PA store (JPEG 360, privacy) is not ours.
-const jpegStores = (file: Bytes): Found[] => {
-  const byInstance = new Map<number, Array<{ z: number, data: Bytes }>>()
-  for (const s of jpegSegments(file).segments) {
-    if (!isJumbfSegment(s) || s.bytes.length < 12) continue
-    const en = readU16BE(s.bytes, 6)
-    const packets = byInstance.get(en) ?? []
-    if (packets.length === 0) byInstance.set(en, packets)
-    packets.push({ z: readU32BE(s.bytes, 8), data: s.bytes.subarray(12) })
-  }
-  const found: Found[] = []
-  for (const packets of byInstance.values()) {
-    packets.sort((a, b) => a.z - b.z)
-    const first = packets[0]!.data
-    const head = first.length >= 4 && readU32BE(first, 0) === 1 ? 16 : 8
-    const isStore = first.length >= head + 24 && fourcc(first, 4) === 'jumb' && fourcc(first, head + 4) === 'jumd' && toHex(first.subarray(head + 8, head + 24)) === STORE
-    if (!isStore) continue
-    if (packets.some((p, i) => p.z !== i + 1)) { found.push({ error: 'its APP11 packets are not numbered 1 to n' }); continue }
-    const rest = packets.slice(1).map((p) => p.data)
-    if (rest.some((d) => d.length < head || !equal(d.subarray(0, head), first.subarray(0, head)))) { found.push({ error: 'an APP11 packet does not repeat the box header' }); continue }
-    found.push({ store: concat(first, ...rest.map((d) => d.subarray(head))) })
-  }
-  return found
-}
+// Annex A.3.1 over ISO 19566-5: the group whose first packet names the C2PA
+// store type, reassembled in file order with Z = 1, 2, 3 … (§3.2): the first
+// packet whole, every later one without the box header it repeats. A JUMBF
+// that is not a C2PA store (JPEG 360, privacy) is not ours.
+const jpegStores = (file: Bytes): Found[] => jumbfGroups(jpegSegments(file).segments)
+  .filter((g) => g.type === C2PA_STORE_TYPE)
+  .map(({ packets }): Found => {
+    if (packets.some((p, i) => p.z !== i + 1)) return { error: 'its APP11 packets are not numbered 1 to n in file order' }
+    const [first, ...rest] = packets.map((p) => p.data) as [Bytes, ...Bytes[]]
+    const head = readU32BE(first, 0) === 1 ? 16 : 8
+    if (rest.some((d) => d.length < head || !equal(d.subarray(0, head), first.subarray(0, head)))) return { error: 'an APP11 packet does not repeat the box header' }
+    return { store: concat(first, ...rest.map((d) => d.subarray(head))) }
+  })
 
 // Annex A.5: a top-level `uuid` box of the C2PA type is a FullBox, then a
 // NUL-terminated purpose, then for a store the 8-byte merkle offset, then the
@@ -120,11 +106,9 @@ const bmffStores = (file: Bytes): Found[] => {
   return found
 }
 
-const fourcc = (b: Bytes, at: number): string => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!)
-
 const readStore = (bytes: Bytes): Manifest[] => {
   const root = parseJumbf(bytes)
-  if (root.type !== STORE) throw new Error('the JUMBF box is not a C2PA manifest store')
+  if (root.type !== C2PA_STORE_TYPE) throw new Error('the JUMBF box is not a C2PA manifest store')
   const manifests: Manifest[] = []
   for (const box of superboxes(root)) {
     const kind = KINDS[box.type]
