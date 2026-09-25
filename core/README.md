@@ -211,10 +211,11 @@ active manifest (depth 0), the sidecar, and the nearest proof up the
 `JCS(parse(a)) == JCS(parse(b))` (*manifest copy differs*), because a C2PA
 writer re-serializes the JSON; trailer and sidecar keep the byte rule. A proof
 from depth ≥ 1 that does not fit the file is *no proof found* with the reason
-`SOURCE_CAPTURE`, never *tampered*: the file was made from that capture and
-says so. No COSE, X.509, hashed URI or hard binding is checked — the proof
-authenticates itself, and no C2PA state reaches the outcome, the labels or the
-ceiling. The repository README says exactly what is and is not read.
+`SOURCE_CAPTURE` and the source's `core_hash`, never *tampered*: the file was
+made from that capture and says so. No COSE, X.509, hashed URI or hard binding
+is checked — the proof authenticates itself, and no C2PA state reaches the
+outcome, the labels or the ceiling. The repository README says exactly what is
+and is not read.
 
 ## What is exported
 
@@ -261,4 +262,5 @@ uses in four repositories: a git submodule and a `file:` dependency.
 mirror in `vectors/` checked against it so a stale copy fails in CI rather than
 quietly proving an older contract. An implementation passes conformance when it
 reproduces every vector's `outcome`, `labels`, `not_evaluated`, `core_hash` and
-`segments.verified`.
+`segments.verified`, and where present `level`, `validated_at`, `location`,
+`proof_source` and `frames_name_capture`.
