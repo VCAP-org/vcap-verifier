@@ -40,11 +40,11 @@ export type Recomputation =
 /** Thrown where the bytes, not the reader, are at fault; `recomputeSegments` turns it into `malformed`. */
 class Malformed extends Error {}
 
-interface Box { type: string, body: number, end: number }
+export interface Box { type: string, body: number, end: number }
 
 const TYPE = (b: Bytes, at: number): string => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!)
 
-const boxes = (b: Bytes, from: number, to: number): Box[] => {
+export const boxes = (b: Bytes, from: number, to: number): Box[] => {
   const out: Box[] = []
   let at = from
   while (at + 8 <= to) {

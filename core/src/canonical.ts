@@ -9,30 +9,38 @@ export const detectContainer = (b: Bytes): Container => {
   return 'unknown'
 }
 
-// JPEG: drop APP11 segments whose payload starts with "JP" (C2PA's JUMBF), keep
-// everything else verbatim; entropy-coded data after SOS is untouched. Throws
-// on a marker structure it cannot walk: there is then no canonical form to
-// hash, and the caller decides what that means for the verdict.
-export const stripC2paFromJpeg = (jpeg: Bytes): Bytes => {
-  const kept: Bytes[] = [jpeg.subarray(0, 2)]
+/** A piece of a JPEG before its first SOS: a marker segment, a fill byte, or a marker with no length. */
+export interface JpegSegment { marker: number, bytes: Bytes }
+
+// JPEG: the pieces before SOS in file order, and where the walk stopped. Fill
+// bytes (0xFF padding before a marker) and length-less markers (TEM, RSTn) are
+// pieces of their own. Throws on a marker structure it cannot walk: there is
+// then no canonical form to hash, and the caller decides what that means.
+export const jpegSegments = (jpeg: Bytes): { segments: JpegSegment[], rest: number } => {
+  const segments: JpegSegment[] = []
   let pos = 2
   while (pos + 4 <= jpeg.length) {
     if (jpeg[pos] !== 0xff) throw new Error('JPEG: marker expected')
     const marker = jpeg[pos + 1] as number
-    // §4.1 keeps fill bytes (0xFF padding before a marker) and length-less
-    // markers (TEM, RSTn) as they are: content, not a segment to judge.
-    if (marker === 0xff) { kept.push(jpeg.subarray(pos, pos + 1)); pos += 1; continue }
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { kept.push(jpeg.subarray(pos, pos + 2)); pos += 2; continue }
+    if (marker === 0xff) { segments.push({ marker, bytes: jpeg.subarray(pos, pos + 1) }); pos += 1; continue }
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { segments.push({ marker, bytes: jpeg.subarray(pos, pos + 2) }); pos += 2; continue }
     if (marker === 0xda) break
     const length = readU16BE(jpeg, pos + 2)
     if (length < 2 || pos + 2 + length > jpeg.length) throw new Error('JPEG: segment length out of range')
-    const segment = jpeg.subarray(pos, pos + 2 + length)
-    const isJumbf = marker === 0xeb && segment[4] === 0x4a && segment[5] === 0x50
-    if (!isJumbf) kept.push(segment)
+    segments.push({ marker, bytes: jpeg.subarray(pos, pos + 2 + length) })
     pos += 2 + length
   }
-  kept.push(jpeg.subarray(pos))
-  return concat(...kept)
+  return { segments, rest: pos }
+}
+
+/** §4.1: an APP11 segment whose payload starts with "JP" — C2PA's JUMBF, and every other JUMBF too. */
+export const isJumbfSegment = (s: JpegSegment): boolean => s.marker === 0xeb && s.bytes[4] === 0x4a && s.bytes[5] === 0x50
+
+// JPEG: drop the JUMBF APP11 segments, keep everything else verbatim;
+// entropy-coded data after SOS is untouched.
+export const stripC2paFromJpeg = (jpeg: Bytes): Bytes => {
+  const { segments, rest } = jpegSegments(jpeg)
+  return concat(jpeg.subarray(0, 2), ...segments.filter((s) => !isJumbfSegment(s)).map((s) => s.bytes), jpeg.subarray(rest))
 }
 
 export const canonicalBytes = (media: Bytes): Bytes => detectContainer(media) === 'jpeg' ? stripC2paFromJpeg(media) : media

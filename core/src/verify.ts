@@ -1,7 +1,7 @@
-import { type Bytes, equal, fromBase64, fromUtf8, isInstant, toBase64url, toHex } from './bytes.js'
+import { type Bytes, fromBase64, fromUtf8, isInstant, toBase64url, toHex } from './bytes.js'
 import { sha256 } from './sha.js'
 import { MAX_DEPTH, jcs, jsonProblem, type Json } from './jcs.js'
-import { parseTrailer } from './trailer.js'
+import { type ContentCredentials, type Extraction, type ProofSource, extractProof } from './carrier.js'
 import { canonicalBytes, detectContainer } from './canonical.js'
 import { recomputeSegments } from './container.js'
 import { type StatusAttachment, type StatusEntry, chainStatus, verifyStatus } from './attestation-status.js'
@@ -82,6 +82,17 @@ export interface Verdict {
   validated_at?: { instant: string, source: 'timestamp' | 'anchor' | 'device_clock' | 'verifier_clock' }
   claimed_secure_hw?: string
   device_clock?: number
+  // Where the proof was read (§3.1's precedence, with the C2PA store in it).
+  // Diagnostic, never a label: the location of a proof is not evidence.
+  proof_source?: ProofSource
+  // A video proof whose container was read: whether any GOP's vcap SEI names
+  // this capture. A hint about where the frames came from, never evidence —
+  // the SEI is unsigned.
+  frames_name_capture?: boolean
+  // What the C2PA manifest store held, for a surface to show in its own lane.
+  // Nothing in it reaches the outcome, a label or the ceiling, and no C2PA
+  // signature, certificate or hashed URI is checked to produce it.
+  content_credentials?: ContentCredentials
   // `watermark.mark_id` of a `video-rep-v1` proof, and whether it is the value
   // `watermark-layouts-1.0.md` derives from the capture id. A SHOULD for the
   // writer, so a mismatch weakens nothing — but a registry lookup by mark id
@@ -92,6 +103,9 @@ export interface Verdict {
 
 export interface VerifyOptions {
   sidecar?: Bytes
+  // A C2PA manifest store the caller holds (`.c2pa`), read only when the file
+  // embeds none. Never fetched: a store the file points at is not looked for.
+  c2paStore?: Bytes
   trustedLogs?: TrustedLog[]
   readChain?: ChainReader
   // TSA roots (DER) the timestamp attachment may chain to; none → not evaluated.
@@ -164,6 +178,13 @@ const b64Len = (s: unknown, n: number): boolean => { try { return typeof s === '
 
 const fail = (outcome: Outcome, reason: string): Verdict => ({ outcome, labels: [], not_evaluated: [], reason })
 
+/**
+ * The reason a proof carried from an ancestor manifest does not fit the file:
+ * the file was made from that capture, and C2PA says so. A declared edit is
+ * not accused, so this is *no proof found*, never *tampered*.
+ */
+export const SOURCE_CAPTURE = 'Content Credentials carry the proof of a source capture'
+
 export const extractCore = (proof: Obj): Obj => {
   const core: Obj = {}
   for (const k of CORE_KEYS) if (k in proof) core[k] = proof[k] as Json
@@ -214,22 +235,29 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
   }
 }
 
-const verifyFile = async (file: Bytes, o: VerifyOptions, progress: { proof: boolean }): Promise<Verdict> => {
-  // 1. Trailer, sidecar, nesting (§3).
-  const trailer = parseTrailer(file)
-  if (trailer.kind === 'corrupted') return fail('corrupted_proof', 'footer valid, CRC mismatch')
-  if (trailer.kind === 'unsupported') return fail('unsupported_format_version', `footer major ${trailer.major}`)
-  const labels: string[] = []
-  let payload: Bytes, media: Bytes, flags: number | null = null
-  if (trailer.kind === 'ok') {
-    payload = trailer.payload; media = trailer.media; flags = trailer.flags
-    if (parseTrailer(media).kind !== 'none') return fail('nested_proof', 'the canonical bytes end in another trailer')
-    if (o.sidecar && !equal(o.sidecar, payload)) labels.push('sidecar differs')
-  } else if (o.sidecar) {
-    payload = o.sidecar; media = file
-  } else {
-    return fail('no_proof_found', 'no trailer and no sidecar')
+interface Progress { proof: boolean, mediaMatches?: boolean }
+
+const verifyFile = async (file: Bytes, o: VerifyOptions, progress: Progress): Promise<Verdict> => {
+  // 1. Trailer, manifest store, sidecar, nesting (§3, §3.1).
+  const x = extractProof(file, o.sidecar, o.c2paStore)
+  const cc = x.c2pa ? { content_credentials: x.c2pa } : {}
+  if (x.kind === 'refused') return { ...fail(x.outcome, x.reason), ...cc }
+  const verdict = await judge(x, o, progress)
+  if (x.c2pa && x.c2pa.store === 'embedded' && progress.mediaMatches === true && detectContainer(x.media) === 'bmff') x.c2pa.sealed_with_capture = true
+  const source = { proof_source: x.source }
+  // Depth ≥ 1: the proof is a source capture's, and a file that does not fit
+  // it is what C2PA declares it to be — something made from that capture.
+  if (x.source.kind === 'c2pa' && x.source.depth > 0 && (verdict.outcome === 'tampered' || verdict.outcome === 'frames_not_compared')) {
+    const frames = verdict.frames_name_capture === undefined ? {} : { frames_name_capture: verdict.frames_name_capture }
+    return { ...fail('no_proof_found', SOURCE_CAPTURE), ...frames, ...source, ...cc }
   }
+  return { ...verdict, ...source, ...cc }
+}
+
+/** Steps 2–8 over the proof `extractProof` found, and the canonical bytes it goes with. */
+const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions, progress: Progress): Promise<Verdict> => {
+  const { payload, media, flags } = x
+  const labels: string[] = [...x.labels]
 
   // 2. JSON and version (§9).
   let proof: Obj
@@ -285,6 +313,7 @@ const verifyFile = async (file: Bytes, o: VerifyOptions, progress: { proof: bool
     }
   }
   const mediaMatches = toBase64url(o.mediaHash ?? await sha256(canonical!)) === mediaObj.hash
+  progress.mediaMatches = mediaMatches
   for (const [k, label] of ABSENT) if (!(k in proof)) labels.push(label)
   if (flags !== null) {
     const expected = ('segments' in proof ? 2 : 0) | ((isObj(proof.policy) && proof.policy.pseudonymous === true) ? 4 : 0)
@@ -304,7 +333,9 @@ const verifyFile = async (file: Bytes, o: VerifyOptions, progress: { proof: bool
     verdict.content = outcome.content
     if (!outcome.content.recomputed) labels.push('segment content not recomputed')
     verdict.segments = outcome.segments
-    if (outcome.tampered !== undefined) return { ...tampered(outcome.tampered), segments: verdict.segments, content: verdict.content }
+    if (outcome.framesNameCapture !== undefined) verdict.frames_name_capture = outcome.framesNameCapture
+    const frames = outcome.framesNameCapture === undefined ? {} : { frames_name_capture: outcome.framesNameCapture }
+    if (outcome.tampered !== undefined) return { ...tampered(outcome.tampered), segments: verdict.segments, content: verdict.content, ...frames }
     if (outcome.outcome !== 'authentic') { verdict.outcome = outcome.outcome; verdict.reason = outcome.reason }
   } else if (!mediaMatches) {
     return tampered('media.hash does not match the canonical bytes')
@@ -351,7 +382,7 @@ const verifyFile = async (file: Bytes, o: VerifyOptions, progress: { proof: bool
       // signature: both are the received bytes disagreeing with what the
       // device signed over them.
       if (result.result === 'contradicted') {
-        return { ...tampered(`watermark payload contradicts the proof: ${result.detail}`), segments: verdict.segments, content: verdict.content, watermark: result }
+        return { ...tampered(`watermark payload contradicts the proof: ${result.detail}`), segments: verdict.segments, content: verdict.content, ...(verdict.frames_name_capture === undefined ? {} : { frames_name_capture: verdict.frames_name_capture }), watermark: result }
       }
       labels.push(result.result === 'matched' ? 'watermark matched' : result.result === 'not_recovered' ? 'watermark not recovered' : 'watermark not evaluated')
     }
@@ -632,6 +663,8 @@ interface SegmentsOutcome {
   outcome: Outcome
   reason?: string
   tampered?: string
+  // Whether the container was read and a GOP's vcap SEI names this capture.
+  framesNameCapture?: boolean
 }
 
 /**
@@ -660,12 +693,14 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
   let located: Map<number, Bytes> | undefined
   let content: SegmentsOutcome['content']
   let problems: string[] = []
+  let framesNameCapture: boolean | undefined
   if (o.recomputeSegments !== false && detectContainer(media) === 'bmff') {
     const indices = new Set(Array.isArray(signed) ? signed.map((x) => (x as { gop?: unknown } | null)?.gop).filter((g): g is number => typeof g === 'number') : [])
     const r = await recomputeSegments(media, captureId, indices)
     if (r.kind === 'malformed') {
       return { content: { recomputed: false, detail: r.reason }, segments: { verified: [] }, outcome: 'tampered', tampered: `the container contradicts the proof: ${r.reason}` }
     }
+    if (r.kind === 'hashes' || r.kind === 'unlocated') framesNameCapture = r.kind === 'hashes'
     if (r.kind === 'hashes') {
       located = new Map(r.gops.map((g) => [g.index, g.hash]))
       problems = r.problems
@@ -679,22 +714,23 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
     content = { recomputed: false, detail: o.recomputeSegments === false ? 'recomputation not requested' : 'not an ISO-BMFF container' }
   }
 
+  const frames = framesNameCapture === undefined ? {} : { framesNameCapture }
   const chain = await verifyChain(captureId, (proof.media as Obj).segment_count as number, signed, key, located)
   // Credit is the located GOPs whose message verified and whose bytes match:
   // with nothing located there is none, whatever the chain says (§5).
   const credited = (list: number[]): number[] => located ? list.filter((n) => located.has(n)) : []
   if (chain.status === 'tampered') {
-    return { content, segments: { verified: credited(chain.verified), ...(chain.contradicted ? { contradicted: chain.contradicted } : {}) }, outcome: 'tampered', tampered: chain.reason ?? 'segment chain' }
+    return { content, segments: { verified: credited(chain.verified), ...(chain.contradicted ? { contradicted: chain.contradicted } : {}) }, outcome: 'tampered', tampered: chain.reason ?? 'segment chain', ...frames }
   }
   const verified = credited(chain.verified)
-  if (problems.length > 0) return { content, segments: { verified }, outcome: 'tampered', tampered: `the container contradicts the proof: ${problems[0]}` }
+  if (problems.length > 0) return { content, segments: { verified }, outcome: 'tampered', tampered: `the container contradicts the proof: ${problems[0]}`, ...frames }
   if (mediaMatches) {
-    return { content, segments: { verified }, outcome: chain.status === 'clip' ? 'verified_clip' : 'authentic', ...(chain.status === 'clip' ? { reason: 'segments missing' } : {}) }
+    return { content, segments: { verified }, outcome: chain.status === 'clip' ? 'verified_clip' : 'authentic', ...(chain.status === 'clip' ? { reason: 'segments missing' } : {}), ...frames }
   }
   if (verified.length === 0) {
-    return { content, segments: { verified }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and no GOP in it is tied to a signed segment (${content.detail}): the signatures hold, the frames were not compared` }
+    return { content, segments: { verified }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and no GOP in it is tied to a signed segment (${content.detail}): the signatures hold, the frames were not compared`, ...frames }
   }
-  return { content, segments: { verified }, outcome: 'verified_clip', reason: 'media.hash does not match the received file' }
+  return { content, segments: { verified }, outcome: 'verified_clip', reason: 'media.hash does not match the received file', ...frames }
 }
 
 // device.key_id is base64url of SHA-256(SPKI) in the proof; the log's leaf spells the same hash in hex.
