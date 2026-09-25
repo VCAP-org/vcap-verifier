@@ -247,9 +247,12 @@ const verifyFile = async (file: Bytes, o: VerifyOptions, progress: Progress): Pr
   const source = { proof_source: x.source }
   // Depth ≥ 1: the proof is a source capture's, and a file that does not fit
   // it is what C2PA declares it to be — something made from that capture.
+  // The core was read, so its hash stays — it names the source capture — and
+  // no label does: nothing is held against the file (§3.2).
   if (x.source.kind === 'c2pa' && x.source.depth > 0 && (verdict.outcome === 'tampered' || verdict.outcome === 'frames_not_compared')) {
     const frames = verdict.frames_name_capture === undefined ? {} : { frames_name_capture: verdict.frames_name_capture }
-    return { ...fail('no_proof_found', SOURCE_CAPTURE), ...frames, ...source, ...cc }
+    const core = verdict.core_hash === undefined ? {} : { core_hash: verdict.core_hash }
+    return { ...fail('no_proof_found', SOURCE_CAPTURE), ...core, ...frames, ...source, ...cc }
   }
   return { ...verdict, ...source, ...cc }
 }

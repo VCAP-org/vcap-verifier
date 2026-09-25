@@ -350,6 +350,7 @@ describe('the Content Credentials lane', () => {
     const html = card('edited.jpg', v)
     expect(html).toContain('This file carries no proof of its own — its Content Credentials carry the proof of the capture it was made from.')
     expect(html).toContain('<span class="badge">No proof found</span>')
+    expect(html).toContain('<dt>proof identity of the source capture</dt>')
     expect(contentCredentials(v)).toContain('1 step up the parentOf chain (urn:c2pa:1) — the proof of the capture this file was made from')
   })
 

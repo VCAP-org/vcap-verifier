@@ -33,7 +33,7 @@ const ID = 0x04
 const SIGNATURE = 0x08
 const PRIVATE = 0x10
 
-const fourcc = (b: Bytes, at: number): string => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!)
+export const fourcc = (b: Bytes, at: number): string => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!)
 
 /** One box header inside [at, end): its type, where its body starts and where the next box starts. */
 export const boxAt = (b: Bytes, at: number, end: number): { type: string, body: number, next: number } => {
