@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { run, type Streams } from '../src/main.js'
 import { render } from '../src/render.js'
-import { vectorVerdict } from '../../core/test/vector-verdict.js'
+import { vectorInput, vectorStore, vectorVerdict } from '../../core/test/vector-verdict.js'
+import { jpegWithStore, manifest, store } from '../../core/test/c2pa-fixtures.js'
+import { parseTrailer } from '../../core/src/trailer.js'
 // The corpus locator the core's own suite uses: same source of truth, same
 // refusal to run against an empty directory.
 import { corpus } from '../../core/test/corpus.js'
@@ -59,10 +61,7 @@ const fileVectors = CORPUS.names
   .filter((name) => RUNS.includes(CORPUS.kinds[name] ?? ''))
   .map((name) => ({ name, expected: JSON.parse(readFileSync(join(VECTORS, name, 'expected.json'), 'utf8')) }))
 
-const inputOf = (name: string): string => {
-  const file = readdirSync(join(VECTORS, name)).find((f) => f.startsWith('input.') && !f.endsWith('.vcap'))
-  return join(VECTORS, name, file as string)
-}
+const inputOf = (name: string): string => join(VECTORS, name, vectorInput(join(VECTORS, name)))
 
 const VERIFIES = new Set(['authentic', 'verified_clip'])
 
@@ -78,6 +77,11 @@ describe('vcap-verify', () => {
       // which is §3.1's discovery rule, so the corpus also proves the tool
       // finds a sidecar where the spec says it is — and nowhere else.
       const args = [...trustArgs(), '--json', inputOf(name)]
+      // A manifest store kept beside the file is not discovered (§3.3 names
+      // the C2PA convention, the tool reads only what it is handed), so the
+      // corpus hands it over the way a reader would.
+      const storeFile = vectorStore(join(VECTORS, name))
+      if (storeFile) args.push('--c2pa', join(VECTORS, name, storeFile))
       if (typeof expected.verifier_clock === 'number') args.push('--at', new Date(expected.verifier_clock).toISOString())
       if (expected.kind !== 'container') args.push('--no-recompute')
       const code = await run(args, io)
@@ -477,5 +481,69 @@ describe('the ceiling line', () => {
 
   it('prints no ceiling for a tampered file, which never reached §7 (vector 11)', async () => {
     expect(ceiling(render('photo.jpg', await vectorVerdict('11-jpeg-pixels-edited')))).toBeUndefined()
+  })
+})
+
+/**
+ * Content Credentials: the proof read out of a C2PA manifest store, and the
+ * `extract` subcommand that prints a proof without judging it. The stores are
+ * built by the core's test builder over vector 01's proof, byte by byte.
+ */
+describe('Content Credentials', () => {
+  const sealed = readFileSync(inputOf('01-jpeg-sealed'))
+  const trailer = parseTrailer(new Uint8Array(sealed))
+  if (trailer.kind !== 'ok') throw new Error('vector 01 is not sealed')
+  const proof = trailer.payload
+  const dir = mkdtempSync(join(tmpdir(), 'vcap-c2pa-'))
+  const credentialed = join(dir, 'credentialed.jpg')
+  writeFileSync(credentialed, jpegWithStore(trailer.media, store(manifest({ label: 'urn:c2pa:m', proof, generator: 'Acme Cam' }))))
+  const external = join(dir, 'stripped.c2pa')
+  writeFileSync(external, store(manifest({ label: 'urn:c2pa:ext', proof })))
+
+  it('verifies a proof carried in the file\'s manifest store and says where it was read', async () => {
+    const json = capture()
+    expect(await run(['--json', '--no-recompute', credentialed], json.io)).toBe(0)
+    const verdict = JSON.parse(json.out().trim())
+    expect(verdict).toMatchObject({ outcome: 'authentic', proof_source: { kind: 'c2pa', manifest: 'urn:c2pa:m', depth: 0 }, content_credentials: { store: 'embedded', active: { label: 'urn:c2pa:m', generator: 'Acme Cam 1.0' } } })
+    const text = capture()
+    await run(['--no-recompute', credentialed], text.io)
+    expect(text.out()).toContain('  proof     read from the active manifest of the Content Credentials (urn:c2pa:m)')
+    expect(text.out()).toContain('  c2pa      Content Credentials in the file: 1 manifest, active urn:c2pa:m, claim generator Acme Cam 1.0 (its own word) — C2PA signature not checked')
+  })
+
+  it('reads a store handed over with --c2pa, for one file only', async () => {
+    const { io, out } = capture()
+    expect(await run(['--json', '--no-recompute', '--c2pa', external, inputOf('05-jpeg-no-trailer')], io)).toBe(0)
+    expect(JSON.parse(out().trim())).toMatchObject({ outcome: 'authentic', proof_source: { kind: 'c2pa', manifest: 'urn:c2pa:ext', depth: 0 }, content_credentials: { store: 'external' } })
+    expect(await run(['--c2pa', external, inputOf('05-jpeg-no-trailer'), inputOf('01-jpeg-sealed')], capture().io)).toBe(64)
+    expect(await run(['--json', '--c2pa', join(dir, 'nope.c2pa'), inputOf('05-jpeg-no-trailer')], capture().io)).toBe(66)
+  })
+
+  it('extract prints the trailer\'s payload byte for byte, and its source on stderr', async () => {
+    const { io, out, err } = capture()
+    expect(await run(['extract', inputOf('01-jpeg-sealed')], io)).toBe(0)
+    expect(out()).toBe(new TextDecoder().decode(proof))
+    expect(err()).toBe('vcap-verify: proof read from the trailer\n')
+  })
+
+  it('extract reads the Content Credentials in §3.1\'s order, and --json says from where', async () => {
+    const text = capture()
+    expect(await run(['extract', credentialed], text.io)).toBe(0)
+    expect(text.out()).toBe(new TextDecoder().decode(proof))
+    expect(text.err()).toContain('the active manifest of the Content Credentials (urn:c2pa:m)')
+    const json = capture()
+    expect(await run(['extract', '--json', '--c2pa', external, inputOf('05-jpeg-no-trailer')], json.io)).toBe(0)
+    expect(JSON.parse(json.out().trim())).toMatchObject({ proof_source: { kind: 'c2pa', manifest: 'urn:c2pa:ext', depth: 0 }, labels: [], payload: new TextDecoder().decode(proof) })
+  })
+
+  it('extract exits 1 when there is no proof to print, and judges nothing', async () => {
+    const text = capture()
+    expect(await run(['extract', inputOf('05-jpeg-no-trailer')], text.io)).toBe(1)
+    expect(text.out()).toBe('')
+    expect(text.err()).toBe(`vcap-verify: ${inputOf('05-jpeg-no-trailer')}: no_proof_found — no trailer and no sidecar\n`)
+    // A tampered file still carries a proof: extraction is not a verdict.
+    expect(await run(['extract', inputOf('11-jpeg-pixels-edited')], capture().io)).toBe(0)
+    expect(await run(['extract', inputOf('06-jpeg-footer-crc-mismatch')], capture().io)).toBe(1)
+    expect(await run(['extract', inputOf('01-jpeg-sealed'), inputOf('05-jpeg-no-trailer')], capture().io)).toBe(64)
   })
 })

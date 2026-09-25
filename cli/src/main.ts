@@ -1,8 +1,8 @@
 #!/usr/bin/env -S npx tsx
 import { readFile } from 'node:fs/promises'
-import { verify, rpcChainReader, pemToDer, parseTrustedLog, fingerprintOf, TrustDocumentError, type TrustedLog, type ChainReader, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
+import { verify, extractProof, rpcChainReader, pemToDer, parseTrustedLog, fingerprintOf, TrustDocumentError, type TrustedLog, type ChainReader, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
 import { type Options, USAGE, UsageError, parse } from './options.js'
-import { render } from './render.js'
+import { proofSource, render } from './render.js'
 import { DEFAULT_CHAINS_FILE, DEFAULT_TRUST_FILE, DEFAULT_TSA_FILE, describeChains, describeTrust, describeTsa, readChainsFile, readTrustFile, readTsaFile, type TrustSet, type TsaSet } from './trust.js'
 
 /**
@@ -69,6 +69,8 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
     io.out(USAGE)
     return EXIT.ok
   }
+  // Extraction trusts nothing and judges nothing, so it needs none of the trust below.
+  if (options.command === 'extract') return await extract(options, io)
 
   let trust: TrustSet
   try {
@@ -139,10 +141,12 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
     try {
       const file = new Uint8Array(await readFile(path))
       const sidecar = await readSidecar(path, options)
+      const c2paStore = await readStore(options)
       results.push({
         path,
         verdict: await verify(file, {
           sidecar,
+          c2paStore,
           recomputeSegments: options.recompute,
           trustedLogs: trust.logs,
           tsaRoots,
@@ -176,6 +180,52 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
   if (options.requireGreen && verdicts.some((verdict) => verdict.level?.ceiling !== 'green')) return EXIT.notGreen
   return EXIT.ok
 }
+
+/**
+ * `extract`: the proof a file carries, as its bytes, from wherever §3.1's
+ * precedence finds it — so a proof held in Content Credentials or a trailer
+ * can be written out as a sidecar. Nothing is verified: the source goes to
+ * stderr, the bytes to stdout, and the exit code says only whether there
+ * was a proof to print (0) or not (1).
+ */
+const extract = async (options: Options, io: Streams): Promise<number> => {
+  const path = options.files[0] as string
+  let found
+  try {
+    found = extractProof(new Uint8Array(await readFile(path)), await readSidecar(path, options), await readStore(options))
+  } catch (error) {
+    io.err(`vcap-verify: ${path}: ${error instanceof Error ? error.message : String(error)}\n`)
+    return EXIT.unreadable
+  }
+  let text: string | null = null
+  if (found.kind === 'proof') {
+    try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(found.payload) } catch { text = null }
+  }
+  if (options.json) {
+    const cc = found.c2pa ? { content_credentials: found.c2pa } : {}
+    io.out(JSON.stringify(found.kind === 'proof'
+      ? { file: path, proof_source: found.source, labels: found.labels, ...cc, payload: text }
+      : { file: path, outcome: found.outcome, reason: found.reason, ...cc }) + '\n')
+    return found.kind === 'proof' ? EXIT.ok : EXIT.doesNotVerify
+  }
+  if (found.kind === 'refused') {
+    io.err(`vcap-verify: ${path}: ${found.outcome} — ${found.reason}\n`)
+    return EXIT.doesNotVerify
+  }
+  // A proof is UTF-8 JSON (§6.1); bytes that are not cannot be printed as the
+  // proof they are not, and verifying them says why.
+  if (text === null) {
+    io.err(`vcap-verify: ${path}: the proof read from ${proofSource(found.source)} is not UTF-8\n`)
+    return EXIT.doesNotVerify
+  }
+  io.out(text)
+  io.err(`vcap-verify: proof read from ${proofSource(found.source)}${found.labels.length > 0 ? ` (${found.labels.join(', ')})` : ''}\n`)
+  return EXIT.ok
+}
+
+/** The `.c2pa` store the caller named, or none: a store is never looked for beside the file. */
+const readStore = async (options: Options): Promise<Uint8Array | undefined> =>
+  options.c2pa === undefined ? undefined : new Uint8Array(await readFile(options.c2pa))
 
 /**
  * The chain reader's transport: one JSON-RPC POST with Node's `fetch`. Bounded

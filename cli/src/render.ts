@@ -1,5 +1,5 @@
 import { ceilingLabels } from 'vcap-verify-core'
-import type { Verdict } from 'vcap-verify-core'
+import type { ContentCredentials, ProofSource, Verdict } from 'vcap-verify-core'
 
 /**
  * The verdict as a person reads it.
@@ -58,7 +58,8 @@ const MEANING: Record<string, string> = {
   'attestation key revoked': 'a certificate in the attestation chain was revoked at or before the capture',
   'attestation key revoked after the capture': 'a certificate was revoked later, which does not un-attest this capture',
   'key revoked': 'the log says this key was revoked at the capture time',
-  'sidecar differs': 'the sidecar and the trailer carry different proofs',
+  'sidecar differs': 'the sidecar carries a different proof from the one this verdict read',
+  'manifest copy differs': 'the Content Credentials carry a different proof from the trailer; the trailer decides',
   'capture time not declared': 'nothing in the core dates the capture, so the registration cannot be placed before it',
   'registered after the trusted time': 'the key was logged after the instant a timestamp authority placed the capture at',
   'attestation evidence invalid': 'the attached attestation chain breaks a rule it must satisfy (roots, CA issuers, the extension in the leaf only)',
@@ -94,6 +95,10 @@ export const render = (path: string, verdict: Verdict): string => {
   }
   if (verdict.location && verdict.location.level !== 'none') lines.push(`  position  ${position(verdict)}`)
   if (verdict.core_hash) lines.push(`  core      ${verdict.core_hash}`)
+  // Where the proof sat is not evidence (§3.1), so this is a line and never a
+  // label — and the trailer, the ordinary case, goes without saying.
+  if (verdict.proof_source && verdict.proof_source.kind !== 'trailer') lines.push(`  proof     read from ${proofSource(verdict.proof_source)}`)
+  if (verdict.content_credentials) lines.push(...credentials(verdict.content_credentials))
   // The registry line exists because the label it replaces used to be the only
   // trace of this check. A reader who watched *log not trusted* disappear is
   // owed the sentence that took its place — and the reminder of whose log it
@@ -119,6 +124,31 @@ export const render = (path: string, verdict: Verdict): string => {
     lines.push(`  ignored   ${verdict.not_evaluated.join(', ')} (fields this verifier does not know)`)
   }
   return lines.join('\n')
+}
+
+/** Where a proof was read, in words. */
+export const proofSource = (s: ProofSource): string => {
+  if (s.kind === 'trailer') return 'the trailer'
+  if (s.kind === 'sidecar') return 'the sidecar'
+  return s.depth === 0
+    ? `the active manifest of the Content Credentials (${s.manifest})`
+    : `the Content Credentials, ${s.depth} step${s.depth === 1 ? '' : 's'} up the parentOf chain (${s.manifest}) — the proof of a source capture`
+}
+
+/**
+ * The manifest store in a line of its own, beside the verdict and never part
+ * of it: nothing C2PA says reaches the outcome, and no C2PA signature was
+ * checked, which the line says every time.
+ */
+const credentials = (cc: ContentCredentials): string[] => {
+  const where = cc.store === 'embedded' ? 'in the file' : 'from --c2pa'
+  if (cc.unread) return [`  c2pa      Content Credentials ${where}, not read: ${cc.unread}`]
+  const generator = cc.active?.generator ? `, claim generator ${cc.active.generator} (its own word)` : ''
+  const sealed = cc.sealed_with_capture ? '; sealed with the capture' : ''
+  return [
+    `  c2pa      Content Credentials ${where}: ${cc.manifests} manifest${cc.manifests === 1 ? '' : 's'}, active ${cc.active?.label}${generator}${sealed} — C2PA signature not checked`,
+    ...cc.notes.map((note) => `    · ${note}`)
+  ]
 }
 
 /**
