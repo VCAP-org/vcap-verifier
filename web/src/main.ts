@@ -1,5 +1,5 @@
 import { verify, type Verdict, type WatermarkClaim, type WatermarkEvidence } from 'vcap-verify-core'
-import { anchorOffer, bareMark, card, errorCard, escape, markOffer } from './render.js'
+import { anchorOffer, bareMark, card, contentCredentials, errorCard, escape, markOffer } from './render.js'
 import { readEvidence } from './evidence.js'
 import { chainOffer, chainReader, enableChain, mountChains, mountTrust, mountTsa, trustInUse, trustedLogs, trustedTsaRoots } from './trust.js'
 import type { Detector, DetectorManifest, DetectProgress } from './detector.js'
@@ -8,9 +8,11 @@ import type { Detector, DetectorManifest, DetectProgress } from './detector.js'
 import pinned from './detector.json'
 
 /**
- * The page: one file in (with its sidecar or a detection, when the user has
- * them), the shared core over it, one verdict out in the specification's
- * words. Nothing is uploaded. The one request a verdict may make is to the
+ * The page: one file in (with its sidecar, a `.c2pa` manifest store or a
+ * detection, when the user has them), the shared core over it, one verdict out
+ * in the specification's words — and, when the file comes with Content
+ * Credentials, what they hold in a lane of their own beside the verdict, never
+ * inside it and never in its colours. Nothing is uploaded. The one request a verdict may make is to the
  * public chain an `anchor` names (`chains.json`), it carries the anchor id
  * only, and it is made only once the reader asks for it: until then, and
  * offline, the verdict is whole and says *anchoring not verified*.
@@ -44,11 +46,13 @@ import pinned from './detector.json'
  */
 const zones = {
   file: document.getElementById('drop') as HTMLDivElement,
-  sidecar: document.getElementById('sidecar-drop') as HTMLDivElement
+  sidecar: document.getElementById('sidecar-drop') as HTMLDivElement,
+  store: document.getElementById('store-drop') as HTMLDivElement
 }
 const inputs = {
   file: document.getElementById('file') as HTMLInputElement,
   sidecar: document.getElementById('sidecar') as HTMLInputElement,
+  store: document.getElementById('store') as HTMLInputElement,
   evidence: document.getElementById('evidence') as HTMLInputElement,
   model: document.getElementById('model') as HTMLInputElement
 }
@@ -92,8 +96,10 @@ for (const span of document.querySelectorAll<HTMLSpanElement>('[data-name-for]')
 
 // What the user has handed over so far. Each arrives on its own and the
 // verdict is recomputed whenever any of them changes, so the order does not
-// matter. `detection` is a detector's report about the file.
-const held: { file?: File, sidecar?: File, detection?: WatermarkEvidence, detectionName?: string } = {}
+// matter. `detection` is a detector's report about the file; `store` is a
+// C2PA manifest store kept beside it (`.c2pa`), read only when the file
+// embeds none.
+const held: { file?: File, sidecar?: File, store?: File, detection?: WatermarkEvidence, detectionName?: string } = {}
 /**
  * A model the reader chose instead of the pinned build. It has no digest to be
  * checked against, so it is named by its own: every detection it makes carries
@@ -260,9 +266,10 @@ const progress = (label: string) => ({ done, total, partial, frameMs }: DetectPr
 const ENGINE_BYTES = 28.2e6
 const detectorDownload = (): number => (custom ? 0 : (pinned as DetectorManifest).build?.bytes ?? 0) + ENGINE_BYTES
 
-const verdictOf = (bytes: Uint8Array, sidecar: Uint8Array | undefined, watermark: (claim: WatermarkClaim) => Promise<WatermarkEvidence | null>): Promise<Verdict> =>
+const verdictOf = (bytes: Uint8Array, sidecar: Uint8Array | undefined, store: Uint8Array | undefined, watermark: (claim: WatermarkClaim) => Promise<WatermarkEvidence | null>): Promise<Verdict> =>
   verify(bytes, {
     sidecar,
+    c2paStore: store,
     // Read at every verdict, not captured once: switching a log off in the
     // panel has to change the next verdict, or the control is decoration.
     trustedLogs: trustedLogs(),
@@ -311,6 +318,13 @@ const markAlone = async (file: File): Promise<string> => {
 const done = 'Checked in this browser. Nothing was uploaded.'
 
 /**
+ * The verdict card, then the Content Credentials lane beside it: two elements,
+ * so the C2PA side can never read as part of the verdict or take its colour.
+ */
+const shown = (name: string, verdict: Verdict, options?: Parameters<typeof card>[2]): string =>
+  card(name, verdict, options) + contentCredentials(verdict)
+
+/**
  * An anchor this page has not read, because its chain is off: say what reading
  * it would send, and to whom, and read it only if the reader says so. The
  * answer replaces the verdict, which is computed again with the chain on.
@@ -338,7 +352,7 @@ const offerAnchor = (verdict: Verdict, run: number): void => {
  */
 const check = async (): Promise<void> => {
   drawUsing()
-  const { file, sidecar, detection, detectionName } = held
+  const { file, sidecar, store, detection, detectionName } = held
   // Nothing rather than a card telling the reader to drop a file: the dropzone
   // directly above already says that, and the same sentence twice reads as an
   // answer the page has already given.
@@ -352,15 +366,16 @@ const check = async (): Promise<void> => {
   out.innerHTML = ''
   note = detection ? `Watermark read from ${detectionName ?? 'the detection you supplied'}. No detector ran in this page.` : null
   say(`Reading ${file.name}…`, 'working')
-  const name = sidecar ? `${file.name} + ${sidecar.name}` : file.name
+  const name = [file, sidecar, store].flatMap((f) => f ? [f.name] : []).join(' + ')
 
   try {
     const bytes = new Uint8Array(await file.arrayBuffer())
     const sidecarBytes = sidecar ? new Uint8Array(await sidecar.arrayBuffer()) : undefined
+    const storeBytes = store ? new Uint8Array(await store.arrayBuffer()) : undefined
     if (detection) {
-      const verdict = await verdictOf(bytes, sidecarBytes, async () => detection)
+      const verdict = await verdictOf(bytes, sidecarBytes, storeBytes, async () => detection)
       if (run !== generation) return
-      out.innerHTML = card(name, verdict, { detectionSupplied: true })
+      out.innerHTML = shown(name, verdict, { detectionSupplied: true })
       offerAnchor(verdict, run)
       say(note ?? done)
       return
@@ -370,24 +385,24 @@ const check = async (): Promise<void> => {
     // asked. The core asks only for a proof that declares a watermark and got
     // as far as the watermark check, which is exactly when a detector is due.
     let wanted = false
-    const verdict = await verdictOf(bytes, sidecarBytes, async () => { wanted = true; return null })
+    const verdict = await verdictOf(bytes, sidecarBytes, storeBytes, async () => { wanted = true; return null })
     if (run !== generation) return
 
     if (wanted) {
-      out.innerHTML = card(name, verdict, { watermarkPending: true })
+      out.innerHTML = shown(name, verdict, { watermarkPending: true })
       say('The signature is checked. Reading the watermark…', 'working')
       // Pass two, with the detector: it can change the verdict — a payload
       // that contradicts the proof is red (§8) — so the whole card is redrawn
       // from the core's second answer rather than patched.
-      const full = await verdictOf(bytes, sidecarBytes, lookup(file))
+      const full = await verdictOf(bytes, sidecarBytes, storeBytes, lookup(file))
       if (run !== generation) return
-      out.innerHTML = card(name, full)
+      out.innerHTML = shown(name, full)
       offerAnchor(full, run)
       say(note ?? done)
       return
     }
 
-    out.innerHTML = card(name, verdict)
+    out.innerHTML = shown(name, verdict)
     offerAnchor(verdict, run)
     // A file the signature layer could not speak for may still carry a mark:
     // the watermark is only evaluated for a proof that declares one, which a
@@ -446,6 +461,7 @@ modelReset.addEventListener('click', () => {
 })
 
 const isSidecar = (f: File): boolean => f.name.endsWith('.vcap')
+const isStore = (f: File): boolean => f.name.endsWith('.c2pa')
 const isDetection = (f: File): boolean => f.name.endsWith('.json')
 const isModel = (f: File): boolean => f.name.endsWith('.onnx')
 
@@ -456,12 +472,14 @@ const isModel = (f: File): boolean => f.name.endsWith('.onnx')
  */
 const take = async (files: FileList | File[]): Promise<void> => {
   const list = Array.from(files)
-  const media = list.find((f) => !isSidecar(f) && !isDetection(f) && !isModel(f))
+  const media = list.find((f) => !isSidecar(f) && !isStore(f) && !isDetection(f) && !isModel(f))
   const sidecar = list.find(isSidecar)
+  const store = list.find(isStore)
   const detection = list.find(isDetection)
   const model = list.find(isModel)
   if (media) held.file = media
   if (sidecar) held.sidecar = sidecar
+  if (store) held.store = store
   let detectionRead = false
   if (detection) {
     try {
@@ -478,7 +496,7 @@ const take = async (files: FileList | File[]): Promise<void> => {
   if (model) { await useModel(model); return }
   // An unreadable detection changes nothing, so it re-verifies nothing: a
   // second pass would only try the detector again and bury the reason above.
-  if (media || sidecar || detectionRead) void check()
+  if (media || sidecar || store || detectionRead) void check()
 }
 
 for (const input of Object.values(inputs)) {

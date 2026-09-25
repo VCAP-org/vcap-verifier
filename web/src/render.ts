@@ -1,5 +1,5 @@
 import { ceilingLabels } from 'vcap-verify-core'
-import type { Verdict, WatermarkEvidence, WatermarkOutcome } from 'vcap-verify-core'
+import type { ContentCredentials, ProofSource, Verdict, WatermarkEvidence, WatermarkOutcome } from 'vcap-verify-core'
 // The sampling policy, not a second copy of it: the page explains a refusal by
 // the same count `detector-runtime.ts` samples at, and importing the runtime
 // here would pull the engine into the bundle.
@@ -88,10 +88,15 @@ const RED_CLIP = 'Do not rely on it — a key behind the seal was revoked.'
 // (§8: a payload that is not a proof is no proof). "Carries no proof" would
 // then be false about the file in the reader's hand.
 const UNREADABLE_PROOF = 'This file carries no proof this page can read.'
+// A proof read from an ancestor manifest that does not fit the file: the file
+// was made from that capture, which is not an accusation and not an absence.
+const SOURCE_CAPTURE_PROOF = 'This file carries no proof of its own — its Content Credentials carry the proof of the capture it was made from.'
+const fromAncestor = (v: Verdict): boolean => v.proof_source?.kind === 'c2pa' && v.proof_source.depth > 0
 const plain = (v: Verdict): string => {
   const shown = colour(v)
   if (shown === 'red' && v.outcome !== 'authentic' && shown !== COLOR[v.outcome]) return RED_CLIP
   if (shown !== COLOR[v.outcome]) return PLAIN_BELOW[shown] ?? PLAIN[v.outcome]
+  if (v.outcome === 'no_proof_found' && fromAncestor(v)) return SOURCE_CAPTURE_PROOF
   if (v.outcome === 'no_proof_found' && v.reason !== undefined && v.reason !== 'no trailer and no sidecar') return UNREADABLE_PROOF
   return v.outcome === 'verified_clip' && v.content?.recomputed !== true ? CLIP_NOT_READ : PLAIN[v.outcome]
 }
@@ -140,7 +145,9 @@ export const FROM = {
   chain: 'public chain via RPC',
   lookup: 'VCAP online lookup',
   browser: 'this browser\'s clock',
-  supplied: 'a detection you supplied'
+  supplied: 'a detection you supplied',
+  // Read out of a C2PA manifest store whose signature this page does not check.
+  cc: 'Content Credentials, signature not checked'
 } as const
 const INSTANT_FROM: Record<string, string> = { timestamp: FROM.tsa, anchor: FROM.chain, device_clock: FROM.file, verifier_clock: FROM.browser }
 const SOURCES_LEGEND = `<p class="legend">Where each line comes from: <em>${FROM.file}</em> is checked here, offline, by anyone; <em>${FROM.log}</em> rests on a key of the log we run — our own records, not independent; a <em>${FROM.tsa}</em> and a <em>${FROM.chain}</em> are other people's; a <em>${FROM.lookup}</em> is a question this page does not ask. No source is a verdict of authenticity on its own.</p>`
@@ -345,7 +352,10 @@ export const card = (name: string, v: Verdict, o: CardOptions = {}): string => {
     // rather than leaving the reader to assume it was checked.
     v.key_status ? ['key revocation', escape(v.key_status.detail), FROM.lookup] : null,
     v.anchor ? ['anchor', escape(v.anchor.detail), v.anchor.on_chain === true ? FROM.chain : FROM.file] : null,
-    v.core_hash ? ['proof identity', `<code>${v.core_hash}</code>`, FROM.file] : null
+    v.core_hash ? ['proof identity', `<code>${v.core_hash}</code>`, FROM.file] : null,
+    // Where the proof sat is not evidence (§3.1), so it is a row and never a
+    // label — and only where it is not the trailer or a sidecar the reader chose.
+    v.proof_source?.kind === 'c2pa' ? ['proof read from', escape(proofSource(v.proof_source)), FROM.cc] : null
   ]
   const details = rows.filter((row): row is [string, string, string] => row !== null)
   // The core's own sentence for why the verdict stopped where it did: it names
@@ -368,6 +378,59 @@ export const card = (name: string, v: Verdict, o: CardOptions = {}): string => {
       ? `<details class="tech"><summary><span class="chev" aria-hidden="true">›</span> Technical detail</summary>${reason}${details.length ? `<dl class="kv">${details.map(([key, value, from]) => `<dt>${escape(key)}</dt><dd>${value}<span class="source">${escape(from)}</span></dd>`).join('')}</dl>${SOURCES_LEGEND}` : ''}</details>`
       : ''}
   </div>`
+}
+
+/** Where a proof was read, in words. */
+export const proofSource = (s: ProofSource): string => {
+  if (s.kind === 'trailer') return 'the file\'s trailer'
+  if (s.kind === 'sidecar') return 'the sidecar you supplied'
+  return s.depth === 0
+    ? `the active manifest of the Content Credentials (${s.manifest})`
+    : `the Content Credentials, ${s.depth} step${s.depth === 1 ? '' : 's'} up the parentOf chain (${s.manifest}) — the proof of the capture this file was made from`
+}
+
+/**
+ * The Content Credentials lane: what the file's C2PA manifest store holds, in
+ * its own panel and never inside the verdict card, and never in a verdict
+ * colour — nothing C2PA says reaches the outcome, the labels or the ceiling.
+ * This page checks no C2PA signature, certificate or hashed URI, so the lane
+ * names no signer, shows no mark of validity, and every row says it rests on
+ * a signature nobody here checked. The mechanical facts it can state are the
+ * ones about vcap's own bytes: where the proof was read, whether a copy
+ * differs, and whether the store was inside the bytes the device sealed.
+ */
+export const contentCredentials = (v: Verdict): string => {
+  const cc = v.content_credentials
+  if (!cc) return ''
+  const where = cc.store === 'embedded' ? 'embedded in the file' : 'the .c2pa file you supplied'
+  const rows: Array<[string, string]> = cc.unread
+    ? [['manifest store', `${where}, not read: ${escape(cc.unread)}`]]
+    : [
+        ['manifest store', `${where}, ${cc.manifests === 1 ? 'one manifest' : `${cc.manifests} manifests`}`],
+        ['active manifest', `<code>${escape(cc.active?.label ?? '')}</code>`],
+        ...(cc.active?.generator ? [['claim generator', `${escape(cc.active.generator)} — the generator's own name for itself`] as [string, string]] : []),
+        ['vcap proof', escape(proofRow(v, cc))],
+        ...(cc.sealed_with_capture ? [['sealed with the capture', 'Content Credentials sealed with the capture: the store sits inside the bytes the device hashed, and they match'] as [string, string]] : []),
+        ...cc.notes.map((note): [string, string] => ['stepped over', escape(note)])
+      ]
+  rows.push(['C2PA signature', 'not checked by this page: who signed these Content Credentials, and whether their own bindings hold, is a question for a C2PA validator'])
+  return `<div class="panel cc">
+    <h3>Content Credentials</h3>
+    <p class="muted">This file comes with a C2PA manifest store. This page reads it only to find a vcap proof; nothing in it changes the verdict above.</p>
+    <dl class="kv">${rows.map(([key, value]) => `<dt>${escape(key)}</dt><dd>${value}<span class="source">${escape(FROM.cc)}</span></dd>`).join('')}</dl>
+  </div>`
+}
+
+const proofRow = (v: Verdict, cc: ContentCredentials): string => {
+  const source = v.proof_source
+  if (source?.kind === 'c2pa') return `the verdict above was read from ${proofSource(source)}${cc.proof ? `, listed in its claim's ${cc.proof.listed_as}` : ''}`
+  if (source?.kind === 'trailer' && cc.proof) {
+    return v.labels.includes('manifest copy differs')
+      ? `the active manifest carries a different copy of the proof (manifest copy differs); the trailer decides`
+      : 'the active manifest carries a copy of the proof, the same as the trailer\'s; the trailer decides'
+  }
+  if (source?.kind === 'sidecar') return 'none in the active manifest; the verdict above is the sidecar\'s'
+  return 'none in the manifests this page follows'
 }
 
 /**
