@@ -7,6 +7,8 @@
  * than a transitive graph.
  */
 export interface Options {
+  /** `verify` (the default) judges files; `extract` prints the proof a file carries, as its bytes, and judges nothing. */
+  command: 'verify' | 'extract'
   files: string[]
   json: boolean
   /**
@@ -14,6 +16,11 @@ export interface Options {
    * means `<file>.vcap` next to the file if it exists.
    */
   sidecar?: string | false
+  /**
+   * A C2PA manifest store (`.c2pa`) the caller holds, read only when the file
+   * embeds none. Named, never looked for: a store a file points at is not fetched.
+   */
+  c2pa?: string
   /** §5 recomputation from the container. On by default; `--no-recompute` for a caller that has only a sidecar. */
   recompute: boolean
   /**
@@ -50,12 +57,22 @@ export class UsageError extends Error {}
 export const USAGE = `vcap-verify — check a vcap proof
 
   vcap-verify [options] <file>...
+  vcap-verify extract [--sidecar <path> | --no-sidecar] [--c2pa <store>] [--json] <file>
+
+extract prints the proof the file carries, byte for byte, and says on stderr
+where it was read from — the trailer, the Content Credentials, or the sidecar,
+in the spec's precedence. It judges nothing: \`vcap-verify extract f > f.vcap\`
+writes the sidecar a file whose trailer might be stripped should travel with.
 
 Options
   --json                    machine-readable verdict on stdout, one object per file
   --sidecar <path>          read the proof from this .vcap sidecar (single file only);
                             by default <file>.vcap next to the file is read when present (§3.1)
   --no-sidecar              ignore any sidecar, verify the file alone
+  --c2pa <store>            a C2PA manifest store (.c2pa) kept beside the file (single file
+                            only), read for the proof when the file embeds no store of its
+                            own. Its C2PA signature is not checked: the proof in it
+                            is judged by its own signature, like any other copy
   --no-recompute            do not recompute segment hashes from the container (§5)
   --watermark <path.json>   a detection of the declared watermark, as JSON (single file only):
                             layout, decoded, agreement, corrected_bits, frames_sampled,
@@ -127,14 +144,18 @@ tampered file is a successful run of the tool and a failure of the file.
 `
 
 export const parse = (argv: string[]): Options => {
-  const o: Options = { files: [], json: false, recompute: true, logs: [], trustFiles: [], noDefaultLogs: false, showTrust: false, tsaRoots: [], noDefaultTsa: false, offline: false, requireGreen: false, help: false }
+  const o: Options = { command: 'verify', files: [], json: false, recompute: true, logs: [], trustFiles: [], noDefaultLogs: false, showTrust: false, tsaRoots: [], noDefaultTsa: false, offline: false, requireGreen: false, help: false }
   const next = (flag: string, at: number): string => {
     const value = argv[at + 1]
     if (value === undefined || value.startsWith('--')) throw new UsageError(`${flag} needs a value`)
     return value
   }
 
-  for (let at = 0; at < argv.length; at++) {
+  // A subcommand is the first word or not one at all: a file named `extract`
+  // further along is still a file.
+  const first = argv[0] === 'extract' ? 1 : 0
+  if (first === 1) o.command = 'extract'
+  for (let at = first; at < argv.length; at++) {
     const arg = argv[at] as string
     switch (arg) {
       case '--json': o.json = true; break
@@ -143,6 +164,7 @@ export const parse = (argv: string[]): Options => {
       case '-h': case '--help': o.help = true; break
       case '--sidecar': o.sidecar = next(arg, at); at++; break
       case '--watermark': o.watermark = next(arg, at); at++; break
+      case '--c2pa': o.c2pa = next(arg, at); at++; break
       case '--no-sidecar': o.sidecar = false; break
       case '--no-default-logs': o.noDefaultLogs = true; break
       case '--no-default-tsa': o.noDefaultTsa = true; break
@@ -175,6 +197,9 @@ export const parse = (argv: string[]): Options => {
   if (!o.help && !o.showTrust) {
     if (o.files.length === 0) throw new UsageError('no file given')
     if (o.sidecar && o.files.length > 1) throw new UsageError('--sidecar takes a single file')
+    // A store is about one file's bytes, like a sidecar.
+    if (o.c2pa && o.files.length > 1) throw new UsageError('--c2pa takes a single file')
+    if (o.command === 'extract' && o.files.length > 1) throw new UsageError('extract takes a single file')
     // One detection is about one file's pixels. Spreading it over a directory
     // would report a mark that was never looked for in the other files.
     if (o.watermark && o.files.length > 1) throw new UsageError('--watermark takes a single file')

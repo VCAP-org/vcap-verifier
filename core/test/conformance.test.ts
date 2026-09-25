@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { verify, verifyChain, jcs, toHex, extractCore, fromBase64, parseCertificate, pemToDer, evaluateWatermark, VIDEO_AGREEMENT_FLOOR } from '../src/index.js'
+import { verifyChain, jcs, toHex, extractCore, fromBase64, evaluateWatermark, VIDEO_AGREEMENT_FLOOR } from '../src/index.js'
 import { importP256Spki } from '../src/es256.js'
 import { sha256 } from '../src/sha.js'
 import type { Json } from '../src/jcs.js'
 import { corpus } from './corpus.js'
+import { vectorVerdict } from './vector-verdict.js'
 
 /**
  * The conformance vectors of vcap-spec. Source of truth: the `spec` submodule;
@@ -17,31 +18,6 @@ import { corpus } from './corpus.js'
 const CORPUS = corpus()
 const VECTORS = CORPUS.dir
 const dirs = CORPUS.names
-
-// `_trust/` holds the anchors the corpus assumes a verifier already has: the
-// root its attestation chains end in — a test root standing in for a pinned
-// Google root — and the public key of the log it pretends to trust. They ship
-// as loadable files rather than compiled into a verifier precisely so a second
-// implementation can reproduce the verdicts; loading them here is what makes
-// this core that second implementation. Absent, the §7 vectors fail loudly with
-// `proven: none`, which is the honest answer for a verifier holding no anchor.
-const TRUST = join(VECTORS, '_trust')
-const pemCerts = (pem: string) => (pem.match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) ?? []).map((b) => parseCertificate(pemToDer(b)))
-// The TSA roots the corpus ships. Without them a timestamped vector reads as
-// *trusted time not evaluated* — evidence this verifier cannot read — which is
-// a different verdict from the one the vector states, so leaving them out
-// would look like a bug in the timestamp validator.
-const tsaRoots = existsSync(join(TRUST, 'tsa-roots.pem'))
-  ? (readFileSync(join(TRUST, 'tsa-roots.pem'), 'utf8').match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) ?? []).map(pemToDer)
-  : []
-
-const googleRoots = existsSync(join(TRUST, 'attestation-roots.pem'))
-  ? pemCerts(readFileSync(join(TRUST, 'attestation-roots.pem'), 'utf8'))
-  : undefined
-const trustedLogs = existsSync(join(TRUST, 'logs.json'))
-  ? (JSON.parse(readFileSync(join(TRUST, 'logs.json'), 'utf8')).logs as { log_id: string, spki: string, app_signing_digests?: string[] }[])
-      .map((l) => ({ logId: l.log_id, spki: fromBase64(l.spki), ...(l.app_signing_digests ? { appSigningDigests: l.app_signing_digests } : {}) }))
-  : undefined
 
 // Compare only what the vector asks about, at every depth: a verdict may carry
 // more than the corpus pins (this core names the contradicted segments, the
@@ -84,31 +60,18 @@ describe(`vcap-spec conformance vectors (corpus ${CORPUS.version}, manifest ${CO
       // letting the wall clock decide. Vectors 43 and 45 say the same chain twice
       // and differ only by it. Comparing it as an output is how it read as a
       // failure while the logic underneath was right.
-      const { kind, debug: _d, schema_valid: _s, verifier_clock: clock, key_status: keyStatus, chain_read: chainRead, ...want } = JSON.parse(readFileSync(join(path, 'expected.json'), 'utf8'))
-      const now = typeof clock === 'number' ? new Date(clock) : undefined
+      // `verifier_clock`, `key_status` and `chain_read` are inputs, not
+      // expectations (`vector-verdict.ts` hands them over). `c2pa` is what a
+      // C2PA validator is expected to say about the same file — a gate for
+      // c2patool, never a part of this verdict, which no C2PA state reaches.
+      const { kind, debug: _d, schema_valid: _s, verifier_clock: _clock, key_status: _k, chain_read: _r, c2pa: _c, ...want } = JSON.parse(readFileSync(join(path, 'expected.json'), 'utf8'))
       if (kind === 'file' || kind === 'container') {
         // A container vector is a file vector with one more question asked of
         // the same bytes: recompute every segment's content_hash from the GOPs
         // (§5) instead of trusting the hashes the proof carries about itself.
-        const input = readdirSync(path).find((f) => f.startsWith('input.') && !f.endsWith('.vcap')) as string
-        const sidecarPath = join(path, `${input}.vcap`)
-        const verdict = await verify(new Uint8Array(readFileSync(join(path, input))), {
-          sidecar: existsSync(sidecarPath) ? new Uint8Array(readFileSync(sidecarPath)) : undefined,
-          recomputeSegments: kind === 'container',
-          googleRoots,
-          trustedLogs,
-          tsaRoots,
-          // Also an input: §6.2 makes revocation an online question, so the
-          // corpus declares what the verifier is assumed to have fetched. A
-          // vector without it is one where the log could not be asked, which
-          // is *revocation not checked* and never green.
-          keyStatus: keyStatus ? async () => keyStatus : undefined,
-          // What the corpus says a caller read from the anchoring contract.
-          readChain: chainRead
-            ? async () => ({ root: fromBase64(chainRead.root), treeSize: chainRead.tree_size, blockTime: chainRead.block_time ? new Date(chainRead.block_time) : undefined })
-            : undefined,
-          now
-        })
+        // A vector without `key_status` is one where the log could not be
+        // asked, which is *revocation not checked* and never green.
+        const verdict = await vectorVerdict(dir)
         expect(pick(verdict, want)).toEqual(want)
       } else if (kind === 'segments') {
         const input = JSON.parse(readFileSync(join(path, 'segments.json'), 'utf8'))

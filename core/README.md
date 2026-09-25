@@ -184,6 +184,38 @@ chain, or the device's own clock — a claim. The same file reads differently
 depending on which, so a verifier that could not say this would be hiding the
 difference.
 
+## Content Credentials
+
+A C2PA manifest store is a **carrier** here, never a verdict. It can hold the
+proof as the assertion `io.github.vcap-org.vcap.proof` (`vcap-spec`,
+`c2pa-interop` §2.1), and `extractProof` finds it:
+
+```ts
+import { extractProof } from 'vcap-verify-core'
+
+const found = extractProof(file, sidecar?, c2paStore?)
+// { kind: 'proof', payload, media, flags, source, labels, c2pa? }
+//   source: { kind: 'trailer' } | { kind: 'sidecar' } | { kind: 'c2pa', manifest, depth }
+// { kind: 'refused', outcome, reason, c2pa? }   // no_proof_found, corrupted_proof, …
+```
+
+`verify(file, { sidecar, c2paStore })` runs the same function first, so its
+verdict carries `proof_source` (where the proof was read — diagnostic, never a
+label), `content_credentials` (what the store held, for a surface to show in a
+lane of its own) and, for a video whose container was read,
+`frames_name_capture` (whether any GOP's vcap SEI names the capture — a hint,
+never evidence). The precedence is §3.1's with the store in it: an intact
+trailer; a broken CRC is *corrupted proof* whatever the store holds; then the
+active manifest (depth 0), the sidecar, and the nearest proof up the
+`parentOf` chain (depth 1–16). A copy in a manifest is compared as
+`JCS(parse(a)) == JCS(parse(b))` (*manifest copy differs*), because a C2PA
+writer re-serializes the JSON; trailer and sidecar keep the byte rule. A proof
+from depth ≥ 1 that does not fit the file is *no proof found* with the reason
+`SOURCE_CAPTURE`, never *tampered*: the file was made from that capture and
+says so. No COSE, X.509, hashed URI or hard binding is checked — the proof
+authenticates itself, and no C2PA state reaches the outcome, the labels or the
+ceiling. The repository README says exactly what is and is not read.
+
 ## What is exported
 
 | | |
@@ -191,6 +223,7 @@ difference.
 | `verify` | the whole thing: trailer, canonical bytes, signature, §5 chain, attachments, §7 level |
 | `coreHashOf`, `extractCore`, `jcs` | the identity of a proof and the canonical bytes it is over |
 | `parseTrailer`, `canonicalBytes`, `detectContainer` | §3 and §4.1 on their own |
+| `extractProof`, `PROOF_LABEL`, `SOURCE_CAPTURE` | where the proof is — trailer, C2PA manifest store, sidecar, `parentOf` chain — before anything about it is believed |
 | `verifyChain`, `segmentMessage`, `recomputeSegments` | §5 at message level and from a container |
 | `verifyRegistry`, `verifyKeyStatus`, `verifyAnchor`, `validateTimestamp`, `verifyIntegrity` | the §6.2 attachments, individually |
 | `evaluateWatermark`, `captureIdHex`, `VIDEO_AGREEMENT_FLOOR` | §8's watermark table on its own, for a caller holding a detection and no file — and the floor, so a detector can apply it before it reports |

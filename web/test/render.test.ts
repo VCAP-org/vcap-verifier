@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { Verdict, WatermarkOutcome } from 'vcap-verify-core'
-import { bareMark, card, colour, errorCard, markOffer } from '../src/render.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { verify } from 'vcap-verify-core'
+import { bareMark, card, colour, contentCredentials, errorCard, markOffer } from '../src/render.js'
 import { vectorVerdict } from '../../core/test/vector-verdict.js'
+import { jpegWithStore, manifest, store } from '../../core/test/c2pa-fixtures.js'
+import { parseTrailer } from '../../core/src/trailer.js'
+import { corpus } from '../../core/test/corpus.js'
 import { VIDEO_FRAMES } from '../src/sampling.js'
 
 /**
@@ -298,5 +304,71 @@ describe('a chain read offered, not made', () => {
     expect(html).toContain('<code>sepolia.base.org</code>')
     expect(html).toContain('for anchor 7')
     expect(html).toContain('id="read-anchor"')
+  })
+})
+
+/**
+ * The Content Credentials lane, over verdicts the core computed from stores
+ * built byte by byte (`core/test/c2pa-fixtures.ts`) around vector 01's proof.
+ * What it must never do: sit inside the verdict card, wear a verdict colour,
+ * name a signer, or let a reader think a C2PA signature was checked.
+ */
+describe('the Content Credentials lane', () => {
+  const vectors = corpus().dir
+  const photo = readFileSync(join(vectors, '01-jpeg-sealed', 'input.jpg'))
+  const trailer = parseTrailer(new Uint8Array(photo))
+  if (trailer.kind !== 'ok') throw new Error('vector 01 is not sealed')
+  const proof = trailer.payload
+  const edited = Uint8Array.from(trailer.media)
+  edited[edited.length - 20] = edited[edited.length - 20]! ^ 0xff
+
+  it('is absent for a file with no store', async () => {
+    expect(contentCredentials(await verify(new Uint8Array(photo)))).toBe('')
+  })
+
+  it('is its own panel, in no verdict colour, every row sourced to a signature nobody here checked', async () => {
+    const v = await verify(jpegWithStore(trailer.media, store(manifest({ label: 'urn:c2pa:m', proof, generator: 'Acme Cam' }))))
+    const lane = contentCredentials(v)
+    expect(lane.startsWith('<div class="panel cc">')).toBe(true)
+    expect(lane).not.toMatch(/class="[^"]*\b(green|amber|red|grey)\b/)
+    expect(lane).toContain('<code>urn:c2pa:m</code>')
+    expect(lane).toContain('Acme Cam 1.0 — the generator\'s own name for itself')
+    expect(lane).toContain('the verdict above was read from the active manifest of the Content Credentials (urn:c2pa:m), listed in its claim\'s gathered_assertions')
+    expect(lane).toContain('not checked by this page')
+    const rows = lane.match(/<dt>/g)?.length ?? 0
+    expect(lane.match(/<span class="source">Content Credentials, signature not checked<\/span>/g)?.length).toBe(rows)
+    // The card keeps the spec's words and says where the proof was read, and holds no lane.
+    const html = card('photo.jpg', v)
+    expect(html).toContain('<span class="badge">Authentic</span><span class="rest"> — signed at capture, file complete</span>')
+    expect(html).toContain('<dt>proof read from</dt>')
+    expect(html).not.toContain('panel cc')
+  })
+
+  it('says a proof from further up the chain is a source capture\'s, and the title stays the spec\'s', async () => {
+    const chain = store(manifest({ label: 'urn:c2pa:1', proof }), manifest({ label: 'urn:c2pa:0', ingredients: [['parentOf', 'urn:c2pa:1']] }))
+    const v = await verify(jpegWithStore(edited, chain))
+    const html = card('edited.jpg', v)
+    expect(html).toContain('This file carries no proof of its own — its Content Credentials carry the proof of the capture it was made from.')
+    expect(html).toContain('<span class="badge">No proof found</span>')
+    expect(contentCredentials(v)).toContain('1 step up the parentOf chain (urn:c2pa:1) — the proof of the capture this file was made from')
+  })
+
+  it('names a copy beside the trailer, and says when it differs', async () => {
+    const same = await verify(jpegWithStore(new Uint8Array(photo), store(manifest({ label: 'urn:c2pa:m', proof }))))
+    expect(contentCredentials(same)).toContain('the same as the trailer\'s; the trailer decides')
+    const other = new TextEncoder().encode(JSON.stringify({ ...JSON.parse(new TextDecoder().decode(proof)), anchor: {} }))
+    const differs = await verify(jpegWithStore(new Uint8Array(photo), store(manifest({ label: 'urn:c2pa:m', proof: other }))))
+    expect(contentCredentials(differs)).toContain('a different copy of the proof (manifest copy differs); the trailer decides')
+    expect(card('photo.jpg', differs)).toContain('<li>manifest copy differs</li>')
+  })
+
+  it('says why a store was not read, and escapes whatever a store names', async () => {
+    const unread = await verify(new Uint8Array(photo), { c2paStore: new Uint8Array(12) })
+    expect(contentCredentials(unread)).toContain('the .c2pa file you supplied, not read: the manifest store cannot be read')
+    const hostile = await verify(jpegWithStore(trailer.media, store(manifest({ label: '<img src=x onerror=alert(1)>', proof, generator: '<b>me</b>' }))))
+    const lane = contentCredentials(hostile)
+    expect(lane).not.toContain('<img')
+    expect(lane).not.toContain('<b>')
+    expect(lane).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
 })
