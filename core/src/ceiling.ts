@@ -32,7 +32,8 @@ const AMBER = [
   'attestation app not admitted',
   'attestation app not checked',
   'inconsistent claim',
-  'integrity failed'
+  'integrity failed',
+  'integrity not proven'
 ]
 
 /** A green ceiling has no fault to name, so §7 names what was proven. */

@@ -471,8 +471,8 @@ describe('the ceiling line', () => {
     expect(ceiling(render('photo.jpg', await vectorVerdict('100-jpeg-registry-green-timestamped')))).toBe('  ceiling   green — sealed in the TEE')
   })
 
-  it('names the device clock as what keeps a registered TEE key amber (vector 54)', async () => {
-    expect(ceiling(render('photo.jpg', await vectorVerdict('54-jpeg-registry-green')))).toBe('  ceiling   amber — no trusted time')
+  it('names the unproven device and the device clock as what keep a registered TEE key amber (vector 54)', async () => {
+    expect(ceiling(render('photo.jpg', await vectorVerdict('54-jpeg-registry-green')))).toBe('  ceiling   amber — integrity not proven, no trusted time')
   })
 
   it('names the revocation on red, and nothing else (vector 44)', async () => {

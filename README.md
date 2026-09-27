@@ -590,9 +590,11 @@ whose `at` is checked against the proven instant so a log cannot be quoted out o
 context. The `integrity` attachment relays what Play Integrity or App Attest
 said about the device, signed by the registry over `core_hash ‖ verdict` — the
 verdict sits inside the signed message, so it cannot be relabelled — and it is
-**shown without changing any ceiling**: the same rooted device that fails an
-integrity check also fails to chain to a hardware root, so counting it in §7
-would count one fact twice. From those the verdict carries `level`:
+a **condition for green**: only a `hardware` verdict from Play Integrity proves
+the device intact (*integrity not proven* otherwise, amber). A cap on `failed`
+alone let whoever stripped the attachment turn amber into green; as a
+condition, deleting evidence can never raise the colour. App Attest never
+proves it — Apple says nothing about a jailbreak — so iOS is amber at best. From those the verdict carries `level`:
 claimed, proven and the §7 ceiling, with *inconsistent claim* when the claim
 exceeds the evidence. X.509 and CMS are read with `asn1js` over WebCrypto (RSA
 PKCS#1 v1.5 and ECDSA with SHA-256/384/512). Besides synthetic chains, the tests
@@ -623,7 +625,7 @@ outcome is **`frames_not_compared`**, amber — the signatures hold, nothing tie
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 2.1.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 3.0.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
@@ -633,7 +635,8 @@ only (else *attestation evidence invalid*), a leaf that is not `sig.pub` is
 *not checked*); a revoked chain certificate is red unless a trusted instant
 precedes the source's `revoked_at` for a reason that is not a compromise; iOS
 `secureEnclave` comes only from a registry leaf, *level from registry records*;
-a valid `integrity` of `failed` caps at amber.
+green needs a valid Play Integrity `hardware` verdict (*integrity not proven*
+otherwise), and a valid `failed` is shown as *integrity failed*.
 
 `verify` never throws on its input: every parser bounds its reads and counts,
 and a top-level guard turns anything that still escapes into *no proof found*
@@ -726,8 +729,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 2.1.0, 147
-vectors** (manifest `2e4ee0e72b96…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 3.0.0, 150
+vectors** (manifest `f6d280c4ed0d…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |

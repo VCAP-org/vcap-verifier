@@ -5,6 +5,7 @@ import { subtle } from '../src/sha.js'
 import { coreHashOf, parseTrailer, verify } from '../src/index.js'
 import { parseCertificate } from '../src/x509.js'
 import { statusMessage } from '../src/attestation-status.js'
+import { integrityMessage } from '../src/integrity.js'
 import { androidChain, genKey, timestampToken, tsaSigner } from './fixtures.js'
 import { keyStatusFor, logId, registryFor, sign, trusted } from './log.js'
 
@@ -50,6 +51,12 @@ describe('the device key against the log', async () => {
     a.sig = toBase64url(await sign(Uint8Array.from(statusMessage(hash, a))))
     return a
   }
+  // §7: green needs the device proven intact — a registry-signed Play
+  // Integrity `hardware` verdict over this core.
+  const intact = async () => {
+    const body = { source: 'playIntegrity', verdict: 'hardware', evaluated_at: clock.getTime() + 1000 }
+    return { ...body, sig: toBase64url(await sign(integrityMessage(hash, body))) }
+  }
   // §7: green needs a trusted instant, so these proofs carry a timestamp token
   // at the device's own clock; the key status is asked at that instant.
   const tsa = await tsaSigner({ notBefore: new Date(clock.getTime() - 86_400_000), notAfter: new Date(clock.getTime() + 86_400_000) })
@@ -73,11 +80,18 @@ describe('the device key against the log', async () => {
   })
 
   it('reaches green when the log places the key as valid at the capture', async () => {
-    const v = await run({ attestation_status: await cleared() }, { keyStatus: async (_id: string, at: Date) => keyStatusFor(keyId, at.getTime(), 1) })
+    const v = await run({ attestation_status: await cleared(), integrity: await intact() }, { keyStatus: async (_id: string, at: Date) => keyStatusFor(keyId, at.getTime(), 1) })
 
     expect(v.labels).not.toContain('revocation not checked')
     expect(v.key_status?.ok).toBe(true)
     expect(v.level).toEqual({ claimed: 'tee', proven: 'tee', ceiling: 'green' })
+  })
+
+  it('stays amber with the key valid when nothing proves the device intact', async () => {
+    const v = await run({ attestation_status: await cleared() }, { keyStatus: async (_id: string, at: Date) => keyStatusFor(keyId, at.getTime(), 1) })
+
+    expect(v.labels).toContain('integrity not proven')
+    expect(v.level).toEqual({ claimed: 'tee', proven: 'tee', ceiling: 'amber' })
   })
 
   it('is red when the log places the key as revoked at the capture', async () => {

@@ -111,7 +111,7 @@ describe('the verdict colour follows the §7 ceiling', () => {
   const lede = (html: string): string => /<p class="lede">([^<]*)<\/p>/.exec(html)?.[1] ?? ''
   const ceiling = (html: string): string => (/<p class="ceiling">(.*?)<\/p>/.exec(html)?.[1] ?? '').replace(/<[^>]+>/g, '')
 
-  it('is green only when the ceiling is green (vector 100: registered TEE key, timestamped)', async () => {
+  it('is green only when the ceiling is green (vector 100: registered TEE key, timestamped, device proven intact)', async () => {
     const v = await vectorVerdict('100-jpeg-registry-green-timestamped')
     const html = card('photo.jpg', v)
     expect(colour(v)).toBe('green')

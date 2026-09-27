@@ -7,7 +7,7 @@ import { recomputeSegments } from './container.js'
 import { type StatusAttachment, type StatusEntry, chainStatus, verifyStatus } from './attestation-status.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import { type SegmentEntry, verifyChain } from './segments.js'
-import { type IntegrityAttachment, verifyIntegrity } from './integrity.js'
+import { type IntegrityAttachment, PROVES_DEVICE_INTEGRITY, verifyIntegrity } from './integrity.js'
 import { type RegistryAttachment, type TrustedLog, verifyRegistry } from './registry.js'
 import { type AnchorAttachment, type ChainReader, verifyAnchor } from './anchor.js'
 import { validateTimestamp } from './rfc3161.js'
@@ -54,9 +54,9 @@ export interface Verdict {
   // §6.2: the chain's revocation status as frozen while the chain was current.
   attestation_status?: { ok: boolean, detail: string }
   // §6.2 integrity: what the platform said about the device's state, relayed by
-  // the registry. Shown, and never a ceiling — §7 takes the proven level from
-  // `attestation`, and the rooted device that fails an integrity check also
-  // fails to chain to a hardware root, so counting it would count it twice.
+  // the registry. Never a level — §7 takes that from `attestation` — but a
+  // condition for green: only a `hardware` verdict from a source that attests
+  // device state (`PROVES_DEVICE_INTEGRITY`) lets a proven level be green.
   integrity?: { ok: boolean, detail: string, verdict?: string, evaluated_at?: number }
   // §6.2 registry → "Revocation, online": the device key's own standing in the
   // log at the proven instant. The one check that needs network, and the one
@@ -151,7 +151,7 @@ const PLATFORMS = new Set(['android', 'ios', 'web'])
 const HOLDS_AMBER = new Set([
   'inconsistent claim', 'chain revocation not checked', 'revocation not checked', 'attestation chain expired, capture time not proven',
   'registered after the declared capture', 'registered after the trusted time', 'capture time not declared',
-  'attestation app not admitted', 'attestation app not checked', 'integrity failed'
+  'attestation app not admitted', 'attestation app not checked', 'integrity failed', 'integrity not proven'
 ])
 const SECURE_HW = new Set(['strongbox', 'tee', 'secureEnclave', 'none'])
 
@@ -420,6 +420,10 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
     if (!a.ok) labels.push('anchor evidence invalid', 'not anchored')
     else if (!a.onChain) labels.push('anchoring not verified')
   }
+  // §7: whether the device's integrity is proven. Stays false for an absent,
+  // unreadable or weaker statement, so deleting a `failed` one can never make
+  // a verdict greener than it was.
+  let deviceIntegrity = false
   if (isObj(proof.integrity)) {
     const i = await verifyIntegrity(proof.integrity as unknown as IntegrityAttachment, coreHash, o.trustedLogs ?? [])
     verdict.integrity = i.ok
@@ -433,7 +437,10 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
     if (!i.ok) {
       if (i.trusted) labels.push('integrity evidence invalid')
       labels.push('integrity unevaluated')
-    } else labels.push(`integrity ${i.verdict}`)
+    } else {
+      labels.push(`integrity ${i.verdict}`)
+      deviceIntegrity = i.verdict === 'hardware' && PROVES_DEVICE_INTEGRITY.has(i.source)
+    }
   }
   // §7.1: the position level, computed here with the attachments because the
   // corroboration is one, and kept out of §7's ceiling below by construction —
@@ -588,9 +595,13 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
     // claim is measured against it.
     (device.platform === 'ios' && logged !== null && above(claimed, logged))
   if (inconsistent) labels.push('inconsistent claim')
+  // §7: a proven level says where the key lives, not that the device that
+  // asked it to sign was intact. Named only beside a level: without one the
+  // verdict is already amber for *origin not hardware-attested*.
+  if (proven !== 'none' && !deviceIntegrity) labels.push('integrity not proven')
   // §7: green needs a proven level, the key in a trusted log, a trusted
-  // instant (a token or a verified anchor — never the device's clock), and
-  // none of the labels that hold a ceiling at amber.
+  // instant (a token or a verified anchor — never the device's clock), proven
+  // device integrity, and none of the labels that hold a ceiling at amber.
   const ceiling: 'green' | 'amber' | 'red' = verdict.outcome === 'tampered' || labels.includes('key revoked') || labels.includes('attestation key revoked') ? 'red'
     : proven !== 'none' && verdict.registry?.ok === true && verdict.outcome === 'authentic' && trustedInstant && !labels.some((l) => HOLDS_AMBER.has(l)) ? 'green'
     : 'amber'

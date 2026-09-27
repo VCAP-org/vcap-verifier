@@ -41,6 +41,13 @@ export type IntegrityOutcome =
 const SOURCES = new Set(['playIntegrity', 'appAttest', 'none'])
 const VERDICTS = new Set(['hardware', 'basic', 'unevaluated', 'failed'])
 
+/**
+ * §6.2/§7: the sources whose `hardware` verdict proves the device intact, and
+ * so can let a proven level be green. `appAttest` is not one: Apple says
+ * nothing about whether a device is jailbroken, whatever the verdict says.
+ */
+export const PROVES_DEVICE_INTEGRITY: ReadonlySet<string> = new Set(['playIntegrity'])
+
 const SEPARATOR = utf8('vcap/1.0/integrity')
 
 /** §6.2: `"vcap/1.0/integrity" ‖ core_hash ‖ JCS(attachment without sig)`. */

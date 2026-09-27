@@ -170,8 +170,10 @@ the only place the binding can be checked.
 and a caller **must** show them: a proof is a set of claims with evidence
 attached, and a reader told only what passed will assume it was all there.
 `level.ceiling` is green, amber or red, and is bounded by the weakest link —
-green needs a proven hardware level, the key in the log before the capture, and
-its revocation actually asked.
+green needs a proven hardware level, the key in the log before the capture,
+its revocation actually asked, and the device proven intact by a Play
+Integrity `hardware` verdict (*integrity not proven* otherwise — every iOS
+capture, in this version).
 The ceiling is the verdict's light (§7), and a surface colours by it, not by
 `outcome`: *authentic* under an amber ceiling is not green. `ceilingLabels(verdict)`
 returns the §7 labels that set it, from `labels` in the core's words — the

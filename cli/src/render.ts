@@ -41,6 +41,8 @@ const MEANING: Record<string, string> = {
   'integrity hardware': 'the platform reported the device as hardware-backed and intact',
   'integrity basic': 'the platform reported a device that passes only basic checks',
   'integrity failed': 'the platform reported this device as failing its integrity checks',
+  // §7: green needs the device proven intact, not only the key's hardware.
+  'integrity not proven': 'where the key lives is proven; that the device was intact is not (no hardware-backed Play Integrity verdict)',
   'no watermark': 'no watermark was looked for',
   'watermark not evaluated': 'a watermark is declared and no detection of it could be read (--watermark)',
   // §8's three non-red outcomes for a declared watermark. *Matched* is a
