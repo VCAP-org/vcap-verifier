@@ -15,10 +15,24 @@ describe('the labels that set the verdict ceiling', () => {
     expect(ceilingLabels(v)).toEqual(['sealed in the TEE'])
   })
 
-  it('names the device clock as what keeps vector 54 amber', async () => {
+  it('names the device clock and the unproven device as what keep vector 54 amber', async () => {
     const v = await vectorVerdict('54-jpeg-registry-green')
     expect(v.level?.ceiling).toBe('amber')
-    expect(ceilingLabels(v)).toEqual(['no trusted time'])
+    expect(ceilingLabels(v)).toEqual(['integrity not proven', 'no trusted time'])
+  })
+
+  // Vector 100 without its integrity statement: stripping evidence must not
+  // make a verdict greener, so the missing half is what keeps it amber.
+  it('names the unproven device as the one thing keeping vector 148 amber', async () => {
+    const v = await vectorVerdict('148-jpeg-registry-timestamped-integrity-absent')
+    expect(v.level?.ceiling).toBe('amber')
+    expect(ceilingLabels(v)).toEqual(['integrity not proven'])
+  })
+
+  it('names what green proved on vector 100', async () => {
+    const v = await vectorVerdict('100-jpeg-registry-green-timestamped')
+    expect(v.level?.ceiling).toBe('green')
+    expect(ceilingLabels(v)).toEqual(['sealed in the TEE'])
   })
 
   it('names a session key and a key outside the log as amber (vector 01)', async () => {
