@@ -7,7 +7,7 @@ import { parseCertificate } from '../src/x509.js'
 import { statusMessage } from '../src/attestation-status.js'
 import { integrityMessage } from '../src/integrity.js'
 import { androidChain, genKey, timestampToken, tsaSigner } from './fixtures.js'
-import { keyStatusFor, logId, registryFor, sign, trusted } from './log.js'
+import { keyStatusFor, logId, registryFor, sign, signAsSecond, trusted, trustedTwo } from './log.js'
 
 /**
  * §6.2 "Revocation, online" and the §7 row that goes with it. Two things are
@@ -99,6 +99,57 @@ describe('the device key against the log', async () => {
 
     expect(v.labels).toContain('key revoked')
     expect(v.level?.ceiling).toBe('red')
+  })
+
+  it('asks about its own clock, never the device clock, when nothing trusted dates the capture', async () => {
+    // §6.2: a thief holding a key revoked for loss — not retroactive — sets
+    // the device clock before the revocation. Asked about that instant the log
+    // signs *valid*; asked about the verifier's clock it signs *revoked*, and
+    // nothing a third party vouches for places the capture before it.
+    const later = new Date(clock.getTime() + 30 * 86_400_000)
+    const revokedFrom = clock.getTime() + 10 * 86_400_000
+    const asked: number[] = []
+    const lookup = async (_id: string, at: Date) => { asked.push(at.getTime()); return keyStatusFor(keyId, at.getTime(), at.getTime() < revokedFrom ? 1 : 2) }
+    const v = await run({ attestation_status: await cleared(), integrity: await intact(), timestamp: undefined }, { keyStatus: lookup, now: later })
+
+    expect(v.validated_at?.source).toBe('device_clock')
+    expect(asked).toEqual([later.getTime()])
+    expect(v.labels).toContain('key revoked')
+    expect(v.level?.ceiling).toBe('red')
+
+    // A key still valid now was valid at any earlier instant: amber for the
+    // device clock, and nothing worse.
+    const valid = await run({ attestation_status: await cleared(), integrity: await intact(), timestamp: undefined }, { keyStatus: async (_id: string, at: Date) => keyStatusFor(keyId, at.getTime(), 1), now: later })
+    expect(valid.key_status?.ok).toBe(true)
+    expect(valid.labels).not.toContain('key revoked')
+    expect(valid.level?.ceiling).toBe('amber')
+  })
+
+  it('takes every countersignature from the log the registry names, not from any trusted log', async () => {
+    // §6.2 *Which key*: a second trusted log that never admitted this device
+    // cannot supply its integrity verdict, its chain status or its standing.
+    const body = { source: 'playIntegrity', verdict: 'hardware', evaluated_at: clock.getTime() + 1000 }
+    const elsewhere = { ...body, sig: toBase64url(await signAsSecond(integrityMessage(hash, body))) }
+    const keyStatus = async (_id: string, at: Date) => keyStatusFor(keyId, at.getTime(), 1)
+    const integrity = await run({ attestation_status: await cleared(), integrity: elsewhere }, { keyStatus, trustedLogs: trustedTwo })
+    expect(integrity.labels).toEqual(expect.arrayContaining(['integrity unevaluated', 'integrity not proven']))
+    expect(integrity.labels).not.toContain('integrity evidence invalid')
+    expect(integrity.level?.ceiling).toBe('amber')
+
+    const status = await cleared()
+    status.sig = toBase64url(await signAsSecond(Uint8Array.from(statusMessage(hash, status))))
+    const chain = await run({ attestation_status: status, integrity: await intact() }, { keyStatus, trustedLogs: trustedTwo })
+    expect(chain.labels).toContain('chain revocation not checked')
+    expect(chain.level?.ceiling).toBe('amber')
+
+    const standing = await run({ attestation_status: await cleared(), integrity: await intact() }, { keyStatus: async (_id: string, at: Date) => keyStatusFor(keyId, at.getTime(), 1, { second: true }), trustedLogs: trustedTwo })
+    expect(standing.key_status).toEqual({ ok: false, detail: 'status signed by a log that is not trusted' })
+    expect(standing.level?.ceiling).toBe('amber')
+
+    // The same proof with every countersignature from the named log is green
+    // under the same two-log trust set: the narrowing removes nothing else.
+    const green = await run({ attestation_status: await cleared(), integrity: await intact() }, { keyStatus, trustedLogs: trustedTwo })
+    expect(green.level?.ceiling).toBe('green')
   })
 
   it('treats an `unknown` answer as no answer', async () => {

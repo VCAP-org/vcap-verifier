@@ -73,6 +73,18 @@ describe('Android key attestation', () => {
     expect(r.proven).toBe('none')
     expect(failed(r)).toEqual(['chain_root'])
   })
+  it('proves none for a key not generated in the secure hardware, without calling the chain invalid', async () => {
+    // §7 rule 6: an imported key carries the TEE's level and a verified boot,
+    // and whoever imported it may still hold it. A genuine chain that proves
+    // too little, like an unlocked device — not invalid evidence.
+    for (const o of [{ origin: 2 }, { origin: 4 }, { origin: null }, { softwareOrigin: true }]) {
+      const a = await androidChain(o)
+      const r = await validateAndroidAttestation(a.chain, a.spki, { roots: [parseCertificate(a.root.der)] })
+      expect(r.proven).toBe('none')
+      expect(r.invalid).toBe(false)
+      expect(failed(r)).toEqual(['origin'])
+    }
+  })
   it('proves none when the leaf key is not the signing key', async () => {
     const a = await androidChain()
     const other = new Uint8Array(await subtle().exportKey('spki', (await genKey()).publicKey))

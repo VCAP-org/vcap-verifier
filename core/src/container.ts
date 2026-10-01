@@ -1,4 +1,4 @@
-import { type Bytes, equal, fromHex, readU32BE } from './bytes.js'
+import { type Bytes, concat, equal, fromHex, readU32BE, u32be } from './bytes.js'
 import { sha256 } from './sha.js'
 
 /**
@@ -7,8 +7,9 @@ import { sha256 } from './sha.js'
  * reader rather than on the hashes the proof carries about itself.
  *
  * Progressive files only: sample tables in `moov`/`stbl`. A fragmented file
- * (`moof`) or a rate-changing edit list is reported unsupported rather than
- * guessed at — a wrong hash and an unread file must not look alike.
+ * (`moof`), or an edit list that does more than delay a track and say where its
+ * media starts, is reported unsupported rather than guessed at — a wrong hash
+ * and an unread file must not look alike.
  */
 
 // SHA-256("vcap/1.0/sei")[0:16]. The exclusion is by payload UUID, never by NAL
@@ -17,6 +18,14 @@ import { sha256 } from './sha.js'
 const VCAP_SEI_UUID = fromHex('caa653d1ed1763c7af388aea76527336')
 
 export interface GopHash { index: number, hash: Bytes }
+
+/**
+ * §5 *Presentation*: how the received file presents the frames its GOPs hold,
+ * read the way `media.presentation` in the core describes it. `config` is the
+ * SHA-256 of the presentation message (`presentationMessage`), `matrix` the
+ * video `tkhd` matrix and `display` its width and height, all as stored.
+ */
+export interface Presentation { config: Bytes, matrix: number[], display: [number, number] }
 
 /**
  * `hashes`: the container was read and a vcap SEI of this capture names at
@@ -32,7 +41,12 @@ export interface GopHash { index: number, hash: Bytes }
  * with no segment credited.
  */
 export type Recomputation =
-  | { kind: 'hashes', gops: GopHash[], problems: string[] }
+  // `presentation` is the file's own, null when its decoder configuration or
+  // track header cannot be read; `layout` is why its tracks are not the two a
+  // segment hash covers, or null when they are (§5 *Presentation*). Neither
+  // stops a GOP being located: a file that contradicts its proof is
+  // *tampered* whatever its presentation.
+  | { kind: 'hashes', gops: GopHash[], problems: string[], presentation: Presentation | null, layout: string | null }
   | { kind: 'unlocated', reason: string }
   | { kind: 'unsupported', reason: string }
   | { kind: 'malformed', reason: string }
@@ -89,6 +103,16 @@ interface Track {
   delay: number
   movieTimescale: number
   mediaStart: number
+  // Why the edit list describes a timeline this reader does not model, when it
+  // does: the track's GOPs could be hashed, but not in the order or extent a
+  // player shows them.
+  unsupportedEdit?: string
+  // `tkhd` track_enabled, and how many sample descriptions `stsd` holds: the
+  // layout rule of §5 *Presentation* reads both.
+  enabled: boolean
+  sampleEntries: number
+  // A video track's presentation message (unhashed), matrix and display size.
+  binding?: { message: Bytes, matrix: number[], display: [number, number] }
 }
 
 /**
@@ -173,12 +197,20 @@ const sampleTable = (b: Bytes, stbl: Box): Sample[] => {
   return samples
 }
 
-const editList = (b: Bytes, elst: Box): { delay: number, mediaStart: number } => {
+const editList = (b: Bytes, elst: Box): { delay: number, mediaStart: number, unsupportedEdit?: string } => {
   const version = b[elst.body]!
   const stride = version === 1 ? 20 : 12
   let delay = 0
   let mediaStart: number | null = null
+  let unsupportedEdit: string | undefined
   entries(b, elst, stride, (at) => {
+    // §5 reads leading empty edits and one media edit. Anything after that
+    // edit — a second media edit, a gap — trims, repeats or reorders what a
+    // player presents while every GOP still hashes to its signed value, so a
+    // re-muxed file would read *verified clip* over frames shown in an order,
+    // or an extent, nobody signed. The original is unaffected: `media.hash`
+    // covers it whatever its edit list says.
+    if (mediaStart !== null) { unsupportedEdit ??= 'edit list has more than one edit after the leading delay'; return }
     const view = new DataView(b.buffer, b.byteOffset + at, stride)
     const duration = version === 1 ? Number(view.getBigUint64(0)) : view.getUint32(0)
     const mediaTime = version === 1 ? Number(view.getBigInt64(8)) : view.getInt32(4)
@@ -190,16 +222,89 @@ const editList = (b: Bytes, elst: Box): { delay: number, mediaStart: number } =>
       delay += duration
       return
     }
-    if (rate !== 1) throw new Error('edit list changes rate')
-    if (mediaStart === null) mediaStart = mediaTime
+    if (rate !== 1) unsupportedEdit ??= 'edit list changes rate'
+    mediaStart = mediaTime
   })
-  return { delay, mediaStart: mediaStart ?? 0 }
+  return { delay, mediaStart: mediaStart ?? 0, ...(unsupportedEdit ? { unsupportedEdit } : {}) }
 }
 
 const timescaleOf = (b: Bytes, header: Box): number => {
   const timescale = b[header.body] === 1 ? readU32BE(b, header.body + 20) : readU32BE(b, header.body + 12)
   if (timescale === 0) throw new Error('timescale 0')
   return timescale
+}
+
+/**
+ * §5 *Presentation*: the parameter-set NAL units of an `avcC` or `hvcC`
+ * record. Bounded by the box like every other table here: a length that runs
+ * past it is a configuration this reader cannot read, never a short read.
+ */
+const parameterSets = (b: Bytes, config: Box, codec: 'h264' | 'h265'): Bytes[] => {
+  const end = config.end
+  let at = config.body
+  const byte = (): number => { if (at >= end) throw new Error(`${codec === 'h264' ? 'avcC' : 'hvcC'} truncated`); return b[at++]! }
+  const nal = (): Bytes => {
+    const length = (byte() << 8) | byte()
+    if (length === 0 || at + length > end) throw new Error('parameter set length out of range')
+    const unit = b.subarray(at, at + length)
+    at += length
+    return unit
+  }
+  const out: Bytes[] = []
+  if (codec === 'h264') {
+    // configurationVersion, AVCProfileIndication, profile_compatibility,
+    // AVCLevelIndication, lengthSizeMinusOne; then SPS and PPS lists.
+    const profile = b[at + 1]
+    at += 5
+    for (let n = byte() & 0x1f; n > 0; n--) out.push(nal())
+    for (let n = byte(); n > 0; n--) out.push(nal())
+    // High profiles may append chroma, bit depth and SPS extensions. A writer
+    // that leaves them out (MediaMuxer does) ends the record here.
+    if ((profile === 100 || profile === 110 || profile === 122 || profile === 144) && at + 4 <= end) {
+      at += 3
+      for (let n = byte(); n > 0; n--) out.push(nal())
+    }
+  } else {
+    // 22 bytes of HEVCDecoderConfigurationRecord, then numOfArrays arrays of
+    // { completeness | type, numNalus, units }.
+    at += 22
+    for (let arrays = byte(); arrays > 0; arrays--) {
+      at++
+      for (let n = (byte() << 8) | byte(); n > 0; n--) out.push(nal())
+    }
+  }
+  return out
+}
+
+/**
+ * §5 *Presentation*, the message `media.presentation.config` hashes:
+ * `uint32 n ‖ (uint32 length ‖ NAL unit) × n`, the parameter sets ordered by
+ * NAL unit type ascending and, within one type, in record order; then every
+ * `clap`, `pasp` and `colr` child box of the sample entry, header included,
+ * in file order.
+ */
+export const presentationMessage = (b: Bytes, entry: Box, config: Box, codec: 'h264' | 'h265'): Bytes => {
+  const units = parameterSets(b, config, codec).map((u, i) => ({ u, i })).sort((x, y) => nalType(x.u, codec) - nalType(y.u, codec) || x.i - y.i).map((x) => x.u)
+  const extras = boxes(b, entry.body + 78, entry.end).filter((x) => x.type === 'clap' || x.type === 'pasp' || x.type === 'colr')
+  return concat(u32be(units.length), ...units.flatMap((u) => [u32be(u.length), u]), ...extras.map((x) => b.subarray(x.body - 8, x.end)))
+}
+
+/**
+ * `tkhd`: track_enabled, the nine matrix integers and width and height, as
+ * stored; null when the box is missing or short, which no presentation can be
+ * compared against.
+ */
+const trackHeader = (b: Bytes, trak: Box): { enabled: boolean, matrix: number[], display: [number, number] } | null => {
+  const tkhd = child(b, trak, 'tkhd')
+  if (!tkhd) return null
+  const at = tkhd.body + (b[tkhd.body] === 1 ? 52 : 40)
+  if (at + 44 > tkhd.end) return null
+  const view = new DataView(b.buffer, b.byteOffset + at, 44)
+  return {
+    enabled: (b[tkhd.body + 3]! & 1) === 1,
+    matrix: Array.from({ length: 9 }, (_, i) => view.getInt32(i * 4)),
+    display: [view.getUint32(36), view.getUint32(40)]
+  }
 }
 
 const parseTrack = (b: Bytes, trak: Box, movieTimescale: number): Track => {
@@ -216,8 +321,11 @@ const parseTrack = (b: Bytes, trak: Box, movieTimescale: number): Track => {
 
   let codec: Track['codec'] = null
   let nalLength = 4
+  let sampleEntries = 0
+  let message: Bytes | undefined
   const stsd = find(boxes(b, stbl.body, stbl.end), 'stsd')
   if (stsd) {
+    sampleEntries = readU32BE(b, stsd.body + 4)
     // Sample entries start after version/flags and the entry count; a
     // VisualSampleEntry body is 78 bytes before its child boxes.
     for (const entry of boxes(b, stsd.body + 8, stsd.end)) {
@@ -228,13 +336,37 @@ const parseTrack = (b: Bytes, trak: Box, movieTimescale: number): Track => {
       // lengthSizeMinusOne: avcC byte 4, hvcC byte 21 — both in the low 2 bits.
       const at = config ? config.body + (codec === 'h264' ? 4 : 21) : -1
       if (config && at < config.end) nalLength = (b[at]! & 3) + 1
+      // A record this reader cannot read leaves the presentation unknown and
+      // the samples still splittable at the default length.
+      if (config) { try { message = presentationMessage(b, entry, config, codec) } catch { message = undefined } }
       break
     }
   }
 
+  const header = trackHeader(b, trak)
   const elst = child(b, trak, 'edts', 'elst')
   const edit = elst ? editList(b, elst) : { delay: 0, mediaStart: 0 }
-  return { handler, timescale, movieTimescale, samples, codec, nalLength, ...edit }
+  return {
+    // A track whose header cannot be read may be shown by a player for all
+    // this reader knows: it counts as enabled.
+    handler, timescale, movieTimescale, samples, codec, nalLength, ...edit, enabled: header?.enabled ?? true, sampleEntries,
+    ...(message && header ? { binding: { message, matrix: header.matrix, display: header.display } } : {})
+  }
+}
+
+/**
+ * §5 *Presentation*, the track layout a clip must have for its segment hashes
+ * to be all it presents: one video track and at most one audio track, one
+ * sample description each, and every other track disabled. Null when it holds.
+ */
+const layoutProblem = (tracks: Track[]): string | null => {
+  const video = tracks.filter((t) => t.handler === 'vide')
+  const audio = tracks.filter((t) => t.handler === 'soun')
+  if (video.length !== 1) return `${video.length} video tracks`
+  if (audio.length > 1) return `${audio.length} audio tracks`
+  for (const t of [...video, ...audio]) if (t.sampleEntries !== 1) return `a ${t.handler === 'vide' ? 'video' : 'audio'} track with ${t.sampleEntries} sample descriptions`
+  if (tracks.some((t) => t.handler !== 'vide' && t.handler !== 'soun' && t.enabled)) return 'an enabled track that no segment hash covers'
+  return null
 }
 
 // Presentation time as an exact fraction: two tracks rarely share a timescale,
@@ -427,6 +559,7 @@ const hashGop = async (media: Bytes, video: Track, gop: Gop, audio: Bytes[]): Pr
 export const recomputeSegments = async (media: Bytes, captureId?: Bytes, signed?: Set<number>): Promise<Recomputation> => {
   let video: Track
   let audio: Track | undefined
+  let layout: string | null
   try {
     const top = boxes(media, 0, media.length)
     if (find(top, 'moof')) return { kind: 'unsupported', reason: 'fragmented mp4' }
@@ -440,6 +573,11 @@ export const recomputeSegments = async (media: Bytes, captureId?: Bytes, signed?
     if (!found?.codec) return { kind: 'unsupported', reason: 'no H.264 or H.265 video track' }
     video = found
     audio = tracks.find((t) => t.handler === 'soun')
+    layout = layoutProblem(tracks)
+    // Only the two tracks a segment hash covers decide: a timed-metadata
+    // track's edits move no frame and no audio sample.
+    const edit = video.unsupportedEdit ?? audio?.unsupportedEdit
+    if (edit) return { kind: 'unsupported', reason: edit }
   } catch (e) {
     return { kind: 'unsupported', reason: e instanceof Error ? e.message : 'unreadable container' }
   }
@@ -475,7 +613,9 @@ export const recomputeSegments = async (media: Bytes, captureId?: Bytes, signed?
       const index = credit[g]
       if (index !== null && index !== undefined) out.push({ index, hash: await hashGop(media, video, gop, frames) })
     }
-    return { kind: 'hashes', gops: out, problems }
+    const binding = video.binding
+    const shown = binding ? { config: await sha256(binding.message), matrix: binding.matrix, display: binding.display } : null
+    return { kind: 'hashes', gops: out, problems, presentation: shown, layout }
   } catch (e) {
     if (e instanceof Malformed) return { kind: 'malformed', reason: e.message }
     return { kind: 'unsupported', reason: e instanceof Error ? e.message : 'unreadable container' }

@@ -71,8 +71,9 @@ export type CorroborationOutcome =
   | { ok: false, reason: string, evaluated: boolean, trusted: boolean }
 
 /**
- * The attachment does not name its key, so every trusted log key is tried, as
- * for `integrity`: the signature that verifies identifies the key.
+ * The attachment does not name its key, so every key in `trusted` is tried, as
+ * for `integrity`: the signature that verifies identifies the key. The caller
+ * passes the log a `registry` attachment names, when the proof carries one.
  */
 export const verifyLocationCorroboration = async (a: LocationCorroboration, coreHash: Bytes, trusted: TrustedLog[]): Promise<CorroborationOutcome> => {
   if (trusted.length === 0) return { ok: false, reason: 'no trusted registry key held', evaluated: false, trusted: false }

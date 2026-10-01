@@ -43,10 +43,13 @@ const VERDICTS = new Set(['hardware', 'basic', 'unevaluated', 'failed'])
 
 /**
  * §6.2/§7: the sources whose `hardware` verdict proves the device intact, and
- * so can let a proven level be green. `appAttest` is not one: Apple says
- * nothing about whether a device is jailbroken, whatever the verdict says.
+ * so can let a proven level be green, each with the one `device.platform` it
+ * can speak for. `appAttest` is not one: Apple says nothing about whether a
+ * device is jailbroken, whatever the verdict says. And Play Integrity says
+ * nothing about an iPhone: a registry that relays its verdict beside an iOS
+ * proof has attested some other device, or none.
  */
-export const PROVES_DEVICE_INTEGRITY: ReadonlySet<string> = new Set(['playIntegrity'])
+export const PROVES_DEVICE_INTEGRITY: ReadonlyMap<string, string> = new Map([['playIntegrity', 'android']])
 
 const SEPARATOR = utf8('vcap/1.0/integrity')
 
@@ -57,8 +60,9 @@ export const integrityMessage = (coreHash: Bytes, attachment: { [key: string]: J
 }
 
 /**
- * The attachment does not name its key, so every trusted log key is tried: a
- * signature that verifies identifies the key that made it.
+ * The attachment does not name its key: `trusted` is the log a `registry`
+ * attachment names, or every trusted log when the proof carries none (§6.2
+ * *Which key*), and a signature that verifies identifies the key that made it.
  */
 export const verifyIntegrity = async (a: IntegrityAttachment, coreHash: Bytes, trusted: TrustedLog[]): Promise<IntegrityOutcome> => {
   if (!SOURCES.has(a.source)) return { ok: false, reason: `unknown integrity source ${String(a.source)}`, trusted: false, unknownSource: true }

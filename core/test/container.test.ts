@@ -77,6 +77,51 @@ describe('§5 recomputation from the container', () => {
  * over the digest and only the trailer. The answer must be the one the whole
  * file gives, and a wrong digest must not be believed.
  */
+describe('§5 edit lists beyond a delay and one media edit', () => {
+  // The video track of `sealed` carries MediaMuxer's edit list: one empty edit
+  // (the delay), then one media edit. Each variant rewrites it in place, so
+  // every sample, SEI and segment hash is untouched and only the timeline a
+  // player presents changes.
+  const { file, sealed } = load('sealed')
+  const elst = (b: Uint8Array): number => {
+    for (let i = 4; i + 4 <= b.length; i++) if (b[i] === 0x65 && b[i + 1] === 0x6c && b[i + 2] === 0x73 && b[i + 3] === 0x74) return i + 4
+    throw new Error('no elst')
+  }
+  const variant = (edit: (view: DataView, first: number) => void): Uint8Array => {
+    const out = Uint8Array.from(file)
+    const body = elst(out)
+    const view = new DataView(out.buffer)
+    if (out[body] !== 0 || view.getUint32(body + 4) !== 2) throw new Error('fixture edit list changed shape')
+    edit(view, body + 8)
+    return out
+  }
+  const cases: [string, Uint8Array, string][] = [
+    // Both edits present media: the second repeats the track from its start.
+    ['a second media edit', variant((v, e) => v.setInt32(e + 4, 0)), 'edit list has more than one edit after the leading delay'],
+    // The media edit first, then the gap: a pause after the media.
+    ['an empty edit after the media edit', variant((v, e) => {
+      const empty = [v.getUint32(e), v.getInt32(e + 4), v.getUint32(e + 8)]
+      for (let i = 0; i < 3; i++) v.setUint32(e + 4 * i, v.getUint32(e + 12 + 4 * i))
+      v.setUint32(e + 12, empty[0]!); v.setInt32(e + 16, empty[1]!); v.setUint32(e + 20, empty[2]!)
+    }), 'edit list has more than one edit after the leading delay'],
+    ['a media edit at rate 2', variant((v, e) => v.setInt16(e + 12 + 8, 2)), 'edit list changes rate']
+  ]
+  for (const [what, edited, reason] of cases) {
+    it(`refuses ${what}, and credits no segment`, async () => {
+      const media = parseTrailer(edited)
+      if (media.kind !== 'ok') throw new Error('no trailer')
+      expect(await recomputeSegments(media.media, fromBase64(sealed.capture_id))).toEqual({ kind: 'unsupported', reason })
+      // The edit is inside the canonical bytes, so this is not the original,
+      // and nothing located over it may read *verified clip*.
+      const v = await verify(edited)
+      expect(v.outcome).toBe('frames_not_compared')
+      expect(v.content).toEqual({ recomputed: false, detail: reason })
+      expect(v.segments).toEqual({ verified: [] })
+      expect(v.labels).toContain('segment content not recomputed')
+    })
+  }
+})
+
 describe('a media hash computed by the caller', () => {
   it('gives the whole file’s verdict from the trailer alone', async () => {
     const { file, media } = load('sealed')

@@ -59,7 +59,12 @@ export type RevocationLookup = (serialHex: string) => Promise<{ status: string, 
 let cachedRoots: Certificate[] | null = null
 export const googleRoots = (): Certificate[] => (cachedRoots ??= GOOGLE_ROOT_PEMS.map((p) => parseCertificate(pemToDer(p))))
 
-interface Description { attestationLevel: SecureLevel, keyMintLevel: SecureLevel, rootOfTrust?: { locked: boolean, state: string }, appDigests: string[] | null }
+interface Description { attestationLevel: SecureLevel, keyMintLevel: SecureLevel, rootOfTrust?: { locked: boolean, state: string }, origin?: number, appDigests: string[] | null }
+
+// KeyMint `KeyOrigin`: GENERATED is 0. IMPORTED (2) and SECURELY_IMPORTED (4)
+// keys were made outside the secure hardware, so somebody may hold a copy.
+const ORIGIN_GENERATED = 0
+const ORIGIN_TAG = 702
 
 /**
  * `attestationApplicationId` ([709], in either authorization list): an OCTET
@@ -78,6 +83,10 @@ const parseDescription = (value: Bytes): Description => {
   const d: Description = { attestationLevel: level(f[1] as Node, 'attestationSecurityLevel'), keyMintLevel: level(f[3] as Node, 'keyMintSecurityLevel'), appDigests: null }
   for (const entry of sequence(f[7] as Node, 'hardwareEnforced')) {
     if (contextTag(entry) === 709) d.appDigests = applicationDigests(entry)
+    // Only the hardware-enforced list is read for the origin: a
+    // software-enforced one is the OS's word, and the OS is what an imported
+    // key's owner may control.
+    if (contextTag(entry) === ORIGIN_TAG) d.origin = integer(explicitContent(entry, 'origin'), 'origin')
     if (contextTag(entry) !== 704) continue
     const rot = sequence(explicitContent(entry, 'rootOfTrust'), 'RootOfTrust')
     d.rootOfTrust = { locked: boolean(rot[1] as Node, 'deviceLocked'), state: BOOT[enumerated(rot[2] as Node, 'verifiedBootState')] ?? 'unknown' }
@@ -173,8 +182,14 @@ export const validateAndroidAttestation = async (chainB64: Bytes[], sigPub: Byte
     if (d.rootOfTrust.locked && d.rootOfTrust.state === 'verified') pass('boot_state', 'verified boot on a locked device')
     else fail('boot_state', `boot state ${d.rootOfTrust.state}, device ${d.rootOfTrust.locked ? 'locked' : 'unlocked'}`)
   } else fail('boot_state', 'no hardware-enforced rootOfTrust')
+  // §7 rule 6: a key imported into the TEE carries the TEE's level and the
+  // device's boot state, yet whoever imported it may still hold the private
+  // key. Like an unlocked boot, a genuine chain that proves too little — not
+  // invalid evidence.
+  if (d.origin === ORIGIN_GENERATED) pass('origin', 'key generated in the secure hardware')
+  else fail('origin', d.origin === undefined ? 'no hardware-enforced origin' : `key origin ${d.origin}, not generated in the secure hardware`)
 
-  const structural = checks.filter((c) => ['key_binding', 'chain_signatures', 'chain_root', 'chain_validity', 'chain_ca', 'extension_in_leaf', 'boot_state'].includes(c.id)).every((c) => c.outcome === 'pass')
+  const structural = checks.filter((c) => ['key_binding', 'chain_signatures', 'chain_root', 'chain_validity', 'chain_ca', 'extension_in_leaf', 'boot_state', 'origin'].includes(c.id)).every((c) => c.outcome === 'pass')
   if (weakest === 'software') fail('security_level', 'attestation or key is software')
   else pass('security_level', `attestation ${d.attestationLevel}, key ${d.keyMintLevel}`)
   // Revocation does not enter here: it is temporal (§6.2) and this function
