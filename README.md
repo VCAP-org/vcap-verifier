@@ -617,26 +617,38 @@ capture or an index the proof does not sign, more than one vcap SEI in a GOP,
 an index carried twice, indices not strictly increasing, a vcap SEI that is not
 exactly one 36-byte message, or NAL framing that does not tile its sample are
 **tampered** — and the verdict still reports which segments did verify.
-Segment boundaries are the IDRs in the samples, never `stss`. With nothing
-located (no GOP names the capture, not ISO-BMFF, recomputation off) there is no
+A clip — a file that is not the original — is a *verified clip* only when the
+core's `media.presentation` binds how its frames are shown (parameter sets,
+`clap`/`pasp`/`colr`, the `tkhd` matrix and display size) and the clip has one
+video track, at most one audio track and nothing else enabled; otherwise it is
+*frames not compared* with *presentation not bound*, *presentation differs* or
+*tracks not bound*. Segment boundaries are the IDRs in the samples, never `stss`. With nothing
+located (no GOP names the capture, not ISO-BMFF, an edit list with more than
+one edit after the leading delay or a rate change, recomputation off) there is no
 segment credit and `segments.verified` is empty: where `media.hash` matches the
 whole file is the sealed bytes and stays *authentic*; where it does not, the
 outcome is **`frames_not_compared`**, amber — the signatures hold, nothing ties
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 3.1.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 4.0.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
-only (else *attestation evidence invalid*), a leaf that is not `sig.pub` is
+only (else *attestation evidence invalid*), a key whose hardware-enforced
+`origin` is not `GENERATED` proves no level, a leaf that is not `sig.pub` is
 *tampered*, and the leaf's `attestationApplicationId` is compared with the
 `app_signing_digests` a trusted log declares (*attestation app not admitted* /
 *not checked*); a revoked chain certificate is red unless a trusted instant
 precedes the source's `revoked_at` for a reason that is not a compromise; iOS
 `secureEnclave` comes only from a registry leaf, *level from registry records*;
-green needs a valid Play Integrity `hardware` verdict (*integrity not proven*
-otherwise), and a valid `failed` is shown as *integrity failed*.
+green needs a valid Play Integrity `hardware` verdict on an Android proof
+(*integrity not proven* otherwise), and a valid `failed` is shown as *integrity
+failed*. Every registry countersignature, and the log's online answer about the
+device key, is checked under the key of the log the `registry` attachment
+names, never under whichever trusted key verifies; and that answer is asked
+about the proven instant only when a token or an anchor proved it, otherwise
+about the verifier's own clock.
 
 `verify` never throws on its input: every parser bounds its reads and counts,
 and a top-level guard turns anything that still escapes into *no proof found*
@@ -729,8 +741,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 3.1.0, 151
-vectors** (manifest `f48253048e55…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 4.0.0, 164
+vectors** (manifest `3359db48567f…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |

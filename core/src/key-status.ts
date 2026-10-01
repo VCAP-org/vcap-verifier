@@ -4,7 +4,10 @@ import { type TrustedLog, treeHeadMessage } from './registry.js'
 
 /**
  * Spec §6.2 `registry` → "Revocation, online": the device key's standing in the
- * transparency log **at the instant the capture is validated at**.
+ * transparency log **at the instant the capture is validated at**, when a
+ * timestamp token or a verified anchor proved that instant — and at the
+ * verifier's own clock when only the device's clock dates the capture, since
+ * whoever holds a revoked key also sets that clock.
  *
  * The `registry` attachment proves the key was in the log when a tree head was
  * signed; it cannot prove the key was not revoked later, because a revocation

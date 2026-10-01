@@ -176,18 +176,24 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
   const check = (order: Uint8Array[][]) => verify(mux(order.flat()), { sidecar: payload })
   const [g0, g1, g2] = gops as [Uint8Array[], Uint8Array[], Uint8Array[]]
 
-  it('rebuilt unchanged, every segment reads back: a clip of the whole recording', async () => {
+  // The device proof of this fixture predates `media.presentation`, so no
+  // rebuilt file can be a verified clip (§5 *Presentation*): what these two
+  // pin is that every GOP is located and none contradicts the proof — the
+  // verdict stops at the presentation, not at the binding.
+  it('rebuilt unchanged, every GOP is located and none contradicts the proof', async () => {
     expect(gops).toHaveLength(3)
     const v = await check([g0, g1, g2])
     // New container bytes, so media.hash differs; every GOP is the signed one.
-    expect(v.outcome).toBe('verified_clip')
-    expect(v.segments).toEqual({ verified: [0, 1, 2] })
+    expect(v.outcome).toBe('frames_not_compared')
+    expect(v.labels).toContain('presentation not bound')
+    expect(v.content).toEqual({ recomputed: true, detail: '3 GOPs read from the container' })
   })
 
-  it('a GOP removed from the middle leaves a clip of the other two', async () => {
+  it('a GOP removed from the middle is not tampered either', async () => {
     const v = await check([g0, g2])
-    expect(v.outcome).toBe('verified_clip')
-    expect(v.segments).toEqual({ verified: [0, 2] })
+    expect(v.outcome).toBe('frames_not_compared')
+    expect(v.labels).toContain('presentation not bound')
+    expect(v.content).toEqual({ recomputed: true, detail: '2 GOPs read from the container' })
   })
 
   it('a GOP duplicated is tampered', async () => {

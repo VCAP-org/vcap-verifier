@@ -66,9 +66,10 @@ export const statusMessage = (coreHash: Bytes, a: StatusAttachment): Bytes => {
  * The signing key is the one that signs tree heads, and the attachment does not
  * name it: the proof's `registry.log_id` names it when a registry attachment is
  * present, and otherwise every trusted log key is tried, since a signature that
- * verifies identifies the key that made it.
+ * verifies identifies the key that made it. The caller narrows `trusted`
+ * accordingly; a signature by any other trusted log is not evidence here.
  */
-export const verifyStatus = async (a: StatusAttachment, coreHash: Bytes, trusted: TrustedLog[], preferredLogId?: string): Promise<StatusOutcome> => {
+export const verifyStatus = async (a: StatusAttachment, coreHash: Bytes, trusted: TrustedLog[]): Promise<StatusOutcome> => {
   if (!KNOWN_SOURCES.has(a.source)) return { ok: false, reason: `unknown status source ${a.source}` }
   if (trusted.length === 0) return { ok: false, reason: 'no trusted log key to check the countersignature with' }
   if (!isInstant(a.fetched_at)) return { ok: false, reason: 'fetched_at is not an instant' }
@@ -79,8 +80,7 @@ export const verifyStatus = async (a: StatusAttachment, coreHash: Bytes, trusted
 
   let message: Bytes
   try { message = statusMessage(coreHash, a) } catch { return { ok: false, reason: 'entries malformed' } }
-  const order = [...trusted].sort((x, y) => Number(y.logId === preferredLogId) - Number(x.logId === preferredLogId))
-  for (const log of order) {
+  for (const log of trusted) {
     const key = await importP256Spki(log.spki)
     if (key && await verifyEs256(key, message, sig)) return { ok: true, fetchedAt: a.fetched_at, entries: a.entries }
   }

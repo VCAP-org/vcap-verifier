@@ -19,6 +19,16 @@ export const trusted = [{ logId, spki: logSpki, appSigningDigests: [toHex(APP_DI
 export const sign = async (message: Uint8Array): Promise<Uint8Array> =>
   new Uint8Array(await subtle().sign({ name: 'ECDSA', hash: 'SHA-256' }, keyPair.privateKey, Uint8Array.from(message)))
 
+// A second log, trusted too and named by no `registry` attachment here: what
+// it signs is a valid signature under a trusted key that is not the key of the
+// log the proof names (§6.2 *Which key*).
+const secondPair = await subtle().generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+const secondSpki = new Uint8Array(await subtle().exportKey('spki', secondPair.publicKey))
+export const secondLogId = await logIdOf(secondSpki)
+export const trustedTwo = [...trusted, { logId: secondLogId, spki: secondSpki }]
+export const signAsSecond = async (message: Uint8Array): Promise<Uint8Array> =>
+  new Uint8Array(await subtle().sign({ name: 'ECDSA', hash: 'SHA-256' }, secondPair.privateKey, Uint8Array.from(message)))
+
 /** Root and audit path over a list of leaf hashes (RFC 6962 §2.1.1), test-side only. */
 export const root = async (h: Uint8Array[]): Promise<Uint8Array> => {
   if (h.length === 1) return h[0] as Uint8Array
@@ -58,10 +68,10 @@ export const registryFor = async (o: {
 }
 
 /** The log's signed answer about a key at an instant (§6.2, "Revocation, online"). */
-export const keyStatusFor = async (keyId: Uint8Array, at: number, status: 0 | 1 | 2, o: { treeSize?: number, logId?: string } = {}): Promise<KeyStatusStatement> => {
+export const keyStatusFor = async (keyId: Uint8Array, at: number, status: 0 | 1 | 2, o: { treeSize?: number, logId?: string, second?: boolean } = {}): Promise<KeyStatusStatement> => {
   const tree_size = o.treeSize ?? 4
   return {
-    log_id: o.logId ?? logId, at, tree_size, status,
-    signature: toBase64url(await sign(keyStatusMessage(keyId, at, tree_size, status)))
+    log_id: o.logId ?? (o.second ? secondLogId : logId), at, tree_size, status,
+    signature: toBase64url(await (o.second ? signAsSecond : sign)(keyStatusMessage(keyId, at, tree_size, status)))
   }
 }

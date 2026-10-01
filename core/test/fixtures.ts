@@ -75,9 +75,12 @@ export type Level = 0 | 1 | 2
 /** The signing-certificate digest of the test app, as a leaf's attestationApplicationId carries it and the test log declares it. */
 export const APP_DIGEST = new Uint8Array(32).fill(0xab)
 /** Android KeyDescription extension (schema v300, only the fields the verifier reads). */
-export const keyDescription = (o: { attestation: Level, keyMint: Level, locked?: boolean, bootState?: number, withRot?: boolean, app?: Uint8Array | null }): x509.Extension => {
+export const keyDescription = (o: { attestation: Level, keyMint: Level, locked?: boolean, bootState?: number, withRot?: boolean, app?: Uint8Array | null, origin?: number | null, softwareOrigin?: boolean }): x509.Extension => {
   const en = (v: number) => new asn1js.Enumerated({ value: v })
   const rot = o.withRot === false ? [] : [ctx(704, seq(octets(new Uint8Array(32)), new asn1js.Boolean({ value: o.locked ?? true }), en(o.bootState ?? 0), octets(new Uint8Array(32))))]
+  // origin [702]: GENERATED (0) unless a test asks for an imported key; null
+  // writes none, `softwareOrigin` moves it to the list the OS enforces.
+  const origin = o.origin === null ? [] : [ctx(702, new asn1js.Integer({ value: o.origin ?? 0 }))]
   // attestationApplicationId [709] in softwareEnforced, as KeyMint writes it.
   const app = o.app === null ? [] : [ctx(709, octets(der(seq(
     new asn1js.Set({ value: [seq(octets(utf8Bytes('org.vcap.test')), new asn1js.Integer({ value: 1 }))] }),
@@ -85,12 +88,13 @@ export const keyDescription = (o: { attestation: Level, keyMint: Level, locked?:
   ))))]
   const body = der(seq(
     new asn1js.Integer({ value: 300 }), en(o.attestation), new asn1js.Integer({ value: 300 }), en(o.keyMint),
-    octets(new Uint8Array([1, 2, 3])), octets(new Uint8Array(0)), seq(...app), seq(...rot)
+    octets(new Uint8Array([1, 2, 3])), octets(new Uint8Array(0)),
+    seq(...app, ...(o.softwareOrigin ? origin : [])), seq(...(o.softwareOrigin ? [] : origin), ...rot)
   ))
   return new x509.Extension('1.3.6.1.4.1.11129.2.1.17', false, body)
 }
 
-export const androidChain = async (o: { attestation?: Level, keyMint?: Level, locked?: boolean, bootState?: number, withRot?: boolean, leafKeys?: CryptoKeyPair, validity?: { notBefore: Date, notAfter: Date } } = {}): Promise<{ root: Issued, chain: Uint8Array[], spki: Uint8Array }> => {
+export const androidChain = async (o: { attestation?: Level, keyMint?: Level, locked?: boolean, bootState?: number, withRot?: boolean, origin?: number | null, softwareOrigin?: boolean, leafKeys?: CryptoKeyPair, validity?: { notBefore: Date, notAfter: Date } } = {}): Promise<{ root: Issued, chain: Uint8Array[], spki: Uint8Array }> => {
   // A root that outlives the window it certifies, as a pinned Google root does:
   // one year before, ten after, so a test can place the capture anywhere in it.
   const span = o.validity && { notBefore: new Date(o.validity.notBefore.getTime() - 365 * 86_400_000), notAfter: new Date(o.validity.notAfter.getTime() + 3650 * 86_400_000) }
@@ -99,6 +103,6 @@ export const androidChain = async (o: { attestation?: Level, keyMint?: Level, lo
   // that is the shape of a real RKP chain, where the short-lived certificate is
   // the per-device intermediate under a long-lived Google root.
   const inter = await issue({ subject: 'CN=Test Android Intermediate', issuer: root, ca: true, ...o.validity })
-  const leaf = await issue({ subject: 'CN=Android Keystore Key', issuer: inter, keys: o.leafKeys, ...o.validity, extensions: [keyDescription({ attestation: o.attestation ?? 1, keyMint: o.keyMint ?? 1, locked: o.locked, bootState: o.bootState, withRot: o.withRot })] })
+  const leaf = await issue({ subject: 'CN=Android Keystore Key', issuer: inter, keys: o.leafKeys, ...o.validity, extensions: [keyDescription({ attestation: o.attestation ?? 1, keyMint: o.keyMint ?? 1, locked: o.locked, bootState: o.bootState, withRot: o.withRot, origin: o.origin, softwareOrigin: o.softwareOrigin })] })
   return { root, chain: [leaf.der, inter.der, root.der], spki: await spkiOf(leaf.keys.publicKey) }
 }

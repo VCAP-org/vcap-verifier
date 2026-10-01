@@ -3,7 +3,7 @@ import { sha256 } from './sha.js'
 import { MAX_DEPTH, jcs, jsonProblem, type Json } from './jcs.js'
 import { type ContentCredentials, type Extraction, type ProofSource, extractProof } from './carrier.js'
 import { canonicalBytes, detectContainer } from './canonical.js'
-import { recomputeSegments } from './container.js'
+import { type Presentation, recomputeSegments } from './container.js'
 import { type StatusAttachment, type StatusEntry, chainStatus, verifyStatus } from './attestation-status.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import { type SegmentEntry, verifyChain } from './segments.js'
@@ -56,11 +56,13 @@ export interface Verdict {
   // §6.2 integrity: what the platform said about the device's state, relayed by
   // the registry. Never a level — §7 takes that from `attestation` — but a
   // condition for green: only a `hardware` verdict from a source that attests
-  // device state (`PROVES_DEVICE_INTEGRITY`) lets a proven level be green.
+  // the state of the proof's own platform (`PROVES_DEVICE_INTEGRITY`) lets a
+  // proven level be green.
   integrity?: { ok: boolean, detail: string, verdict?: string, evaluated_at?: number }
   // §6.2 registry → "Revocation, online": the device key's own standing in the
-  // log at the proven instant. The one check that needs network, and the one
-  // green cannot be reached without.
+  // log at the proven instant when a trusted source proved it, else at the
+  // verifier's clock. The one check that needs network, and the one green
+  // cannot be reached without.
   key_status?: { ok: boolean, detail: string }
   // §8 "A declared watermark that does not come back": what a detector the
   // caller ran reported about the pixels, compared here against the ids the
@@ -119,7 +121,8 @@ export interface VerifyOptions {
   googleRoots?: Certificate[]
   // Google's status list, when online; absent → *chain revocation not checked*.
   revocation?: RevocationLookup
-  // The transparency log's signed answer about the device key at an instant;
+  // The transparency log's signed answer about the device key at an instant —
+  // the trusted proven instant, or this verifier's clock when there is none;
   // absent → *revocation not checked*, amber (§7). The core contacts nothing:
   // the caller owns the network.
   keyStatus?: KeyStatusLookup
@@ -151,7 +154,8 @@ const PLATFORMS = new Set(['android', 'ios', 'web'])
 const HOLDS_AMBER = new Set([
   'inconsistent claim', 'chain revocation not checked', 'revocation not checked', 'attestation chain expired, capture time not proven',
   'registered after the declared capture', 'registered after the trusted time', 'capture time not declared',
-  'attestation app not admitted', 'attestation app not checked', 'integrity failed', 'integrity not proven'
+  'attestation app not admitted', 'attestation app not checked', 'integrity failed', 'integrity not proven',
+  'presentation differs'
 ])
 const SECURE_HW = new Set(['strongbox', 'tee', 'secureEnclave', 'none'])
 
@@ -177,6 +181,26 @@ const coreTrouble = (root: Json): 'floating-point number in the core' | 'core ne
 const b64Len = (s: unknown, n: number): boolean => { try { return typeof s === 'string' && /^[A-Za-z0-9_-]+$/.test(s) && fromBase64(s).length === n } catch { return false } }
 
 const fail = (outcome: Outcome, reason: string): Verdict => ({ outcome, labels: [], not_evaluated: [], reason })
+
+/** §6.1: `{ config: 32 bytes base64url, matrix: 9 int32, display: 2 uint32 }`. */
+const presentationShape = (v: unknown): v is { config: string, matrix: number[], display: number[] } => {
+  const int32 = (x: unknown): boolean => Number.isInteger(x) && (x as number) >= -0x80000000 && (x as number) <= 0x7fffffff
+  const uint32 = (x: unknown): boolean => Number.isInteger(x) && (x as number) >= 0 && (x as number) <= 0xffffffff
+  return isObj(v) && b64Len(v.config, 32) && Array.isArray(v.matrix) && v.matrix.length === 9 && v.matrix.every(int32) &&
+    Array.isArray(v.display) && v.display.length === 2 && v.display.every(uint32)
+}
+
+/**
+ * §5 *Presentation*: the first way the received file presents its frames
+ * otherwise than the core says, or null when it presents them as signed.
+ */
+const presentationDiffers = (signed: { config: string, matrix: number[], display: number[] }, read: Presentation | null): string | null => {
+  if (read === null) return 'the decoder configuration or the video track header cannot be read'
+  if (toBase64url(read.config) !== signed.config) return 'the decoder configuration differs from the signed one'
+  if (read.matrix.some((x, i) => x !== signed.matrix[i])) return 'the video track matrix differs from the signed one'
+  if (read.display[0] !== signed.display[0] || read.display[1] !== signed.display[1]) return 'the video track display size differs from the signed one'
+  return null
+}
 
 /**
  * The reason a proof carried from an ancestor manifest does not fit the file:
@@ -212,6 +236,10 @@ const shapeProblem = (proof: Obj): string | null => {
   // §8: media.mime alone decides that a proof is a video proof, and a video
   // proof needs its segments — the container and duration_ms decide nothing.
   if ((proof.media.mime as string).startsWith('video/') && !('segments' in proof && Number.isInteger((proof.media as Obj).segment_count))) return 'video proof without segments'
+  // §6.1 `media.presentation`: optional to a reader (absent, a clip is not
+  // bound and is never *verified clip*), and well formed when present, since
+  // it is signed and a malformed value is a payload two readers read two ways.
+  if ('presentation' in proof.media && !presentationShape(proof.media.presentation)) return 'media.presentation malformed'
   return coreTrouble(extractCore(proof))
 }
 
@@ -340,6 +368,7 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
     const frames = outcome.framesNameCapture === undefined ? {} : { frames_name_capture: outcome.framesNameCapture }
     if (outcome.tampered !== undefined) return { ...tampered(outcome.tampered), segments: verdict.segments, content: verdict.content, ...frames }
     if (outcome.outcome !== 'authentic') { verdict.outcome = outcome.outcome; verdict.reason = outcome.reason }
+    if (outcome.label) labels.push(outcome.label)
   } else if (!mediaMatches) {
     return tampered('media.hash does not match the canonical bytes')
   }
@@ -392,6 +421,11 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
   }
 
   // 6. Attachments that can be checked offline (§6.2).
+  // §6.2 *Which key*: the registry countersignatures name no key of their own,
+  // and a `registry` attachment's `log_id` names it for all of them. Trying
+  // every trusted key regardless would let one trusted log vouch for a device
+  // another log admitted, under policies the reader never chose to follow.
+  const signers = registrySigners(proof, o.trustedLogs ?? [])
   let treeHeadAt: number | null = null
   if (isObj(proof.registry)) {
     const r = await verifyRegistry(proof.registry as unknown as RegistryAttachment, { keyIdHex: hexKeyId(device.key_id as string), sigPub: spki }, o.trustedLogs ?? [])
@@ -425,7 +459,7 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
   // a verdict greener than it was.
   let deviceIntegrity = false
   if (isObj(proof.integrity)) {
-    const i = await verifyIntegrity(proof.integrity as unknown as IntegrityAttachment, coreHash, o.trustedLogs ?? [])
+    const i = await verifyIntegrity(proof.integrity as unknown as IntegrityAttachment, coreHash, signers)
     verdict.integrity = i.ok
       ? { ok: true, detail: `${i.source} reported ${i.verdict}`, verdict: i.verdict, evaluated_at: i.evaluatedAt }
       : { ok: false, detail: i.reason }
@@ -439,13 +473,16 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
       labels.push('integrity unevaluated')
     } else {
       labels.push(`integrity ${i.verdict}`)
-      deviceIntegrity = i.verdict === 'hardware' && PROVES_DEVICE_INTEGRITY.has(i.source)
+      // A source speaks for the platform it attests and no other: a Play
+      // Integrity verdict relayed beside an iOS proof says nothing about the
+      // device that signed it.
+      deviceIntegrity = i.verdict === 'hardware' && PROVES_DEVICE_INTEGRITY.get(i.source) === device.platform
     }
   }
   // §7.1: the position level, computed here with the attachments because the
   // corroboration is one, and kept out of §7's ceiling below by construction —
   // nothing it produces is read again.
-  const position = await positionLevel(proof.location, proof.location_corroboration, coreHash, o.trustedLogs ?? [])
+  const position = await positionLevel(proof.location, proof.location_corroboration, coreHash, signers)
   labels.push(...position.labels)
   verdict.location = { claimed: position.claimed, level: position.level, ...(position.declared ? { declared: position.declared } : {}) }
   if (position.corroboration) verdict.location_corroboration = corroborationDetail(position.corroboration)
@@ -522,7 +559,7 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
       proven = a.proven
       attested = proven
       verdict.attestation = { proven: a.proven, detail: failed || 'chain to a pinned Google root', boot_state: a.bootState }
-      const revocation = await chainRevocation(proof, a, coreHash, o)
+      const revocation = await chainRevocation(proof, a, coreHash, signers, o)
       if (revocation.detail) verdict.attestation_status = revocation.detail
       if (revocation.state === 'revoked') {
         // §6.2 *Revoked*: red, unless a trusted instant — never the device's
@@ -564,14 +601,22 @@ const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions
   // verifier says *revocation not checked* and stops at amber, by design.
   if (verdict.registry?.ok === true) {
     const keyIdHex = hexKeyId(device.key_id as string)
+    // §6.2: the question is asked at the proven instant only when that instant
+    // is a trusted one. A device clock is set by whoever holds the key, and a
+    // thief holding a key revoked for loss would set it before the revocation
+    // and be told *valid*; the attestation chain's revocation already refuses
+    // that clock (vector 96). Without a trusted instant the only standing a
+    // verifier can establish is the key's standing now, and a revocation is
+    // never undone, so *valid now* is still *valid then*.
+    const asked = trustedInstant ? instant.at : clock
     let statement = null
-    try { statement = o.keyStatus ? await o.keyStatus(keyIdHex, instant.at) : null } catch { statement = null }
+    try { statement = o.keyStatus ? await o.keyStatus(keyIdHex, asked) : null } catch { statement = null }
     // The statement is the network's answer, relayed by the caller: one that
     // cannot be checked is an unasked question, not a crash.
     let st: Awaited<ReturnType<typeof verifyKeyStatus>> | null = null
-    try { st = statement ? await verifyKeyStatus(statement, fromBase64(device.key_id as string), instant.at, o.trustedLogs ?? []) : null } catch { st = { ok: false, reason: 'status statement malformed' } }
+    try { st = statement ? await verifyKeyStatus(statement, fromBase64(device.key_id as string), asked, signers) : null } catch { st = { ok: false, reason: 'status statement malformed' } }
     if (st?.ok === true && st.status !== 0) {
-      verdict.key_status = { ok: true, detail: st.status === 1 ? `the log placed the key as valid at ${instant.at.toISOString()}` : `the log placed the key as revoked at ${instant.at.toISOString()}` }
+      verdict.key_status = { ok: true, detail: st.status === 1 ? `the log placed the key as valid at ${asked.toISOString()}` : `the log placed the key as revoked at ${asked.toISOString()}` }
       if (st.status === 2) labels.push('key revoked')
     } else {
       // An unknown status and an unreachable log are the same amount of
@@ -633,11 +678,11 @@ const corroborationDetail = (c: CorroborationOutcome): NonNullable<Verdict['loca
  * answer, dated only by what the source itself says (`revoked_at`) and never
  * by when it was read.
  */
-const chainRevocation = async (proof: Obj, a: Awaited<ReturnType<typeof validateAndroidAttestation>>, coreHash: Bytes, o: VerifyOptions): Promise<{ state: 'revoked', entry: StatusEntry, detail?: { ok: boolean, detail: string } } | { state: 'clear' | 'unchecked', detail?: { ok: boolean, detail: string } }> => {
+const chainRevocation = async (proof: Obj, a: Awaited<ReturnType<typeof validateAndroidAttestation>>, coreHash: Bytes, signers: TrustedLog[], o: VerifyOptions): Promise<{ state: 'revoked', entry: StatusEntry, detail?: { ok: boolean, detail: string } } | { state: 'clear' | 'unchecked', detail?: { ok: boolean, detail: string } }> => {
   let detail: { ok: boolean, detail: string } | undefined
   let frozen: ReturnType<typeof chainStatus> | null = null
   if (isObj(proof.attestation_status)) {
-    const status = await verifyStatus(proof.attestation_status as unknown as StatusAttachment, coreHash, o.trustedLogs ?? [], (proof.registry as Obj | undefined)?.log_id as string | undefined)
+    const status = await verifyStatus(proof.attestation_status as unknown as StatusAttachment, coreHash, signers)
     if (!status.ok) {
       // A snapshot that does not check out adds nothing and takes nothing away.
       detail = { ok: false, detail: status.reason }
@@ -679,6 +724,9 @@ interface SegmentsOutcome {
   tampered?: string
   // Whether the container was read and a GOP's vcap SEI names this capture.
   framesNameCapture?: boolean
+  // §5 *Presentation*: what keeps a located clip from being *verified clip*,
+  // or what an original's signed presentation got wrong.
+  label?: string
 }
 
 /**
@@ -705,6 +753,7 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
   const captureId = fromBase64(proof.capture_id as string)
   const signed = proof.segments as unknown as SegmentEntry[]
   let located: Map<number, Bytes> | undefined
+  let read: { presentation: Presentation | null, layout: string | null } | undefined
   let content: SegmentsOutcome['content']
   let problems: string[] = []
   let framesNameCapture: boolean | undefined
@@ -718,6 +767,7 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
     if (r.kind === 'hashes') {
       located = new Map(r.gops.map((g) => [g.index, g.hash]))
       problems = r.problems
+      read = { presentation: r.presentation, layout: r.layout }
       content = { recomputed: true, detail: `${r.gops.length} GOPs read from the container` }
     } else {
       // Read and unplaced is still a recomputation that ran: what it found is
@@ -738,13 +788,45 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
   }
   const verified = credited(chain.verified)
   if (problems.length > 0) return { content, segments: { verified }, outcome: 'tampered', tampered: `the container contradicts the proof: ${problems[0]}`, ...frames }
+  const signedPresentation = (proof.media as Obj).presentation as { config: string, matrix: number[], display: number[] } | undefined
   if (mediaMatches) {
-    return { content, segments: { verified }, outcome: chain.status === 'clip' ? 'verified_clip' : 'authentic', ...(chain.status === 'clip' ? { reason: 'segments missing' } : {}), ...frames }
+    // The sealed bytes, presentation included, are covered by `media.hash`. A
+    // signed presentation that does not describe them is the writer's false
+    // claim about its own file: flagged and amber, as a misreported level is,
+    // never *tampered* — the bytes are exactly the ones the key sealed.
+    const wrong = signedPresentation && read ? presentationDiffers(signedPresentation, read.presentation) : null
+    return { content, segments: { verified }, outcome: chain.status === 'clip' ? 'verified_clip' : 'authentic', ...(chain.status === 'clip' ? { reason: 'segments missing' } : {}), ...(wrong ? { label: 'presentation differs' } : {}), ...frames }
   }
   if (verified.length === 0) {
     return { content, segments: { verified }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and no GOP in it is tied to a signed segment (${content.detail}): the signatures hold, the frames were not compared`, ...frames }
   }
+  // §5 *Presentation*: a clip is verified only where the core binds how its
+  // frames are shown and the received file shows them that way. Otherwise the
+  // frames are the signed frames under a crop, a rotation or a track nobody
+  // signed: *frames not compared*, no segment credited, and the label says
+  // which. Not *tampered*: re-muxing a clip is not an accusation, as a
+  // `media.hash` that does not match is not one.
+  const unbound = (label: string, why: string): SegmentsOutcome =>
+    ({ content, segments: { verified: [] }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and ${why}: the signed frames are present, how they are presented is not what was signed`, label, ...frames })
+  if (!signedPresentation) return unbound('presentation not bound', 'the core binds no presentation')
+  if (read!.layout !== null) return unbound('tracks not bound', read!.layout)
+  const differs = presentationDiffers(signedPresentation, read!.presentation)
+  if (differs) return unbound('presentation differs', differs)
   return { content, segments: { verified }, outcome: 'verified_clip', reason: 'media.hash does not match the received file', ...frames }
+}
+
+/**
+ * §6.2 *Which key*, for every registry countersignature (`attestation_status`,
+ * `integrity`, `location_corroboration`) and the online key status: the log a
+ * `registry` attachment names, when this verifier trusts it, and no other. A
+ * `registry` naming a log nobody here trusts is absent evidence (*log not
+ * trusted*) and names nothing, so every trusted key is tried as for a proof
+ * without one; a signature that verifies identifies the key that made it, and
+ * such a proof cannot be green, its key being in no log this verifier follows.
+ */
+const registrySigners = (proof: Obj, trusted: TrustedLog[]): TrustedLog[] => {
+  const named = isObj(proof.registry) ? trusted.filter((l) => l.logId === (proof.registry as Obj).log_id) : []
+  return named.length > 0 ? named : trusted
 }
 
 // device.key_id is base64url of SHA-256(SPKI) in the proof; the log's leaf spells the same hash in hex.
