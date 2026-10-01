@@ -162,7 +162,7 @@ describe('vcap-verify', () => {
     // A file that is not the sealed bytes, with recomputation off: the
     // signatures hold and nothing ties the frames to them — exit 1.
     const dir = mkdtempSync(join(tmpdir(), 'vcap-clip-'))
-    const bytes = Uint8Array.from(readFileSync(inputOf('36-mp4-container-verified')))
+    const bytes = Uint8Array.from(readFileSync(inputOf('166-mp4-container-h264-presentation')))
     bytes[4000] = bytes[4000]! ^ 1
     writeFileSync(join(dir, 'edited.mp4'), bytes)
     const { io, out } = capture()

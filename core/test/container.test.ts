@@ -4,6 +4,7 @@ import { recomputeSegments } from '../src/container.js'
 import { parseTrailer } from '../src/trailer.js'
 import { verify } from '../src/verify.js'
 import { fromBase64, toBase64url } from '../src/bytes.js'
+import { resealed } from './reseal.js'
 
 /**
  * Three files sealed by real hardware (see fixtures/NOTES.md). The acceptance
@@ -15,12 +16,16 @@ import { fromBase64, toBase64url } from '../src/bytes.js'
  */
 interface Sealed { capture_id: string, segment_count: number, segments: { gop: number, hash: string }[] }
 
+// The device's container under a re-signed core that carries
+// `media.presentation` (`reseal.ts`): the device proofs predate it, and
+// without it `verify` stops at *no proof found* before reading a GOP.
+const FIXTURES = Object.fromEntries(await Promise.all(['sealed', 'sealed-hevc', 'sealed-padded'].map(async (name) =>
+  [name, await resealed(new Uint8Array(readFileSync(new URL(`./fixtures/${name}.mp4`, import.meta.url))))] as const)))
+
 const load = (name: string) => {
-  const file = new Uint8Array(readFileSync(new URL(`./fixtures/${name}.mp4`, import.meta.url)))
-  const trailer = parseTrailer(file)
-  if (trailer.kind !== 'ok') throw new Error(`${name}: no trailer`)
+  const { file, media } = FIXTURES[name]!
   const sealed: Sealed = JSON.parse(readFileSync(new URL(`./fixtures/${name}-segments.json`, import.meta.url), 'utf8'))
-  return { file, media: trailer.media, sealed }
+  return { file, media, sealed }
 }
 
 describe('§5 recomputation from the container', () => {

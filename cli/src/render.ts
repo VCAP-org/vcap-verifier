@@ -54,7 +54,6 @@ const MEANING: Record<string, string> = {
   // Neither licenses a claim about an id, and neither weakens the signature.
   'watermark not recovered': 'the payload did not decode, or its id was refused as unresolvable — the normal outcome of heavy re-compression, and it weakens nothing',
   'segment content not recomputed': 'the segment hashes were taken from the proof, not recomputed from the file',
-  'presentation not bound': 'the proof does not sign how the video is presented, so a clip of it is not a verified clip',
   'presentation differs': 'the video is presented — decoder settings, rotation or display size — otherwise than the proof signs',
   'tracks not bound': 'the file can show a track no segment signature covers',
   'inconsistent claim': 'the device claims a stronger level than its evidence proves',

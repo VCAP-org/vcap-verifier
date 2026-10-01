@@ -319,12 +319,14 @@ describe('the verdict over a carried proof', () => {
   })
 
   it('a clip whose proof is its source\'s reaches only what that proof proves of it', async () => {
-    // Vector 89's cut under its source's proof at depth 1. The proof binds no
-    // presentation (§5), so the cut is *frames not compared* — which at depth
-    // 1 is no proof of this file, never held against it (vector 145).
+    // Vector 89's cut under its source's proof at depth 1. The proof binds its
+    // presentation (§5) and the cut keeps it, so what that proof proves of
+    // this file is a clip: segments 1 and 2, the verdict vector 89 reaches
+    // from its trailer. Vector 145 is the same cut under vector 36's device
+    // proof, which lacks the field and is *no proof found* wherever it is read.
     const cut = sealed('89-mp4-container-cut-clip', 'input.mp4')
     const v = await verify(bmffWithStore(cut.media, c2paUuidBox(chainOf(cut.payload)), 'end'))
-    expect(v).toMatchObject({ outcome: 'no_proof_found', reason: SOURCE_CAPTURE, frames_name_capture: true, proof_source: { depth: 1 } })
+    expect(v).toMatchObject({ outcome: 'verified_clip', segments: { verified: [1, 2] }, frames_name_capture: true, proof_source: { depth: 1 } })
   })
 
   it('a clip whose frames are another capture\'s is no proof found, and says the frames do not name it', async () => {
