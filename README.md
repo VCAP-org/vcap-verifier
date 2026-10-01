@@ -633,7 +633,7 @@ outcome is **`frames_not_compared`**, amber — the signatures hold, nothing tie
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 5.0.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 6.0.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
@@ -743,8 +743,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 5.0.0, 168
-vectors** (manifest `288eb0e3516b…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 6.0.0, 168
+vectors** (manifest `6e5946291702…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |
