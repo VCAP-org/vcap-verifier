@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { concat, u32be, utf8 } from '../src/bytes.js'
-import { parseTrailer } from '../src/trailer.js'
 import { verify } from '../src/verify.js'
+import { resealed } from './reseal.js'
 
 /**
  * §5's binding between the segments a proof signs and the GOPs a file holds.
@@ -15,12 +15,12 @@ import { verify } from '../src/verify.js'
  * it, moves GOPs around it, or takes it away, on files a real device sealed.
  * A tampered verdict still reports the segments that did verify.
  */
-const fixture = (name: string) => {
-  const file = new Uint8Array(readFileSync(new URL(`./fixtures/${name}.mp4`, import.meta.url)))
-  const trailer = parseTrailer(file)
-  if (trailer.kind !== 'ok') throw new Error(`${name}: no trailer`)
-  return { file, media: trailer.media, payload: trailer.payload }
-}
+// The device's container under a re-signed core that carries
+// `media.presentation` (`reseal.ts`): the device proofs predate it, and
+// without it `verify` stops at *no proof found* before reading a GOP.
+const FIXTURES = Object.fromEntries(await Promise.all(['sealed', 'sealed-hevc'].map(async (name) =>
+  [name, await resealed(new Uint8Array(readFileSync(new URL(`./fixtures/${name}.mp4`, import.meta.url))))] as const)))
+const fixture = (name: string) => FIXTURES[name]!
 
 const UUID = [0xca, 0xa6, 0x53, 0xd1, 0xed, 0x17, 0x63, 0xc7, 0xaf, 0x38, 0x8a, 0xea, 0x76, 0x52, 0x73, 0x36]
 
@@ -128,6 +128,8 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
   const stbl = inside(moov, 'trak', 'mdia', 'minf', 'stbl')
   const table = kids(stbl[0] + 8, stbl[1])
   const mdhd = inside(moov, 'trak', 'mdia', 'mdhd')
+  // Copied as stored: the matrix and display size the core signs (§5 *Presentation*).
+  const tkhd = inside(moov, 'trak', 'tkhd')
   const timescale = read(mdhd[0] + 8 + 12)
 
   // One sample per chunk or not, the offsets are what stsc, stco and stsz say.
@@ -158,7 +160,7 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
     const data = concat(...frames)
     const moovOf = (offset: number): Uint8Array => box('moov',
       full('mvhd', new Uint8Array(8), u32be(timescale), new Uint8Array(84)),
-      box('trak', box('mdia',
+      box('trak', media.subarray(tkhd[0], tkhd[1]), box('mdia',
         full('mdhd', new Uint8Array(8), u32be(timescale), new Uint8Array(8)),
         full('hdlr', new Uint8Array(4), utf8('vide'), new Uint8Array(13)),
         box('minf', box('stbl',
@@ -176,23 +178,23 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
   const check = (order: Uint8Array[][]) => verify(mux(order.flat()), { sidecar: payload })
   const [g0, g1, g2] = gops as [Uint8Array[], Uint8Array[], Uint8Array[]]
 
-  // The device proof of this fixture predates `media.presentation`, so no
-  // rebuilt file can be a verified clip (§5 *Presentation*): what these two
-  // pin is that every GOP is located and none contradicts the proof — the
-  // verdict stops at the presentation, not at the binding.
+  // The rebuilt file keeps the sample description and the track header, so it
+  // presents its frames as the core signs (§5 *Presentation*): what these two
+  // pin is that every GOP is located, none contradicts the proof, and a clip
+  // of genuine GOPs is a verified clip rather than an accusation.
   it('rebuilt unchanged, every GOP is located and none contradicts the proof', async () => {
     expect(gops).toHaveLength(3)
     const v = await check([g0, g1, g2])
     // New container bytes, so media.hash differs; every GOP is the signed one.
-    expect(v.outcome).toBe('frames_not_compared')
-    expect(v.labels).toContain('presentation not bound')
+    expect(v.outcome).toBe('verified_clip')
+    expect(v.segments).toEqual({ verified: [0, 1, 2] })
     expect(v.content).toEqual({ recomputed: true, detail: '3 GOPs read from the container' })
   })
 
   it('a GOP removed from the middle is not tampered either', async () => {
     const v = await check([g0, g2])
-    expect(v.outcome).toBe('frames_not_compared')
-    expect(v.labels).toContain('presentation not bound')
+    expect(v.outcome).toBe('verified_clip')
+    expect(v.segments).toEqual({ verified: [0, 2] })
     expect(v.content).toEqual({ recomputed: true, detail: '2 GOPs read from the container' })
   })
 

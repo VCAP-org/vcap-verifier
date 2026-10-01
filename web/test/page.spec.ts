@@ -155,7 +155,7 @@ test('a file the page cannot read at all is an error card that says what to do',
  * reader has to open a section to find is a qualifier they will not read.
  */
 test('a clip says how many of its sampled frames carried the mark', async ({ page }) => {
-  const clip = join(vectors, '85-mp4-container-ios-sealed/input.mp4')
+  const clip = join(vectors, '168-mp4-container-ios-presentation/input.mp4')
   const { server, url } = await serve()
   await page.goto(url)
   await page.setInputFiles('#file', clip)

@@ -236,9 +236,12 @@ const shapeProblem = (proof: Obj): string | null => {
   // §8: media.mime alone decides that a proof is a video proof, and a video
   // proof needs its segments — the container and duration_ms decide nothing.
   if ((proof.media.mime as string).startsWith('video/') && !('segments' in proof && Number.isInteger((proof.media as Obj).segment_count))) return 'video proof without segments'
-  // §6.1 `media.presentation`: optional to a reader (absent, a clip is not
-  // bound and is never *verified clip*), and well formed when present, since
-  // it is signed and a malformed value is a payload two readers read two ways.
+  // §6.1 `media.presentation`: required wherever segments are, so of every
+  // video proof. A core is signed once and attached to every clip cut from
+  // it, so a field a clip depends on cannot be optional to the original:
+  // absent is a missing required field, like `segment_count`. Malformed is a
+  // signed payload two readers would read two ways.
+  if ('segments' in proof && !('presentation' in proof.media)) return 'media.presentation missing'
   if ('presentation' in proof.media && !presentationShape(proof.media.presentation)) return 'media.presentation malformed'
   return coreTrouble(extractCore(proof))
 }
@@ -788,27 +791,27 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
   }
   const verified = credited(chain.verified)
   if (problems.length > 0) return { content, segments: { verified }, outcome: 'tampered', tampered: `the container contradicts the proof: ${problems[0]}`, ...frames }
-  const signedPresentation = (proof.media as Obj).presentation as { config: string, matrix: number[], display: number[] } | undefined
+  // Present whenever segments are: `shapeProblem` refused a core without it.
+  const signedPresentation = (proof.media as Obj).presentation as { config: string, matrix: number[], display: number[] }
   if (mediaMatches) {
     // The sealed bytes, presentation included, are covered by `media.hash`. A
     // signed presentation that does not describe them is the writer's false
     // claim about its own file: flagged and amber, as a misreported level is,
     // never *tampered* — the bytes are exactly the ones the key sealed.
-    const wrong = signedPresentation && read ? presentationDiffers(signedPresentation, read.presentation) : null
+    const wrong = read ? presentationDiffers(signedPresentation, read.presentation) : null
     return { content, segments: { verified }, outcome: chain.status === 'clip' ? 'verified_clip' : 'authentic', ...(chain.status === 'clip' ? { reason: 'segments missing' } : {}), ...(wrong ? { label: 'presentation differs' } : {}), ...frames }
   }
   if (verified.length === 0) {
     return { content, segments: { verified }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and no GOP in it is tied to a signed segment (${content.detail}): the signatures hold, the frames were not compared`, ...frames }
   }
-  // §5 *Presentation*: a clip is verified only where the core binds how its
-  // frames are shown and the received file shows them that way. Otherwise the
+  // §5 *Presentation*: a clip is verified only where the received file shows
+  // its frames the way the core binds them. Otherwise the
   // frames are the signed frames under a crop, a rotation or a track nobody
   // signed: *frames not compared*, no segment credited, and the label says
   // which. Not *tampered*: re-muxing a clip is not an accusation, as a
   // `media.hash` that does not match is not one.
   const unbound = (label: string, why: string): SegmentsOutcome =>
     ({ content, segments: { verified: [] }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and ${why}: the signed frames are present, how they are presented is not what was signed`, label, ...frames })
-  if (!signedPresentation) return unbound('presentation not bound', 'the core binds no presentation')
   if (read!.layout !== null) return unbound('tracks not bound', read!.layout)
   const differs = presentationDiffers(signedPresentation, read!.presentation)
   if (differs) return unbound('presentation differs', differs)

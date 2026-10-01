@@ -617,12 +617,14 @@ capture or an index the proof does not sign, more than one vcap SEI in a GOP,
 an index carried twice, indices not strictly increasing, a vcap SEI that is not
 exactly one 36-byte message, or NAL framing that does not tile its sample are
 **tampered** — and the verdict still reports which segments did verify.
-A clip — a file that is not the original — is a *verified clip* only when the
-core's `media.presentation` binds how its frames are shown (parameter sets,
-`clap`/`pasp`/`colr`, the `tkhd` matrix and display size) and the clip has one
-video track, at most one audio track and nothing else enabled; otherwise it is
-*frames not compared* with *presentation not bound*, *presentation differs* or
-*tracks not bound*. Segment boundaries are the IDRs in the samples, never `stss`. With nothing
+Every proof that carries `segments` — every video proof — must carry
+`media.presentation`, which binds how its frames are shown (parameter sets,
+`clap`/`pasp`/`colr`, the `tkhd` matrix and display size); a core without it
+is missing a required field and reads **no proof found**, the original as much
+as any clip. A clip — a file that is not the original — is a *verified clip*
+only when it presents its frames as signed and has one video track, at most
+one audio track and nothing else enabled; otherwise it is *frames not
+compared* with *presentation differs* or *tracks not bound*. Segment boundaries are the IDRs in the samples, never `stss`. With nothing
 located (no GOP names the capture, not ISO-BMFF, an edit list with more than
 one edit after the leading delay or a rate change, recomputation off) there is no
 segment credit and `segments.verified` is empty: where `media.hash` matches the
@@ -631,7 +633,7 @@ outcome is **`frames_not_compared`**, amber — the signatures hold, nothing tie
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 4.0.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 5.0.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
@@ -741,8 +743,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 4.0.0, 164
-vectors** (manifest `3359db48567f…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 5.0.0, 168
+vectors** (manifest `288eb0e3516b…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |
