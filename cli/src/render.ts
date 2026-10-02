@@ -59,7 +59,7 @@ const MEANING: Record<string, string> = {
   'inconsistent claim': 'the device claims a stronger level than its evidence proves',
   'registered after the declared capture': 'the key was registered after the time this capture claims',
   'attestation chain expired, capture time not proven': 'the attestation has expired and only the device places the capture inside its validity',
-  'attestation key revoked': 'a certificate in the attestation chain was revoked at or before the capture',
+  'attestation key revoked': 'a certificate in the attestation chain was revoked, and nothing trusted places the capture before it — or it was revoked for a compromise',
   'attestation key revoked after the capture': 'a certificate was revoked later, which does not un-attest this capture',
   'key revoked': 'the log says this key was revoked at the capture time — or, when only the device\'s clock dates the capture, that it is revoked now',
   'sidecar differs': 'the sidecar carries a different proof from the one this verdict read',
