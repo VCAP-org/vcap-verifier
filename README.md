@@ -579,11 +579,13 @@ when the reader throws, *anchoring not verified*), the `timestamp`
 attachment (CMS over TSTInfo: imprint = core hash, signed attributes, signature,
 chain to the given TSA roots, timeStamping usage, genTime) and the `attestation`
 attachment on Android (chain to a pinned Google root, leaf key = `sig.pub`,
-weaker of the two security levels, locked device with verified boot; revocation
-through an injected status lookup, read under §6.2's temporal rule — a
-current-status list can only speak for the moment it was read, so what it finds
-is *attestation key revoked after the capture* and the level at the capture
-stands; only a snapshot dated before the capture withdraws it). The device key's
+weaker of the two security levels, locked device with verified boot, a key
+generated in the secure hardware and not imported; revocation through the
+frozen `attestation_status` snapshot or an injected status lookup, read under
+§6.2's temporal rule — a revoked certificate is *attestation key revoked*, red,
+unless a trusted instant precedes the `revoked_at` the source gives for a
+reason that is not a compromise, which is *attestation key revoked after the
+capture* with the level standing; when the list was read never dates it). The device key's
 own standing is a separate question with a separate label, answered by the log's
 signed statement over `"vcap/1.0/status" ‖ key_id ‖ at ‖ tree_size ‖ status`,
 whose `at` is checked against the proven instant so a log cannot be quoted out of

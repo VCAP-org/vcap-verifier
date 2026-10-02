@@ -50,9 +50,12 @@ anything that still escapes into *no proof found* or *corrupted proof* with a
 two parsers would read it two ways.
 
 A clip is *verified* only for segments whose GOP the container locates by its
-vcap SEI and whose bytes hash to the signed value; with nothing located and a
-file that is not the sealed bytes, the outcome is `frames_not_compared`
-(the signatures hold, no frame is tied to them) and never `verified_clip`.
+vcap SEI and whose bytes hash to the signed value, and only when the file
+presents them as the core's `media.presentation` signs (required of every
+video proof: without it, *no proof found*); with nothing located, or a
+presentation that differs, and a file that is not the sealed bytes, the
+outcome is `frames_not_compared` (the signatures hold, no frame is tied to
+them) and never `verified_clip`.
 
 One more option is not about the network but about where the hashing runs.
 `mediaHash` is the SHA-256 of the canonical bytes (§4.1) when the caller
