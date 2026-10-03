@@ -169,6 +169,16 @@ describe('which copy is the proof', () => {
     expect(extractProof(photo.file, reserialized(proof))).toMatchObject({ source: { kind: 'trailer' }, labels: ['sidecar differs'] })
   })
 
+  it('a sidecar that differs from the trailer travels as its rival, over the file without the trailer', () => {
+    expect(extractProof(photo.file, proof)).not.toHaveProperty('rival')
+    expect(extractProof(photo.file, enriched(proof))).toMatchObject({ labels: ['sidecar differs'], rival: { source: { kind: 'sidecar' }, labels: ['trailer copy differs'], payload: enriched(proof), media: photo.media, flags: null } })
+  })
+
+  it('the manifest copy is compared with the rival too, since it decides when it ranks above', () => {
+    const file = jpegWithStore(photo.file, one({ label: 'urn:c2pa:m', proof: reserialized(proof) }))
+    expect(extractProof(file, enriched(proof))).toMatchObject({ labels: ['sidecar differs'], rival: { labels: ['trailer copy differs', 'manifest copy differs'] } })
+  })
+
   it('a footer whose CRC fails is corrupted proof, whatever the store carries', async () => {
     const file = jpegWithStore(read('06-jpeg-footer-crc-mismatch', 'input.jpg'), one({ label: 'urn:c2pa:m', proof }))
     const v = await verify(file)

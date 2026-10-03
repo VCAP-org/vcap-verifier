@@ -186,9 +186,10 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
  * precedence finds it — so a proof held in Content Credentials or a trailer
  * can be written out as a sidecar. Nothing is verified: the source goes to
  * stderr, the bytes to stdout, and the exit code says only whether there
- * was a proof to print (0) or not (1). A sidecar that differs from a depth-0
- * proof is not ranked here, because ranking needs both verdicts (§3.1 step 4):
- * the depth-0 proof is printed, with *sidecar differs*.
+ * was a proof to print (0) or not (1). A sidecar that differs from a trailer
+ * or a depth-0 proof is not ranked here, because ranking needs both verdicts
+ * (§3.1, *A sidecar that does better*): the file's proof is printed, with
+ * *sidecar differs*.
  */
 const extract = async (options: Options, io: Streams): Promise<number> => {
   const path = options.files[0] as string

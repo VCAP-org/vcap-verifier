@@ -181,6 +181,16 @@ describe('vcap-verify', () => {
     const corrupted = capture()
     expect(await run(['--json', '--no-recompute', inputOf('72-jpeg-footer-crc-mismatch-sidecar')], corrupted.io)).toBe(1)
     expect(JSON.parse(corrupted.out().trim()).outcome).toBe('corrupted_proof')
+
+    // A foreign trailer beside a genuine sidecar: the sidecar ranks above it
+    // (§3.1, *A sidecar that does better*), and the text says where it was read.
+    const outranked = capture()
+    expect(await run(['--json', '--no-recompute', inputOf('172-jpeg-foreign-trailer-sidecar')], outranked.io)).toBe(0)
+    expect(JSON.parse(outranked.out().trim())).toMatchObject({ outcome: 'authentic', proof_source: { kind: 'sidecar' }, labels: expect.arrayContaining(['trailer copy differs']) })
+    const text = capture()
+    await run(['--no-recompute', inputOf('172-jpeg-foreign-trailer-sidecar')], text.io)
+    expect(text.out()).toContain('trailer copy differs: the file\'s trailer carries a different proof')
+    expect(text.out()).toContain('proof     read from the sidecar')
   })
 
   it('says what it cannot check rather than passing over it', async () => {
