@@ -13,6 +13,8 @@ export type Node = asn1js.AsnType
 export const parseDer = (der: Bytes): Node => {
   const { offset, result } = asn1js.fromBER(Uint8Array.from(der).buffer)
   if (offset === -1) throw new Asn1Error('malformed DER')
+  // Bytes after the value are outside anything a signature or hash covered.
+  if (offset !== der.length) throw new Asn1Error('trailing bytes after DER')
   return result
 }
 
