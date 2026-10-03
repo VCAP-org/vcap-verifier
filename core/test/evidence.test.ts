@@ -42,6 +42,23 @@ describe('RFC 3161 token', async () => {
   it('rejects a genTime in the future', async () => {
     expect(failed(await validateTimestamp(await timestampToken(signer, coreHash, { genTime: new Date(Date.now() + 3_600_000) }), coreHash, roots))).toEqual(['gen_time'])
   })
+  it('accepts a signingCertificate attribute that names the signer, in each form', async () => {
+    for (const ess of ['v1', 'v2', 'v2-default'] as const) {
+      expect((await validateTimestamp(await timestampToken(signer, coreHash, { ess }), coreHash, roots)).ok, ess).toBe(true)
+    }
+  })
+  it('rejects a signingCertificate attribute that names another certificate', async () => {
+    for (const ess of ['v1', 'v2', 'v2-default'] as const) {
+      const v = await validateTimestamp(await timestampToken(signer, coreHash, { ess, essCert: root.der }), coreHash, roots)
+      expect(failed(v), ess).toEqual(['signature'])
+      expect(v.checks.find((c) => c.id === 'signature')?.detail).toMatch(/signingCertificate/)
+    }
+  })
+  it('rejects a SignerInfo naming the signer\'s serial under another issuer', async () => {
+    const v = await validateTimestamp(await timestampToken(signer, coreHash, { sidIssuer: 'CN=Somebody Else' }), coreHash, roots)
+    expect(failed(v)).toEqual(['signature', 'signer_chain', 'signer_usage'])
+    expect(v.checks.find((c) => c.id === 'signature')?.detail).toBe('signer certificate not found in the token')
+  })
   it('fails closed on garbage', async () => {
     const v = await validateTimestamp(new Uint8Array([0x30, 0x03, 1, 2]), coreHash, roots)
     expect(v.ok).toBe(false)

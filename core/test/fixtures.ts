@@ -38,7 +38,10 @@ export const tsaSigner = async (v: { notBefore?: Date, notAfter?: Date } = {}): 
 }
 
 /** RFC 3161 TimeStampToken (CMS SignedData over TSTInfo) signed by `signer`, with optional tamper hooks. */
-export const timestampToken = async (signer: Issued, imprint: Uint8Array, o: { genTime?: Date, extraCerts?: Issued[], wrongDigest?: boolean, wrongSigner?: CryptoKey } = {}): Promise<Uint8Array> => {
+// `ess` adds the signingCertificate attribute (v1: SHA-1 ESSCertID; v2: ESSCertIDv2
+// with SHA-256 named, or left to its DEFAULT) over `essCert`, the signer by
+// default; `sidIssuer` replaces the issuer name the SignerInfo names.
+export const timestampToken = async (signer: Issued, imprint: Uint8Array, o: { genTime?: Date, extraCerts?: Issued[], wrongDigest?: boolean, wrongSigner?: CryptoKey, ess?: 'v1' | 'v2' | 'v2-default', essCert?: Uint8Array, sidIssuer?: string } = {}): Promise<Uint8Array> => {
   const tstInfo = der(seq(
     new asn1js.Integer({ value: 1 }), oid('1.2.3.4.1'),
     seq(seq(oid('2.16.840.1.101.3.4.2.1')), octets(imprint)),
@@ -48,14 +51,15 @@ export const timestampToken = async (signer: Issued, imprint: Uint8Array, o: { g
   if (o.wrongDigest) digest[0] = (digest[0] ?? 0) ^ 1
   const attrs = ctx(0,
     seq(oid('1.2.840.113549.1.9.3'), new asn1js.Set({ value: [oid('1.2.840.113549.1.9.16.1.4')] })),
-    seq(oid('1.2.840.113549.1.9.4'), new asn1js.Set({ value: [octets(digest)] }))
+    seq(oid('1.2.840.113549.1.9.4'), new asn1js.Set({ value: [octets(digest)] })),
+    ...(o.ess ? [await essAttribute(o.ess, o.essCert ?? signer.der)] : [])
   )
   const toSign = der(attrs); toSign[0] = 0x31
   const p1363 = new Uint8Array(await subtle().sign({ name: 'ECDSA', hash: 'SHA-256' }, o.wrongSigner ?? signer.keys.privateKey, toSign))
   const int = (b: Uint8Array) => new asn1js.Integer({ valueHex: Uint8Array.from((b[0] ?? 0) & 0x80 ? [0, ...b] : b).buffer })
   const sigDer = der(seq(int(p1363.slice(0, 32)), int(p1363.slice(32))))
   const serial = new asn1js.Integer({ valueHex: Uint8Array.from((signer.cert.serialNumber.match(/../g) ?? []).map((h) => parseInt(h, 16))).buffer })
-  const issuerName = asn1js.fromBER(new Uint8Array(new x509.Name(signer.cert.issuer).toArrayBuffer()).buffer).result
+  const issuerName = asn1js.fromBER(new Uint8Array(new x509.Name(o.sidIssuer ?? signer.cert.issuer).toArrayBuffer()).buffer).result
   const signerInfo = seq(
     new asn1js.Integer({ value: 1 }),
     seq(issuerName, serial),
@@ -105,4 +109,12 @@ export const androidChain = async (o: { attestation?: Level, keyMint?: Level, lo
   const inter = await issue({ subject: 'CN=Test Android Intermediate', issuer: root, ca: true, ...o.validity })
   const leaf = await issue({ subject: 'CN=Android Keystore Key', issuer: inter, keys: o.leafKeys, ...o.validity, extensions: [keyDescription({ attestation: o.attestation ?? 1, keyMint: o.keyMint ?? 1, locked: o.locked, bootState: o.bootState, withRot: o.withRot, origin: o.origin, softwareOrigin: o.softwareOrigin })] })
   return { root, chain: [leaf.der, inter.der, root.der], spki: await spkiOf(leaf.keys.publicKey) }
+}
+
+/** The signingCertificate (v1) or signingCertificateV2 attribute naming `cert` by its hash. */
+const essAttribute = async (kind: 'v1' | 'v2' | 'v2-default', cert: Uint8Array): Promise<asn1js.Sequence> => {
+  const hash = new Uint8Array(await subtle().digest(kind === 'v1' ? 'SHA-1' : 'SHA-256', Uint8Array.from(cert)))
+  const certId = kind === 'v2' ? seq(seq(oid('2.16.840.1.101.3.4.2.1')), octets(hash)) : seq(octets(hash))
+  const type = kind === 'v1' ? '1.2.840.113549.1.9.16.2.12' : '1.2.840.113549.1.9.16.2.47'
+  return seq(oid(type), new asn1js.Set({ value: [seq(seq(certId))] }))
 }
