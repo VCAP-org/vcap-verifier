@@ -191,6 +191,12 @@ describe('which copy is the proof', () => {
     expect(extractProof(file, enriched(proof))).toMatchObject({ source: { kind: 'c2pa', depth: 0 }, labels: ['sidecar differs'] })
   })
 
+  it('a sidecar that differs from the depth-0 proof travels as its rival, to be ranked by verify', () => {
+    const file = jpegWithStore(photo.media, one({ label: 'urn:c2pa:m', proof }))
+    expect(extractProof(file, reserialized(proof))).not.toHaveProperty('rival')
+    expect(extractProof(file, enriched(proof))).toMatchObject({ rival: { source: { kind: 'sidecar' }, labels: ['manifest copy differs'], payload: enriched(proof) } })
+  })
+
   it('no footer and no proof at depth 0: the sidecar before the chain, which is then not searched', () => {
     const x = extractProof(jpegWithStore(photo.media, chain(2, 1)), proof)
     expect(x).toMatchObject({ source: { kind: 'sidecar' }, labels: [] })
@@ -292,6 +298,11 @@ describe('the verdict over a carried proof', () => {
   it('depth 0 over bytes that are not the sealed ones is tampered', async () => {
     const v = await verify(jpegWithStore(edited, one({ label: 'urn:c2pa:m', proof })))
     expect(v).toMatchObject({ outcome: 'tampered', reason: 'media.hash does not match the canonical bytes' })
+  })
+
+  it('a differing sidecar that only ties the depth-0 proof leaves it standing, from a store the caller hands over too', async () => {
+    const v = await verify(edited, { sidecar: new TextEncoder().encode('{}'), c2paStore: one({ label: 'urn:c2pa:m', proof }) })
+    expect(v).toMatchObject({ outcome: 'tampered', proof_source: { kind: 'c2pa', manifest: 'urn:c2pa:m', depth: 0 } })
   })
 
   it('depth ≥ 1 over bytes that are not the sealed ones is no proof found, never tampered', async () => {

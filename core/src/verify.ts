@@ -1,7 +1,7 @@
 import { type Bytes, fromBase64, fromUtf8, isInstant, toBase64url, toHex } from './bytes.js'
 import { sha256 } from './sha.js'
 import { MAX_DEPTH, jcs, jsonProblem, type Json } from './jcs.js'
-import { type ContentCredentials, type Extraction, type ProofSource, extractProof } from './carrier.js'
+import { type ContentCredentials, type ProofFound, type ProofSource, extractProof } from './carrier.js'
 import { canonicalBytes, detectContainer } from './canonical.js'
 import { type Presentation, recomputeSegments } from './container.js'
 import { type StatusAttachment, type StatusEntry, chainStatus, verifyStatus } from './attestation-status.js'
@@ -273,14 +273,14 @@ const verifyFile = async (file: Bytes, o: VerifyOptions, progress: Progress): Pr
   const x = extractProof(file, o.sidecar, o.c2paStore)
   const cc = x.c2pa ? { content_credentials: x.c2pa } : {}
   if (x.kind === 'refused') return { ...fail(x.outcome, x.reason), ...cc }
-  const verdict = await judge(x, o, progress)
+  const { found, verdict } = await precedence(x, o, progress)
   if (x.c2pa && x.c2pa.store === 'embedded' && progress.mediaMatches === true && detectContainer(x.media) === 'bmff') x.c2pa.sealed_with_capture = true
-  const source = { proof_source: x.source }
+  const source = { proof_source: found.source }
   // Depth ≥ 1: the proof is a source capture's, and a file that does not fit
   // it is what C2PA declares it to be — something made from that capture.
   // The core was read, so its hash stays — it names the source capture — and
   // no label does: nothing is held against the file (§3.2).
-  if (x.source.kind === 'c2pa' && x.source.depth > 0 && (verdict.outcome === 'tampered' || verdict.outcome === 'frames_not_compared')) {
+  if (found.source.kind === 'c2pa' && found.source.depth > 0 && (verdict.outcome === 'tampered' || verdict.outcome === 'frames_not_compared')) {
     const frames = verdict.frames_name_capture === undefined ? {} : { frames_name_capture: verdict.frames_name_capture }
     const core = verdict.core_hash === undefined ? {} : { core_hash: verdict.core_hash }
     return { ...fail('no_proof_found', SOURCE_CAPTURE), ...core, ...frames, ...source, ...cc }
@@ -288,8 +288,32 @@ const verifyFile = async (file: Bytes, o: VerifyOptions, progress: Progress): Pr
   return { ...verdict, ...source, ...cc }
 }
 
+// §3.1 step 4: how a sidecar's outcome is ranked against a depth-0 proof's.
+// Every outcome not named ranks equal, below these. Outcomes and never
+// ceilings: a sidecar stripped of a `revoked` attachment reads amber where the
+// manifest's complete copy reads red, and must not win by it.
+const RANK: Partial<Record<Outcome, number>> = { authentic: 3, verified_clip: 2, frames_not_compared: 1 }
+const rank = (v: Verdict): number => RANK[v.outcome] ?? 0
+
+/**
+ * The depth-0 proof's verdict, unless a differing sidecar's ranks strictly
+ * above it. A tie keeps the depth-0 proof, so the manifest can lower a verdict
+ * against its sidecar and never raise one. A sidecar that cannot be judged
+ * to the end loses: it is the challenger, and the net in `verify` belongs to
+ * the proof that stands.
+ */
+const precedence = async (x: ProofFound, o: VerifyOptions, progress: Progress): Promise<{ found: ProofFound, verdict: Verdict }> => {
+  const verdict = await judge(x, o, progress)
+  if (!x.rival) return { found: x, verdict }
+  const challenger: Progress = { proof: false }
+  const rival = await judge(x.rival, o, challenger).catch(() => null)
+  if (rival === null || rank(rival) <= rank(verdict)) return { found: x, verdict }
+  progress.mediaMatches = challenger.mediaMatches
+  return { found: x.rival, verdict: rival }
+}
+
 /** Steps 2–8 over the proof `extractProof` found, and the canonical bytes it goes with. */
-const judge = async (x: Extract<Extraction, { kind: 'proof' }>, o: VerifyOptions, progress: Progress): Promise<Verdict> => {
+const judge = async (x: ProofFound, o: VerifyOptions, progress: Progress): Promise<Verdict> => {
   const { payload, media, flags } = x
   const labels: string[] = [...x.labels]
 

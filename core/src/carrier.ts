@@ -46,8 +46,25 @@ export interface ContentCredentials {
   sealed_with_capture?: boolean
 }
 
+/** A proof found, with the canonical bytes it is judged over. */
+export interface ProofFound {
+  kind: 'proof'
+  payload: Bytes
+  media: Bytes
+  flags: number | null
+  source: ProofSource
+  labels: string[]
+  c2pa?: ContentCredentials
+  /**
+   * §3.1 step 4: a sidecar that differs from the depth-0 proof. `verify`
+   * judges it too, and it is the verdict only when its outcome ranks strictly
+   * above the depth-0 proof's.
+   */
+  rival?: ProofFound
+}
+
 export type Extraction =
-  | { kind: 'proof', payload: Bytes, media: Bytes, flags: number | null, source: ProofSource, labels: string[], c2pa?: ContentCredentials }
+  | ProofFound
   | { kind: 'refused', outcome: 'no_proof_found' | 'corrupted_proof' | 'unsupported_format_version' | 'nested_proof', reason: string, c2pa?: ContentCredentials }
 
 const ASSERTIONS = jumbfUuid('c2as')
@@ -286,7 +303,9 @@ const sameProof = (a: Bytes, b: Bytes): boolean => {
  * 3. `VCAP` with another major — *unsupported format version*;
  * 4. no footer — the active manifest's proof (depth 0, compared as JCS with a
  *    sidecar), then the sidecar, then the nearest proof up the `parentOf`
- *    chain (depth 1–16, no manifest twice).
+ *    chain (depth 1–16, no manifest twice). A sidecar that differs from the
+ *    depth-0 proof travels as its `rival`: *sidecar differs* on the one,
+ *    *manifest copy differs* on the other, and `verify` ranks the two.
  */
 export const extractProof = (file: Bytes, sidecar?: Bytes, externalStore?: Bytes): Extraction => {
   const trailer = parseTrailer(file)
@@ -304,10 +323,18 @@ export const extractProof = (file: Bytes, sidecar?: Bytes, externalStore?: Bytes
     ]
     return { kind: 'proof', payload: trailer.payload, media: trailer.media, flags: trailer.flags, source: { kind: 'trailer' }, labels, ...c2pa }
   }
-  const carried = (found: { payload: Bytes, manifest: string, depth: number }, labels: string[]): Extraction =>
+  const carried = (found: { payload: Bytes, manifest: string, depth: number }, labels: string[]): ProofFound =>
     ({ kind: 'proof', payload: found.payload, media: file, flags: null, source: { kind: 'c2pa', manifest: found.manifest, depth: found.depth }, labels, ...c2pa })
-  if (active) return carried(active, sidecar && !sameProof(sidecar, active.payload) ? ['sidecar differs'] : [])
-  if (sidecar) return { kind: 'proof', payload: sidecar, media: file, flags: null, source: { kind: 'sidecar' }, labels: [], ...c2pa }
+  const beside = (labels: string[]): ProofFound => ({ kind: 'proof', payload: sidecar as Bytes, media: file, flags: null, source: { kind: 'sidecar' }, labels, ...c2pa })
+  if (active) {
+    if (!sidecar || sameProof(sidecar, active.payload)) return carried(active, [])
+    // A manifest is not authenticated to this reader and, on a JPEG, sits
+    // outside the canonical bytes: anyone can add one carrying a foreign proof
+    // beside a genuine file and its sidecar. So the sidecar is judged too
+    // (§3.1 step 4, vectors 169-171), and decides only by doing better.
+    return { ...carried(active, ['sidecar differs']), rival: beside(['manifest copy differs']) }
+  }
+  if (sidecar) return beside([])
   const ancestor = store?.search?.(1, MAX_CHAIN_DEPTH) ?? null
   if (ancestor) return carried(ancestor, [])
   return refused('no_proof_found', 'no trailer and no sidecar')

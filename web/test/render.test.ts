@@ -363,6 +363,14 @@ describe('the Content Credentials lane', () => {
     expect(card('photo.jpg', differs)).toContain('<li>manifest copy differs</li>')
   })
 
+  it('says when a sidecar outranked a different proof in the active manifest (vector 169)', async () => {
+    const dir = join(vectors, '169-jpeg-c2pa-foreign-proof-sidecar')
+    const v = await verify(new Uint8Array(readFileSync(join(dir, 'input.jpg'))), { sidecar: new Uint8Array(readFileSync(join(dir, 'input.jpg.vcap'))) })
+    expect(contentCredentials(v)).toContain('a different proof (manifest copy differs); the sidecar\'s verdict ranks above it over these bytes')
+    expect(card('photo.jpg', v)).toContain('<li>manifest copy differs</li>')
+    expect(card('photo.jpg', v)).not.toContain('<dt>proof read from</dt>')
+  })
+
   it('says why a store was not read, and escapes whatever a store names', async () => {
     const unread = await verify(new Uint8Array(photo), { c2paStore: new Uint8Array(12) })
     expect(contentCredentials(unread)).toContain('the .c2pa file you supplied, not read: the manifest store cannot be read')

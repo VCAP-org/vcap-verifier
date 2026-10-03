@@ -635,7 +635,7 @@ outcome is **`frames_not_compared`**, amber — the signatures hold, nothing tie
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 6.0.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 6.1.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
@@ -701,6 +701,19 @@ for nothing else**. It is a carrier, never a verdict.
   `JCS(parse(a)) == JCS(parse(b))` is *manifest copy differs* — as JCS because
   a C2PA writer re-serializes the JSON it is given; trailer and sidecar keep
   the byte rule.
+- **A sidecar beside a different depth-0 proof** (corpus 6.1.0): both are
+  judged, and their outcomes ranked — *authentic* above *verified clip* above
+  *frames not compared* above everything else, which ranks equal. The sidecar
+  decides only when it ranks strictly above: its verdict, `proof_source`
+  `sidecar`, labelled *manifest copy differs*. On a tie the depth-0 proof
+  stands, with *sidecar differs*. Outcomes, never ceilings, are ranked: a
+  sidecar stripped of a `revoked` attachment must not beat the manifest's
+  complete copy. The reason is that a manifest is authenticated to nobody here
+  and, on a JPEG, sits outside the canonical bytes: anyone can add one carrying
+  a foreign proof beside a genuine file and its sidecar, and a depth-0 proof
+  that always won turned that into *tampered*. Nothing is gained that deleting
+  the manifest would not give. `vcap-verify extract` verifies nothing, so it
+  ranks nothing: it prints the depth-0 proof, with *sidecar differs*.
 - **What counts as the assertion**: one box under exactly that label (`__n`
   instances are ignored, two boxes under the label are neither), listed by its
   claim (`created_assertions`, `gathered_assertions`, or a v1 claim's
@@ -745,8 +758,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 6.0.0, 168
-vectors** (manifest `6e5946291702…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 6.1.0, 171
+vectors** (manifest `7ff31e1aa784…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |
