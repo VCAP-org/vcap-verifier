@@ -288,17 +288,19 @@ const verifyFile = async (file: Bytes, o: VerifyOptions, progress: Progress): Pr
   return { ...verdict, ...source, ...cc }
 }
 
-// §3.1 step 4: how a sidecar's outcome is ranked against a depth-0 proof's.
-// Every outcome not named ranks equal, below these. Outcomes and never
-// ceilings: a sidecar stripped of a `revoked` attachment reads amber where the
-// manifest's complete copy reads red, and must not win by it.
+// §3.1, *A sidecar that does better*: how a sidecar's outcome is ranked
+// against the proof the file carries (a trailer, or a depth-0 proof). Every
+// outcome not named ranks equal, below these. Outcomes and never ceilings: a
+// sidecar stripped of a `revoked` attachment reads amber where the file's
+// complete copy reads red, and must not win by it.
 const RANK: Partial<Record<Outcome, number>> = { authentic: 3, verified_clip: 2, frames_not_compared: 1 }
 const rank = (v: Verdict): number => RANK[v.outcome] ?? 0
 
 /**
- * The depth-0 proof's verdict, unless a differing sidecar's ranks strictly
- * above it. A tie keeps the depth-0 proof, so the manifest can lower a verdict
- * against its sidecar and never raise one. A sidecar that cannot be judged
+ * The verdict of the proof the file carries, unless a differing sidecar's,
+ * over the same bytes, ranks strictly above it. A tie keeps the file's proof,
+ * so a trailer or a manifest can lower a verdict against its sidecar and never
+ * raise one. A sidecar that cannot be judged
  * to the end loses: it is the challenger, and the net in `verify` belongs to
  * the proof that stands.
  */

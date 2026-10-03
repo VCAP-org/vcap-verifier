@@ -356,8 +356,11 @@ export const card = (name: string, v: Verdict, o: CardOptions = {}): string => {
     // identity is shown as that, never as this file's.
     v.core_hash ? [fromAncestor(v) ? 'proof identity of the source capture' : 'proof identity', `<code>${v.core_hash}</code>`, FROM.file] : null,
     // Where the proof sat is not evidence (§3.1), so it is a row and never a
-    // label — and only where it is not the trailer or a sidecar the reader chose.
-    v.proof_source?.kind === 'c2pa' ? ['proof read from', escape(proofSource(v.proof_source)), FROM.cc] : null
+    // label — and only where it is not the trailer or a sidecar the reader
+    // chose, or where the sidecar outranked the file's own trailer, which a
+    // reader would otherwise assume decided.
+    v.proof_source?.kind === 'c2pa' ? ['proof read from', escape(proofSource(v.proof_source)), FROM.cc] : null,
+    v.proof_source?.kind === 'sidecar' && v.labels.includes('trailer copy differs') ? ['proof read from', TRAILER_OUTRANKED, FROM.file] : null
   ]
   const details = rows.filter((row): row is [string, string, string] => row !== null)
   // The core's own sentence for why the verdict stopped where it did: it names
@@ -381,6 +384,9 @@ export const card = (name: string, v: Verdict, o: CardOptions = {}): string => {
       : ''}
   </div>`
 }
+
+// §3.1, *A sidecar that does better*: the trailer was judged and lost.
+const TRAILER_OUTRANKED = 'the sidecar you supplied — the file\'s trailer carries a different proof (trailer copy differs), and the sidecar\'s verdict ranks above it over the same bytes'
 
 /** Where a proof was read, in words. */
 export const proofSource = (s: ProofSource): string => {
@@ -430,6 +436,13 @@ const proofRow = (v: Verdict, cc: ContentCredentials): string => {
     return v.labels.includes('manifest copy differs')
       ? `the active manifest carries a different copy of the proof (manifest copy differs); the trailer decides`
       : 'the active manifest carries a copy of the proof, the same as the trailer\'s; the trailer decides'
+  }
+  // §3.1: a sidecar beats a differing trailer only by a better outcome, and
+  // the manifest's copy is then compared with the sidecar's proof.
+  if (source?.kind === 'sidecar' && cc.proof && v.labels.includes('trailer copy differs')) {
+    return v.labels.includes('manifest copy differs')
+      ? 'the active manifest carries a different copy of the proof (manifest copy differs); the sidecar decides, its verdict ranking above the trailer\'s'
+      : 'the active manifest carries a copy of the proof, the same as the sidecar\'s; the sidecar decides, its verdict ranking above the trailer\'s'
   }
   // §3.1 step 4: a sidecar beats a differing depth-0 copy only by a better
   // outcome, and the reader is owed both halves of that.

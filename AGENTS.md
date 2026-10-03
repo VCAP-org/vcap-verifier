@@ -73,10 +73,13 @@ part of correctness:
   then the active manifest (depth 0), the sidecar, the nearest proof up the
   `parentOf` chain (depth 1–16, no revisits, `componentOf`/`inputTo` never).
   A manifest copy is compared as JCS (*manifest copy differs*), trailer and
-  sidecar as bytes. A sidecar that differs from a depth-0 proof is judged too
-  (`precedence` in `verify.ts`) and wins only by a strictly better outcome
-  (*authentic* > *verified clip* > *frames not compared* > the rest), then
-  labelled *manifest copy differs*; outcomes are ranked, never ceilings. A depth ≥ 1 proof that does not fit the file is *no proof
+  sidecar as bytes. A sidecar that differs from the trailer or a depth-0
+  proof is judged too, over the same bytes (`rival` from `extractProof`,
+  ranked by `precedence` in `verify.ts`), and wins only by a strictly better
+  outcome (*authentic* > *verified clip* > *frames not compared* > the rest),
+  then labelled *trailer copy differs* or *manifest copy differs*; outcomes
+  are ranked, never ceilings. Nested, CRC-fail and major ≠ 1 footers are
+  outside that rule. A depth ≥ 1 proof that does not fit the file is *no proof
   found* (`SOURCE_CAPTURE`, the source's `core_hash` kept), never *tampered*.
   `proof_source` is diagnostic and never a label. §4.1 reads a JPEG JUMBF
   box's type the way the store finder does (`jumbfGroups` in `canonical.ts`):

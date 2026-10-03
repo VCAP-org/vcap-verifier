@@ -64,6 +64,7 @@ const MEANING: Record<string, string> = {
   'key revoked': 'the log says this key was revoked at the capture time — or, when only the device\'s clock dates the capture, that it is revoked now',
   'sidecar differs': 'the sidecar carries a different proof from the one this verdict read',
   'manifest copy differs': 'the Content Credentials carry a different proof from the one this verdict read',
+  'trailer copy differs': 'the file\'s trailer carries a different proof, and the sidecar\'s verdict ranks above it over the same bytes',
   'capture time not declared': 'nothing in the core dates the capture, so the registration cannot be placed before it',
   'registered after the trusted time': 'the key was logged after the instant a timestamp authority placed the capture at',
   'attestation evidence invalid': 'the attached attestation chain breaks a rule it must satisfy (roots, CA issuers, the extension in the leaf only)',

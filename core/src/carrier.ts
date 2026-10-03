@@ -56,9 +56,10 @@ export interface ProofFound {
   labels: string[]
   c2pa?: ContentCredentials
   /**
-   * §3.1 step 4: a sidecar that differs from the depth-0 proof. `verify`
-   * judges it too, and it is the verdict only when its outcome ranks strictly
-   * above the depth-0 proof's.
+   * §3.1: a sidecar that differs from the proof the file carries (the trailer
+   * at step 1, the depth-0 proof at step 4). `verify` judges it too, over the
+   * same bytes, and it is the verdict only when its outcome ranks strictly
+   * above the file's proof's.
    */
   rival?: ProofFound
 }
@@ -297,8 +298,10 @@ const sameProof = (a: Bytes, b: Bytes): boolean => {
  * vcap-proof §3.1's precedence, with the manifest store in it:
  *
  * 1. a valid footer whose CRC matches — the trailer is the proof. A sidecar
- *    that differs byte for byte is *sidecar differs*; a copy in the active
- *    manifest that differs as JCS is *manifest copy differs*;
+ *    that differs byte for byte is *sidecar differs* and travels as its
+ *    `rival`, judged over the same bytes (the file without the trailer),
+ *    labelled *trailer copy differs*; a copy in the active manifest that
+ *    differs as JCS from whichever proof decides is *manifest copy differs*;
  * 2. a valid footer whose CRC fails — *corrupted proof*, whatever the store holds;
  * 3. `VCAP` with another major — *unsupported format version*;
  * 4. no footer — the active manifest's proof (depth 0, compared as JCS with a
@@ -315,26 +318,26 @@ export const extractProof = (file: Bytes, sidecar?: Bytes, externalStore?: Bytes
   if (trailer.kind === 'corrupted') return refused('corrupted_proof', 'footer valid, CRC mismatch')
   if (trailer.kind === 'unsupported') return refused('unsupported_format_version', `footer major ${trailer.major}`)
   const active = store?.search?.(0, 0) ?? null
+  // The differing sidecar, judged over `media` too, and ranked by `verify`
+  // (§3.1, *A sidecar that does better*): neither a valid-CRC trailer nor a
+  // manifest is authenticated as this file's, and anyone can add either,
+  // carrying a foreign proof, beside a genuine file and its sidecar.
+  const beside = (media: Bytes, labels: string[]): ProofFound => ({ kind: 'proof', payload: sidecar as Bytes, media, flags: null, source: { kind: 'sidecar' }, labels, ...c2pa })
   if (trailer.kind === 'ok') {
     if (parseTrailer(trailer.media).kind !== 'none') return refused('nested_proof', 'the canonical bytes end in another trailer')
-    const labels = [
-      ...(sidecar && !equal(sidecar, trailer.payload) ? ['sidecar differs'] : []),
-      ...(active && !sameProof(active.payload, trailer.payload) ? ['manifest copy differs'] : [])
-    ]
-    return { kind: 'proof', payload: trailer.payload, media: trailer.media, flags: trailer.flags, source: { kind: 'trailer' }, labels, ...c2pa }
+    // The manifest's copy is compared with whichever proof decides.
+    const manifestCopy = (proof: Bytes): string[] => active && !sameProof(active.payload, proof) ? ['manifest copy differs'] : []
+    const found: ProofFound = { kind: 'proof', payload: trailer.payload, media: trailer.media, flags: trailer.flags, source: { kind: 'trailer' }, labels: manifestCopy(trailer.payload), ...c2pa }
+    if (!sidecar || equal(sidecar, trailer.payload)) return found
+    return { ...found, labels: ['sidecar differs', ...found.labels], rival: beside(trailer.media, ['trailer copy differs', ...manifestCopy(sidecar)]) }
   }
   const carried = (found: { payload: Bytes, manifest: string, depth: number }, labels: string[]): ProofFound =>
     ({ kind: 'proof', payload: found.payload, media: file, flags: null, source: { kind: 'c2pa', manifest: found.manifest, depth: found.depth }, labels, ...c2pa })
-  const beside = (labels: string[]): ProofFound => ({ kind: 'proof', payload: sidecar as Bytes, media: file, flags: null, source: { kind: 'sidecar' }, labels, ...c2pa })
   if (active) {
     if (!sidecar || sameProof(sidecar, active.payload)) return carried(active, [])
-    // A manifest is not authenticated to this reader and, on a JPEG, sits
-    // outside the canonical bytes: anyone can add one carrying a foreign proof
-    // beside a genuine file and its sidecar. So the sidecar is judged too
-    // (§3.1 step 4, vectors 169-171), and decides only by doing better.
-    return { ...carried(active, ['sidecar differs']), rival: beside(['manifest copy differs']) }
+    return { ...carried(active, ['sidecar differs']), rival: beside(file, ['manifest copy differs']) }
   }
-  if (sidecar) return beside([])
+  if (sidecar) return beside(file, [])
   const ancestor = store?.search?.(1, MAX_CHAIN_DEPTH) ?? null
   if (ancestor) return carried(ancestor, [])
   return refused('no_proof_found', 'no trailer and no sidecar')

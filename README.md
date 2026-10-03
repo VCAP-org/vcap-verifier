@@ -559,7 +559,8 @@ optional and worth 2.3–2.6× (above).
 
 Trailer and footer (structure first, CRC second), nested trailers, the §3.1
 sidecar in the spec's precedence (an intact trailer wins and a sidecar that
-differs byte for byte is *sidecar differs*; a broken trailer is *corrupted
+differs byte for byte is *sidecar differs*, unless the sidecar does better
+over the same bytes — *A sidecar that does better* below; a broken trailer is *corrupted
 proof* whatever sits beside it; a sidecar alone is the full verdict over the
 whole file, with no label for where the proof came from — the core takes it
 as `verify(file, { sidecar })`, the CLI reads `<file>.vcap` next to the file
@@ -635,7 +636,7 @@ outcome is **`frames_not_compared`**, amber — the signatures hold, nothing tie
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 6.1.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 6.2.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
@@ -714,6 +715,19 @@ for nothing else**. It is a carrier, never a verdict.
   that always won turned that into *tampered*. Nothing is gained that deleting
   the manifest would not give. `vcap-verify extract` verifies nothing, so it
   ranks nothing: it prints the depth-0 proof, with *sidecar differs*.
+- **A sidecar beside a different trailer** (corpus 6.2.0): the same rule, at
+  §3.1 step 1. A trailer with a valid CRC proves nothing about which file it
+  was sealed with, so anyone can append one carrying another capture's proof
+  to a trailer-stripped genuine file next to its sidecar. Both proofs are
+  judged over the same canonical bytes, the file without the trailer, and
+  ranked as above: the sidecar decides only by ranking strictly above, its
+  verdict then labelled *trailer copy differs*, `proof_source` `sidecar`, and
+  the active manifest's copy, if any, compared with the sidecar's proof
+  instead. On a tie the trailer stands, with *sidecar differs*. A sidecar
+  identical to the trailer changes nothing; a nested trailer, a footer whose
+  CRC fails and a footer of another major are outside the rule (no proof is
+  judged there, so nothing is ranked). The page and the CLI name the sidecar
+  as where the proof was read whenever it outranked a trailer.
 - **What counts as the assertion**: one box under exactly that label (`__n`
   instances are ignored, two boxes under the label are neither), listed by its
   claim (`created_assertions`, `gathered_assertions`, or a v1 claim's
@@ -758,8 +772,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 6.1.0, 171
-vectors** (manifest `7ff31e1aa784…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 6.2.0, 174
+vectors** (manifest `2ff5796392cf…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |
