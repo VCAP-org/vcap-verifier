@@ -84,6 +84,18 @@ const MEANING: Record<string, string> = {
   'location claimed above evidence': 'the device claims a stronger position level than its evidence reaches'
 }
 
+/**
+ * C0 and C1 controls (ESC, CR, BS, DEL included) and the bidi overrides: what a
+ * terminal acts on instead of printing. Every string below can come from the
+ * file — an unknown proof key, a C2PA label, a reason quoting either — and a
+ * raw ESC[1A ESC[2K in one rewrites the lines above it into a verdict the
+ * file never got. Shown as `\u{1b}` instead, so the reader still sees it.
+ */
+const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g
+
+export const printable = (text: string): string =>
+  text.replace(UNPRINTABLE, (c) => `\\u{${c.charCodeAt(0).toString(16)}}`)
+
 export const render = (path: string, verdict: Verdict): string => {
   const lines: string[] = []
   lines.push(`${path}`)
@@ -127,16 +139,19 @@ export const render = (path: string, verdict: Verdict): string => {
   if (verdict.not_evaluated.length > 0) {
     lines.push(`  ignored   ${verdict.not_evaluated.join(', ')} (fields this verifier does not know)`)
   }
-  return lines.join('\n')
+  // Line by line, so the newlines this function writes survive and any other
+  // control character, newline included, is shown rather than obeyed.
+  return lines.map(printable).join('\n')
 }
 
 /** Where a proof was read, in words. */
 export const proofSource = (s: ProofSource): string => {
   if (s.kind === 'trailer') return 'the trailer'
   if (s.kind === 'sidecar') return 'the sidecar'
-  return s.depth === 0
+  // The manifest label is the store writer's, and `extract` prints this on its own.
+  return printable(s.depth === 0
     ? `the active manifest of the Content Credentials (${s.manifest})`
-    : `the Content Credentials, ${s.depth} step${s.depth === 1 ? '' : 's'} up the parentOf chain (${s.manifest}) — the proof of a source capture`
+    : `the Content Credentials, ${s.depth} step${s.depth === 1 ? '' : 's'} up the parentOf chain (${s.manifest}) — the proof of a source capture`)
 }
 
 /**

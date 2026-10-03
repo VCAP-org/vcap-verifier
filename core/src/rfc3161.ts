@@ -1,3 +1,4 @@
+import * as asn1js from 'asn1js'
 import { type Bytes, equal } from './bytes.js'
 import { Asn1Error, type Node, children, contextTag, explicitContent, integerHex, octets, oid, parseDer, sequence, set, derOf } from './asn1.js'
 import { sha256, subtle, owned } from './sha.js'
@@ -16,7 +17,8 @@ const OID = {
   sha256: '2.16.840.1.101.3.4.2.1', sha384: '2.16.840.1.101.3.4.2.2', sha512: '2.16.840.1.101.3.4.2.3',
   tstInfo: '1.2.840.113549.1.9.16.1.4', signedData: '1.2.840.113549.1.7.2',
   contentType: '1.2.840.113549.1.9.3', messageDigest: '1.2.840.113549.1.9.4',
-  rsaEncryption: '1.2.840.113549.1.1.1', extendedKeyUsage: '2.5.29.37', timeStamping: '1.3.6.1.5.5.7.3.8', ski: '2.5.29.14'
+  rsaEncryption: '1.2.840.113549.1.1.1', extendedKeyUsage: '2.5.29.37', timeStamping: '1.3.6.1.5.5.7.3.8', ski: '2.5.29.14',
+  signingCertificate: '1.2.840.113549.1.9.16.2.12', signingCertificateV2: '1.2.840.113549.1.9.16.2.47', sha1: '1.3.14.3.2.26'
 } as const
 const DIGEST: Record<string, string> = { [OID.sha256]: 'SHA-256', [OID.sha384]: 'SHA-384', [OID.sha512]: 'SHA-512' }
 
@@ -118,15 +120,21 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
     pass('message_digest', 'signed attributes name TSTInfo and hash it')
   } catch (error) { fail('message_digest', (error as Error).message) }
 
-  // The signer: by issuer+serial or by subjectKeyIdentifier.
+  // The signer: by issuer+serial or by subjectKeyIdentifier. A serial is unique
+  // only under its issuer, so matching it alone could pick a certificate of
+  // another CA that the token's writer put in the bag.
   const signer = certs.find((c) => {
     if (contextTag(sidNode) === 0) {
       const ski = c.extensions.get(OID.ski)
       try { return ski !== undefined && equal(octets(parseDer(ski), 'SKI'), new Uint8Array((sidNode as { valueBlock: { valueHexView: Uint8Array } }).valueBlock.valueHexView)) } catch { return false }
     }
-    try { const [, serial] = sequence(sidNode, 'IssuerAndSerialNumber'); return integerHex(serial as Node, 'serial') === c.serialHex } catch { return false }
+    try {
+      const [issuer, serial] = sequence(sidNode, 'IssuerAndSerialNumber')
+      return equal(derOf(issuer as Node), c.issuer) && integerHex(serial as Node, 'serial') === c.serialHex
+    } catch { return false }
   })
   if (!signer) { fail('signature', 'signer certificate not found in the token'); fail('signer_chain', 'no signer certificate'); fail('signer_usage', 'no signer certificate'); return verdict }
+  const certMismatch = await signingCertificateMismatch(attrs, signer)
 
   // Signature over the signedAttrs re-tagged as SET OF (RFC 5652 §5.4).
   const attrsAsSet = derOf(attrsNode); attrsAsSet[0] = 0x31
@@ -135,8 +143,9 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
   const verified = pub !== null && sigHash !== null && (signatureAlg === OID.rsaEncryption
     ? await subtle().verify({ name: 'RSASSA-PKCS1-v1_5' }, pub.key, owned(signature), owned(attrsAsSet)).catch(() => false)
     : await verifyWith(pub, signatureAlg, attrsAsSet, signature))
-  if (verified) pass('signature', 'signed by the TSA certificate')
-  else fail('signature', sigHash ? 'signature does not verify with the signer certificate' : `unsupported signature algorithm ${signatureAlg}`)
+  if (!verified) fail('signature', sigHash ? 'signature does not verify with the signer certificate' : `unsupported signature algorithm ${signatureAlg}`)
+  else if (certMismatch) fail('signature', certMismatch)
+  else pass('signature', 'signed by the TSA certificate')
 
   // §7: the TSA chain is validated at the instant the token proves, not at the
   // verifier's clock. genTime lives inside the signed TSTInfo, so it cannot be
@@ -167,6 +176,39 @@ export const validateTimestamp = async (tokenDer: Bytes, coreHash: Bytes, roots:
 
   verdict.ok = checks.every((c) => c.outcome !== 'fail')
   return verdict
+}
+
+// ESSCertID hashes with SHA-1 (RFC 2634); ESSCertIDv2 names its own, SHA-256
+// by default (RFC 5816). SHA-1 is accepted here only as a certificate
+// fingerprint the signature covers, never as the token's message digest.
+const CERT_HASH: Record<string, string> = { [OID.sha1]: 'SHA-1', ...DIGEST }
+
+/**
+ * Why the signed signingCertificate attributes (RFC 2634 §5.4, RFC 5816) do
+ * not name `signer`, or null. They bind the signature to one certificate by
+ * its hash, so another certificate over the same key — or the same serial
+ * under another issuer — cannot be swapped in as the signer. The first
+ * ESSCertID is the signer's. A token that carries neither attribute passes:
+ * the corpus's tokens carry none, so requiring it is the spec's call.
+ */
+const signingCertificateMismatch = async (attrs: { type: string, values: Node[] }[], signer: Certificate): Promise<string | null> => {
+  for (const attr of attrs) {
+    const v2 = attr.type === OID.signingCertificateV2
+    if (!v2 && attr.type !== OID.signingCertificate) continue
+    try {
+      if (attr.values.length !== 1) throw new Asn1Error('one value expected')
+      const certIds = sequence(sequence(attr.values[0] as Node, 'SigningCertificate')[0] as Node, 'certs')
+      const first = sequence(certIds[0] as Node, 'ESSCertID')
+      // ESSCertIDv2's hashAlgorithm is DEFAULT sha256, so it may be absent.
+      const withAlg = v2 && first[0] instanceof asn1js.Sequence
+      const hashName = !v2 ? 'SHA-1' : withAlg ? CERT_HASH[oid(sequence(first[0] as Node, 'hashAlgorithm')[0] as Node, 'hashAlgorithm')] : 'SHA-256'
+      if (!hashName) return 'signingCertificate attribute uses an unsupported hash'
+      const certHash = octets(first[withAlg ? 1 : 0] as Node, 'certHash')
+      const actual = new Uint8Array(await subtle().digest(hashName, owned(signer.der)))
+      if (!equal(certHash, actual)) return 'signingCertificate attribute names another certificate than the signer'
+    } catch { return 'signingCertificate attribute malformed' }
+  }
+  return null
 }
 
 export const coreHashImprint = sha256

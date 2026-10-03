@@ -15,7 +15,8 @@ import { verifyKeyStatus } from '../src/key-status.js'
 import { validateAndroidAttestation } from '../src/attestation/android.js'
 import { validateTimestamp } from '../src/rfc3161.js'
 import { decodeGetAnchor } from '../src/chain.js'
-import { parseCertificate } from '../src/x509.js'
+import { derToP1363, parseCertificate } from '../src/x509.js'
+import { Asn1Error, parseDer } from '../src/asn1.js'
 import { androidChain, genKey, issue, keyDescription, tsaSigner } from './fixtures.js'
 
 /**
@@ -243,5 +244,29 @@ describe('a certificate that may not issue', () => {
     const r = await validateAndroidAttestation([leaf.der, inter.der, root.der], spki, { roots: [parseCertificate(root.der)] })
     expect(r.proven).toBe('none')
     expect(r.checks.find((c) => c.id === 'chain_signatures')).toMatchObject({ outcome: 'fail', detail: 'certificate 0 is not issued by certificate 1' })
+  })
+})
+
+describe('DER read strictly', () => {
+  const ecdsaSig = (r: number[], s: number[]): Uint8Array => new Uint8Array(new asn1js.Sequence({ value: [
+    new asn1js.Integer({ valueHex: Uint8Array.from(r).buffer }), new asn1js.Integer({ valueHex: Uint8Array.from(s).buffer })
+  ] }).toBER(false))
+  const n32 = new Array(32).fill(0x11)
+
+  it('keeps an ECDSA integer whose only extra byte is the sign byte', () => {
+    const high = [0x80, ...n32.slice(1)]
+    expect(derToP1363(ecdsaSig([0x00, ...high], n32), 32)).toEqual(new Uint8Array([...high, ...n32]))
+  })
+
+  // Stripping a non-zero prefix verified a different r than the one encoded:
+  // r + k·2^256 read as r, a malleated signature accepted as the original.
+  it('refuses an ECDSA integer wider than the curve', () => {
+    expect(derToP1363(ecdsaSig([0x01, ...n32], n32), 32)).toBeNull()
+    expect(derToP1363(ecdsaSig(n32, [0x00, 0x00, ...n32]), 32)).toBeNull()
+  })
+
+  it('refuses bytes after the top-level value', () => {
+    expect(() => parseDer(new Uint8Array([0x05, 0x00]))).not.toThrow()
+    expect(() => parseDer(new Uint8Array([0x05, 0x00, 0xff]))).toThrow(Asn1Error)
   })
 })

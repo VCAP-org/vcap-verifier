@@ -112,7 +112,11 @@ export const derToP1363 = (der: Bytes, size: number): Bytes | null => {
     const [r, s] = sequence(parseDer(der), 'ECDSA-Sig-Value')
     const fix = (n: Node): Bytes => {
       const raw = new Uint8Array((n as asn1js.Integer).valueBlock.valueHexView)
-      const stripped = raw.length > size ? raw.subarray(raw.length - size) : raw
+      // Only a sign byte may go: dropping anything else would verify a
+      // different r or s than the one encoded, and accept a malleated signature.
+      const prefix = raw.subarray(0, Math.max(0, raw.length - size))
+      if (prefix.length > 1 || prefix.some((b) => b !== 0)) throw new Asn1Error('ECDSA-Sig-Value: integer wider than the curve')
+      const stripped = raw.subarray(prefix.length)
       const out = new Uint8Array(size); out.set(stripped, size - stripped.length); return out
     }
     return concat(fix(r as Node), fix(s as Node))

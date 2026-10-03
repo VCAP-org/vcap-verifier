@@ -49,6 +49,10 @@ const shapeOf = (r: unknown): string | null => {
   if (!Array.isArray(r.inclusion_path) || !r.inclusion_path.every((p) => typeof p === 'string')) return 'inclusion path malformed'
   const head = r.tree_head
   if (!isObj(head) || !isCount(head.tree_size) || !isCount(head.timestamp) || typeof head.root_hash !== 'string' || typeof head.signature !== 'string') return 'tree head malformed'
+  // §6.2 defines one leaf type. A leaf of another type that carries key fields
+  // is another statement, and reading it as a key registration would let the
+  // log's word about one thing stand for another.
+  if (leaf.type !== 'key') return 'leaf is not a key registration'
   return null
 }
 

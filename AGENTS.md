@@ -59,6 +59,11 @@ part of correctness:
 - `verify` never throws on input. A new parser bounds every count by the bytes
   that hold it, checks `Number.isSafeInteger` before `BigInt`/`Date`, and keeps
   DER inside `try`; `core/test/hostile.test.ts` holds one case per crash found.
+- Every string the CLI prints for a person goes through `printable` in
+  `cli/src/render.ts`: proof keys, C2PA labels and reasons are the file's
+  bytes, and a raw ESC or bidi override in one can repaint the verdict above
+  it. `--json` stays byte-faithful, because JSON escaping already makes it
+  inert.
 - **Content Credentials are a carrier, never a verdict.** `core/src/carrier.ts`
   (`extractProof`, over `jumbf.ts` and `cbor.ts`) finds a C2PA store — JPEG
   APP11 by En/Z, a top-level BMFF `uuid` box, or a `.c2pa` the caller hands
