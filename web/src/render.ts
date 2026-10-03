@@ -431,6 +431,9 @@ const proofRow = (v: Verdict, cc: ContentCredentials): string => {
       ? `the active manifest carries a different copy of the proof (manifest copy differs); the trailer decides`
       : 'the active manifest carries a copy of the proof, the same as the trailer\'s; the trailer decides'
   }
+  // §3.1 step 4: a sidecar beats a differing depth-0 copy only by a better
+  // outcome, and the reader is owed both halves of that.
+  if (source?.kind === 'sidecar' && cc.proof) return 'the active manifest carries a different proof (manifest copy differs); the sidecar\'s verdict ranks above it over these bytes, so the verdict above is the sidecar\'s'
   if (source?.kind === 'sidecar') return 'none in the active manifest; the verdict above is the sidecar\'s'
   return 'none in the manifests this page follows'
 }
