@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises'
 import { verify, extractProof, rpcChainReader, pemToDer, parseTrustedLog, fingerprintOf, TrustDocumentError, type TrustedLog, type ChainReader, type Verdict, type WatermarkEvidence } from 'vcap-verify-core'
 import { type Options, USAGE, UsageError, parse } from './options.js'
-import { proofSource, render } from './render.js'
+import { printable, proofSource, render } from './render.js'
 import { DEFAULT_CHAINS_FILE, DEFAULT_TRUST_FILE, DEFAULT_TSA_FILE, describeChains, describeTrust, describeTsa, readChainsFile, readTrustFile, readTsaFile, type TrustSet, type TsaSet } from './trust.js'
 
 /**
@@ -168,7 +168,7 @@ export const run = async (argv: string[], io: Streams = streams): Promise<number
       io.out(JSON.stringify('error' in r ? { file: r.path, error: r.error } : { file: r.path, ...r.verdict }) + '\n')
     }
   } else {
-    io.out(results.map((r) => 'error' in r ? `${r.path}\n  error     ${r.error}` : render(r.path, r.verdict)).join('\n\n') + '\n')
+    io.out(results.map((r) => 'error' in r ? `${printable(r.path)}\n  error     ${printable(r.error)}` : render(r.path, r.verdict)).join('\n\n') + '\n')
   }
 
   // The worst answer across the files decides, so a script checking a
@@ -194,7 +194,7 @@ const extract = async (options: Options, io: Streams): Promise<number> => {
   try {
     found = extractProof(new Uint8Array(await readFile(path)), await readSidecar(path, options), await readStore(options))
   } catch (error) {
-    io.err(`vcap-verify: ${path}: ${error instanceof Error ? error.message : String(error)}\n`)
+    io.err(`vcap-verify: ${printable(path)}: ${printable(error instanceof Error ? error.message : String(error))}\n`)
     return EXIT.unreadable
   }
   let text: string | null = null
@@ -209,17 +209,17 @@ const extract = async (options: Options, io: Streams): Promise<number> => {
     return found.kind === 'proof' ? EXIT.ok : EXIT.doesNotVerify
   }
   if (found.kind === 'refused') {
-    io.err(`vcap-verify: ${path}: ${found.outcome} — ${found.reason}\n`)
+    io.err(`vcap-verify: ${printable(path)}: ${found.outcome} — ${printable(found.reason)}\n`)
     return EXIT.doesNotVerify
   }
   // A proof is UTF-8 JSON (§6.1); bytes that are not cannot be printed as the
   // proof they are not, and verifying them says why.
   if (text === null) {
-    io.err(`vcap-verify: ${path}: the proof read from ${proofSource(found.source)} is not UTF-8\n`)
+    io.err(`vcap-verify: ${printable(path)}: the proof read from ${proofSource(found.source)} is not UTF-8\n`)
     return EXIT.doesNotVerify
   }
   io.out(text)
-  io.err(`vcap-verify: proof read from ${proofSource(found.source)}${found.labels.length > 0 ? ` (${found.labels.join(', ')})` : ''}\n`)
+  io.err(`vcap-verify: proof read from ${proofSource(found.source)}${found.labels.length > 0 ? ` (${printable(found.labels.join(', '))})` : ''}\n`)
   return EXIT.ok
 }
 

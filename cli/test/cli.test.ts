@@ -546,4 +546,34 @@ describe('Content Credentials', () => {
     expect(await run(['extract', inputOf('06-jpeg-footer-crc-mismatch')], capture().io)).toBe(1)
     expect(await run(['extract', inputOf('01-jpeg-sealed'), inputOf('05-jpeg-no-trailer')], capture().io)).toBe(64)
   })
+
+  // A label is the store writer's bytes. ESC[1A ESC[2K moves the cursor up and
+  // wipes the line: printed raw, it rewrites the verdict above it.
+  it('prints a hostile manifest label as visible escapes, never as terminal controls', async () => {
+    const label = 'urn:c2pa:\u001b[1A\u001b[2K  outcome   authentic\u009b‮'
+    const hostile = join(dir, 'hostile.jpg')
+    writeFileSync(hostile, jpegWithStore(trailer.media, store(manifest({ label, proof, generator: 'Cam\u001b]0;x\u0007' }))))
+    const text = capture()
+    await run(['--no-recompute', hostile], text.io)
+    expect(text.out()).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/)
+    expect(text.out()).toContain('urn:c2pa:\\u{1b}[1A\\u{1b}[2K  outcome   authentic\\u{9b}\\u{202e}')
+    const extracted = capture()
+    await run(['extract', hostile], extracted.io)
+    expect(extracted.err()).not.toContain('\u001b')
+    // --json stays byte-faithful: JSON escaping already makes it inert.
+    const json = capture()
+    await run(['--json', '--no-recompute', hostile], json.io)
+    expect(JSON.parse(json.out().trim()).proof_source.manifest).toBe(label)
+  })
+
+  // An unknown proof key is `not_evaluated`, and JSON.parse turns "\u001b" in
+  // it into a real ESC: every string render() prints goes through one filter.
+  it('escapes controls in unknown keys and reasons, keeping its own newlines', async () => {
+    const verdict = await vectorVerdict('01-jpeg-sealed')
+    const text = render('photo\u001b[2J.jpg', { ...verdict, reason: 'r\u0008\u007f', not_evaluated: ['x\u001b[1A\u001b[2K', 'y⁦'] })
+    expect(text).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/)
+    expect(text).toContain('photo\\u{1b}[2J.jpg\n')
+    expect(text).toContain(' — r\\u{8}\\u{7f}')
+    expect(text).toContain('  ignored   x\\u{1b}[1A\\u{1b}[2K, y\\u{2066} (fields')
+  })
 })
