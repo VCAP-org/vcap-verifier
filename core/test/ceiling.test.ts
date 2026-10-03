@@ -61,6 +61,15 @@ describe('the labels that set the verdict ceiling', () => {
     expect(ceilingLabels(v)).toEqual([])
   })
 
+  // verify caps an authentic video whose presentation differs at amber, so the
+  // label must be named beside the colour it set.
+  it('names a differing presentation as amber (vector 163)', async () => {
+    const v = await vectorVerdict('163-mp4-presentation-original-misdescribed')
+    expect(v.outcome).toBe('authentic')
+    expect(v.level?.ceiling).toBe('amber')
+    expect(ceilingLabels(v)).toContain('presentation differs')
+  })
+
   // The drift check: a label `verify` starts capping on and this list does not
   // know would leave an authentic amber or red verdict with no reason beside
   // its colour. Every such verdict in the corpus has to be explained.
