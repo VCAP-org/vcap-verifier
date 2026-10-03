@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { leafHash, nodeHash, verifyConsistency } from '../src/merkle.js'
+import { leafHash, nodeHash, verifyConsistency, verifyInclusion } from '../src/merkle.js'
 import { fromBase64, fromHex } from '../src/bytes.js'
 import { pemToDer } from '../src/x509.js'
 import { parseCertificate } from '../src/x509.js'
@@ -419,3 +419,67 @@ const timestampFixture = (): { tsr: Uint8Array, coreHash: Uint8Array, roots: Ret
     roots: pems.map((pem) => parseCertificate(pemToDer(pem)))
   }
 }
+
+describe('RFC 6962 proofs past 2^31 leaves', () => {
+  // A tree of 2^40 leaves needs only the hashes the proofs open: every other
+  // complete subtree is an opaque stand-in a verifier cannot tell from a real
+  // one. Built from §2.1's recursive definitions, not from the iterative walk
+  // under test, which used to run on 32-bit `&` and `>>=` and read index
+  // 2^32 + 3 as 3.
+  const encode = (text: string) => new TextEncoder().encode(text)
+  const split = (n: number): number => { let k = 1; while (k * 2 < n) k *= 2; return k }
+  const isPow2 = (n: number): boolean => { while (n > 1 && n % 2 === 0) n /= 2; return n === 1 }
+
+  /** MTH(D[a:b]), opening only the ranges that hold `leaf` or straddle `boundary`. */
+  const mth = async (a: number, b: number, o: { leaf?: number, boundary?: number }): Promise<Uint8Array> => {
+    const open = (o.leaf !== undefined && a <= o.leaf && o.leaf < b) || (o.boundary !== undefined && a < o.boundary && o.boundary < b)
+    if (b - a === 1) return leafHash(encode(`leaf ${a}`))
+    if (!open && isPow2(b - a)) return sha256(encode(`subtree ${a}..${b}`))
+    const k = split(b - a)
+    return nodeHash(await mth(a, a + k, o), await mth(a + k, b, o))
+  }
+  /** PATH(m, D[a:b]), §2.1.1. */
+  const auditPath = async (m: number, a: number, b: number): Promise<Uint8Array[]> => {
+    if (b - a === 1) return []
+    const k = split(b - a)
+    return m < a + k
+      ? [...await auditPath(m, a, a + k), await mth(a + k, b, { leaf: m })]
+      : [...await auditPath(m, a + k, b), await mth(a, a + k, { leaf: m })]
+  }
+  /** SUBPROOF(m, D[a:b], complete), §2.1.2, with `m` absolute. */
+  const subproof = async (m: number, a: number, b: number, complete: boolean): Promise<Uint8Array[]> => {
+    if (m === b) return complete ? [] : [await mth(a, b, { boundary: m })]
+    const k = split(b - a)
+    return m - a <= k
+      ? [...await subproof(m, a, a + k, complete), await mth(a + k, b, { boundary: m })]
+      : [...await subproof(m, a + k, b, false), await mth(a, a + k, { boundary: m })]
+  }
+
+  it('verifies an inclusion proof at an index past 2^32 in a tree of 2^40 leaves', async () => {
+    const size = 2 ** 40 + 12_345
+    for (const index of [2 ** 33 + 777, 2 ** 31, size - 1]) {
+      const root = await mth(0, size, { leaf: index })
+      const path = await auditPath(index, 0, size)
+      expect(await verifyInclusion(await leafHash(encode(`leaf ${index}`)), index, size, path, root), `${index}`).toBe(true)
+      // The same proof read one position over: the walk must follow the index.
+      expect(await verifyInclusion(await leafHash(encode(`leaf ${index}`)), index - 1, size, path, root)).toBe(false)
+    }
+  })
+
+  it('verifies a consistency proof between heads past 2^32', async () => {
+    const second = 2 ** 40 + 3
+    for (const first of [2 ** 32 + 5, 2 ** 34]) {
+      const ok = await verifyConsistency(first, second,
+        await mth(0, first, { boundary: first }), await mth(0, second, { boundary: first }),
+        await subproof(first, 0, second, true))
+      expect(ok, `${first}`).toBe(true)
+    }
+  })
+
+  it('refuses sizes and indices that are not safe integers', async () => {
+    const leaf = await leafHash(encode('leaf 0'))
+    expect(await verifyInclusion(leaf, 0, 2 ** 53 + 2, [], leaf)).toBe(false)
+    expect(await verifyInclusion(leaf, 0.5, 1, [], leaf)).toBe(false)
+    expect(await verifyConsistency(1, 2 ** 54, leaf, leaf, [leaf])).toBe(false)
+  })
+})
