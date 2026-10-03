@@ -23,6 +23,15 @@ describe('registry attachment', () => {
     const broken = await registryFor(); broken.inclusion_path = broken.inclusion_path.slice(1)
     expect(await verifyRegistry(broken, { keyIdHex, sigPub: deviceSpki }, trusted)).toMatchObject({ ok: false, reason: 'inclusion proof invalid' })
   })
+
+  // Signed, included and carrying every key field: still not a key registration.
+  it('refuses a leaf of another type that carries key fields', async () => {
+    for (const type of ['revocation', 'Key', '']) {
+      expect(await verifyRegistry(await registryFor({ type }), { keyIdHex, sigPub: deviceSpki }, trusted), type).toMatchObject({ ok: false, reason: 'leaf is not a key registration' })
+    }
+    const untyped = await registryFor(); delete (untyped.leaf as { type?: string }).type
+    expect(await verifyRegistry(untyped, { keyIdHex, sigPub: deviceSpki }, trusted)).toMatchObject({ ok: false, reason: 'leaf is not a key registration' })
+  })
 })
 
 describe('anchor attachment', () => {

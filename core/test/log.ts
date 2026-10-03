@@ -46,10 +46,11 @@ export const deviceKeyIdHex = toHex(await sha256(deviceSpki))
 
 /** A `registry` attachment placing one key in a four-leaf tree. */
 export const registryFor = async (o: {
-  keyIdHex?: string, publicKey?: string, pub?: Uint8Array, secureHw?: string, timestamp?: number, forgeSize?: boolean
+  keyIdHex?: string, publicKey?: string, pub?: Uint8Array, secureHw?: string, timestamp?: number, forgeSize?: boolean, type?: string
 } = {}): Promise<RegistryAttachment> => {
   const leaf = {
-    type: 'key' as const,
+    // `type` other than 'key' only to prove the verifier refuses it.
+    type: (o.type ?? 'key') as 'key',
     key_id: o.keyIdHex ?? deviceKeyIdHex,
     public_key: o.publicKey ?? toBase64url(o.pub ?? deviceSpki).replace(/-/g, '+').replace(/_/g, '/'),
     secure_hw: o.secureHw ?? 'tee',
