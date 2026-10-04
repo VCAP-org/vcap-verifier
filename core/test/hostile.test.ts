@@ -101,7 +101,9 @@ describe('verify never throws on a hostile proof', () => {
     // passed over the bare media instead.
     const bare = await verify(clip.media, { sidecar: payload({ ...clip.proof, segments: [null] }), recomputeSegments: false })
     expect(v.outcome).toBe('authentic')
-    expect(bare).toMatchObject({ outcome: 'tampered', reason: 'segments malformed' })
+    // §6.1: every entry carries its `timing`, so a null one is a core that is
+    // not well formed, refused before any signature is read.
+    expect(bare).toMatchObject({ outcome: 'no_proof_found', reason: 'segments[].timing missing or malformed' })
     const twice = clip.proof.segments as Json[]
     const dup = await verify(clip.media, { sidecar: payload({ ...clip.proof, segments: [twice[0], twice[0], twice[1], twice[2]] }), recomputeSegments: false })
     expect(dup).toMatchObject({ outcome: 'tampered', reason: 'a segment index appears twice in the proof' })

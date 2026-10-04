@@ -627,7 +627,26 @@ is missing a required field and reads **no proof found**, the original as much
 as any clip. A clip — a file that is not the original — is a *verified clip*
 only when it presents its frames as signed and has one video track, at most
 one audio track and nothing else enabled; otherwise it is *frames not
-compared* with *presentation differs* or *tracks not bound*. Segment boundaries are the IDRs in the samples, never `stss`. With nothing
+compared* with *presentation differs* or *tracks not bound*. The audio
+sample entry's `esds` is part of that presentation, so a changed sample rate
+is *presentation differs* too.
+
+Every video proof must also carry `media.timing` (`video_timescale`,
+`audio_timescale` when there is audio, `root`) and a `timing` hash in every
+`segments[]` entry; without either it reads **no proof found**. Each entry
+hashes its segment's timing record — the video samples' DTS and `ctts`
+offsets from the IDR, the last sample's end, and the assigned audio frames'
+DTS and durations, in each track's `mdhd` timescale — and `root` hashes the
+entries in index order. With every entry present the root is recomputed, and
+a mismatch is **tampered**. On a clip each verified segment's record is read
+back, converted to the signed timescales (exactly, or not at all), and
+compared; a record that differs, a proof missing an entry, or a media edit
+that trims inside a located segment is *frames not compared* with *timing
+differs*. On an original a root its own segments do not reproduce is
+*authentic* with *timing differs*, capped amber. The port follows
+`tools/src/timing.ts` of vcap-spec (`core/src/timing.ts`).
+
+Segment boundaries are the IDRs in the samples, never `stss`. With nothing
 located (no GOP names the capture, not ISO-BMFF, an edit list with more than
 one edit after the leading delay or a rate change, recomputation off) there is no
 segment credit and `segments.verified` is empty: where `media.hash` matches the
@@ -636,7 +655,7 @@ outcome is **`frames_not_compared`**, amber — the signatures hold, nothing tie
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 6.2.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 7.0.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
@@ -772,8 +791,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 6.2.0, 174
-vectors** (manifest `2ff5796392cf…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 7.0.0, 187
+vectors** (manifest `ac9109e533ec…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |

@@ -6,7 +6,9 @@ import { verifyEs256 } from './es256.js'
 const SEPARATOR = utf8('vcap/1.0/seg')
 const ZERO = new Uint8Array(32)
 
-export interface SegmentEntry { gop: number, hash: string, prev: string, sig: string }
+// `timing`: SHA-256(timing(n)), base64url (§5 *Timing*). Outside the segment
+// message, bound by `media.timing.root` in the core.
+export interface SegmentEntry { gop: number, hash: string, prev: string, sig: string, timing?: string }
 
 export const segmentMessage = (captureId: Bytes, index: number, contentHash: Bytes, prev: Bytes): Bytes => {
   if (captureId.length !== 16 || contentHash.length !== 32 || prev.length !== 32) throw new Error('segment message: bad field length')

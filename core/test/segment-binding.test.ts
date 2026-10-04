@@ -151,13 +151,17 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
     return out
   }
   const idr = (sample: Uint8Array): boolean => nals(sample).some((n) => [19, 20].includes((n[0]! >> 1) & 0x3f))
-  const gops: Uint8Array[][] = []
-  for (const sample of samples) { if (idr(sample)) gops.push([]); gops.at(-1)!.push(sample) }
+  // Each sample keeps its own stts duration: §5 *Timing* binds them, and a
+  // rebuild that evened them out would be a re-timed clip (last case below).
+  const durations = Array.from({ length: read(table.stts![0] + 12) }, (_, i) => Array<number>(read(table.stts![0] + 16 + i * 8)).fill(read(table.stts![0] + 20 + i * 8))).flat()
+  interface Frame { bytes: Uint8Array, duration: number }
+  const gops: Frame[][] = []
+  samples.forEach((sample, i) => { if (idr(sample)) gops.push([]); gops.at(-1)!.push({ bytes: sample, duration: durations[i]! }) })
 
   const box = (name: string, ...parts: Uint8Array[]): Uint8Array => concat(u32be(8 + parts.reduce((n, p) => n + p.length, 0)), utf8(name), ...parts)
   const full = (name: string, ...parts: Uint8Array[]): Uint8Array => box(name, new Uint8Array(4), ...parts)
-  const mux = (frames: Uint8Array[]): Uint8Array => {
-    const data = concat(...frames)
+  const mux = (frames: Frame[]): Uint8Array => {
+    const data = concat(...frames.map((f) => f.bytes))
     const moovOf = (offset: number): Uint8Array => box('moov',
       full('mvhd', new Uint8Array(8), u32be(timescale), new Uint8Array(84)),
       box('trak', media.subarray(tkhd[0], tkhd[1]), box('mdia',
@@ -165,9 +169,9 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
         full('hdlr', new Uint8Array(4), utf8('vide'), new Uint8Array(13)),
         box('minf', box('stbl',
           media.subarray(table.stsd![0], table.stsd![1]),
-          full('stts', u32be(1), u32be(frames.length), u32be(timescale / 30)),
+          full('stts', u32be(frames.length), ...frames.flatMap((f) => [u32be(1), u32be(f.duration)])),
           full('stsc', u32be(1), u32be(1), u32be(frames.length), u32be(1)),
-          full('stsz', u32be(0), u32be(frames.length), ...frames.map((f) => u32be(f.length))),
+          full('stsz', u32be(0), u32be(frames.length), ...frames.map((f) => u32be(f.bytes.length))),
           full('stco', u32be(1), u32be(offset))
         ))
       )))
@@ -175,8 +179,8 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
     const offset = ftyp.length + moovOf(0).length + 8
     return concat(ftyp, moovOf(offset), box('mdat', data))
   }
-  const check = (order: Uint8Array[][]) => verify(mux(order.flat()), { sidecar: payload })
-  const [g0, g1, g2] = gops as [Uint8Array[], Uint8Array[], Uint8Array[]]
+  const check = (order: Frame[][]) => verify(mux(order.flat()), { sidecar: payload })
+  const [g0, g1, g2] = gops as [Frame[], Frame[], Frame[]]
 
   // The rebuilt file keeps the sample description and the track header, so it
   // presents its frames as the core signs (§5 *Presentation*): what these two
@@ -198,6 +202,17 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
     expect(v.content).toEqual({ recomputed: true, detail: '2 GOPs read from the container' })
   })
 
+  // §5 *Timing*: the same frames at an even 30 fps are frames the device did
+  // not time that way — not a verified clip, and not an accusation either.
+  it('rebuilt at an even frame rate, the timing differs and nothing is credited', async () => {
+    const even = (gop: Frame[]): Frame[] => gop.map((f) => ({ ...f, duration: timescale / 30 }))
+    const v = await check([even(g0), even(g1), even(g2)])
+    expect(v.outcome).toBe('frames_not_compared')
+    expect(v.labels).toContain('timing differs')
+    expect(v.segments).toEqual({ verified: [] })
+    expect(v.level?.ceiling).toBe('amber')
+  })
+
   it('a GOP duplicated is tampered', async () => {
     const v = await check([g0, g1, g1, g2])
     expect(v).toMatchObject({ outcome: 'tampered', reason: 'the container contradicts the proof: segment index 1 is carried by 2 GOPs', segments: { verified: [0, 2] } })
@@ -212,7 +227,7 @@ describe('GOPs moved in a rebuilt container (sealed-hevc.mp4)', () => {
   it('a GOP whose SEI was stripped is never placed by its position', async () => {
     // HEVC: two header bytes, payloadType, payloadSize, then the UUID.
     const vcap = (n: Uint8Array): boolean => UUID.every((x, j) => n[j + 4] === x)
-    const stripped = g1.map((sample) => concat(...nals(sample).filter((n) => !vcap(n)).map((n) => concat(u32be(n.length), n))))
+    const stripped = g1.map((f) => ({ ...f, bytes: concat(...nals(f.bytes).filter((n) => !vcap(n)).map((n) => concat(u32be(n.length), n))) }))
     const v = await check([g0, stripped, g2])
     // Its bytes are the signed bytes (the SEI is outside content_hash), and
     // still it earns nothing, and the file is tampered: a GOP no SEI places is

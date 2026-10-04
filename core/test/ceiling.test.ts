@@ -70,6 +70,15 @@ describe('the labels that set the verdict ceiling', () => {
     expect(ceilingLabels(v)).toContain('presentation differs')
   })
 
+  // The same for an original whose signed timing root its own segments do
+  // not reproduce (§5 *Timing*).
+  it('names a differing timing as amber (vector 185)', async () => {
+    const v = await vectorVerdict('185-mp4-timing-original-misdescribed')
+    expect(v.outcome).toBe('authentic')
+    expect(v.level?.ceiling).toBe('amber')
+    expect(ceilingLabels(v)).toContain('timing differs')
+  })
+
   // The drift check: a label `verify` starts capping on and this list does not
   // know would leave an authentic amber or red verdict with no reason beside
   // its colour. Every such verdict in the corpus has to be explained.

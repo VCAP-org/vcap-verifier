@@ -196,6 +196,19 @@ describe('the headline of a clip says only what was compared', () => {
     expect(colour(v)).toBe('amber')
     expect(card('clip.mp4', v)).toContain('Frames not compared')
   })
+
+  // §5 *Timing* (corpus 7.0.0): a re-timed clip and a misdescribed original
+  // both keep the specification's label, and neither reads green.
+  it('names timing differs on a re-timed clip and on a misdescribed original', async () => {
+    const clip = await vectorVerdict('179-mp4-timing-clip-frame-frozen')
+    expect(clip.outcome).toBe('frames_not_compared')
+    expect(colour(clip)).toBe('amber')
+    expect(card('clip.mp4', clip)).toContain('<li>timing differs</li>')
+    const original = await vectorVerdict('185-mp4-timing-original-misdescribed')
+    expect(original.outcome).toBe('authentic')
+    expect(colour(original)).toBe('amber')
+    expect(card('original.mp4', original)).toContain('timing differs')
+  })
 })
 
 describe('every line of evidence says where it comes from', () => {

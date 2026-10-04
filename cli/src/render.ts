@@ -56,6 +56,9 @@ const MEANING: Record<string, string> = {
   'segment content not recomputed': 'the segment hashes were taken from the proof, not recomputed from the file',
   'presentation differs': 'the video is presented — decoder settings, rotation or display size — otherwise than the proof signs',
   'tracks not bound': 'the file can show a track no segment signature covers',
+  // §5 *Timing*: on a clip the signed frames are present but shown at instants
+  // nobody signed; on an original the writer signed a timing its own file lacks.
+  'timing differs': 'the video\'s frames are timed — durations, order, timescale or trim — otherwise than the proof signs',
   'inconsistent claim': 'the device claims a stronger level than its evidence proves',
   'registered after the declared capture': 'the key was registered after the time this capture claims',
   'attestation chain expired, capture time not proven': 'the attestation has expired and only the device places the capture inside its validity',

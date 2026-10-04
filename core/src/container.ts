@@ -1,5 +1,6 @@
 import { type Bytes, concat, equal, fromHex, readU32BE, u32be } from './bytes.js'
 import { sha256 } from './sha.js'
+import { type Extent, type MediaEdit, type Timescales, type TimingValues, audioExtent, videoExtent } from './timing.js'
 
 /**
  * Spec §5, recomputation side: read the GOPs of an ISO-BMFF file and hash the
@@ -17,7 +18,19 @@ import { sha256 } from './sha.js'
 // unsigned bytes inside a "verified" segment.
 const VCAP_SEI_UUID = fromHex('caa653d1ed1763c7af388aea76527336')
 
-export interface GopHash { index: number, hash: Bytes }
+/**
+ * A located GOP: its index, its recomputed `content_hash`, and §5 *Timing*'s
+ * view of it — the `timing(n)` values in the received file's own ticks, and
+ * where it sits in media time on each track (for the media edit rule).
+ */
+export interface GopHash { index: number, hash: Bytes, timing: TimingValues, extent: { video: Extent, audio: Extent | null } }
+
+/**
+ * §5 *Timing*, file-wide: the `mdhd` timescales the GOPs' values are in
+ * (`audio` null without an audio track), and each track's single media edit
+ * (null where it has none).
+ */
+export interface TimingRead { timescales: Timescales, edits: { video: MediaEdit | null, audio: MediaEdit | null } }
 
 /**
  * §5 *Presentation*: how the received file presents the frames its GOPs hold,
@@ -45,8 +58,9 @@ export type Recomputation =
   // track header cannot be read; `layout` is why its tracks are not the two a
   // segment hash covers, or null when they are (§5 *Presentation*). Neither
   // stops a GOP being located: a file that contradicts its proof is
-  // *tampered* whatever its presentation.
-  | { kind: 'hashes', gops: GopHash[], problems: string[], presentation: Presentation | null, layout: string | null }
+  // *tampered* whatever its presentation. `timing` is what §5 *Timing* reads
+  // file-wide; each located GOP carries its own record values.
+  | { kind: 'hashes', gops: GopHash[], problems: string[], presentation: Presentation | null, layout: string | null, timing: TimingRead }
   | { kind: 'unlocated', reason: string }
   | { kind: 'unsupported', reason: string }
   | { kind: 'malformed', reason: string }
@@ -54,7 +68,7 @@ export type Recomputation =
 /** Thrown where the bytes, not the reader, are at fault; `recomputeSegments` turns it into `malformed`. */
 class Malformed extends Error {}
 
-export interface Box { type: string, body: number, end: number }
+export interface Box { type: string, start: number, body: number, end: number }
 
 const TYPE = (b: Bytes, at: number): string => String.fromCharCode(b[at]!, b[at + 1]!, b[at + 2]!, b[at + 3]!)
 
@@ -72,7 +86,7 @@ export const boxes = (b: Bytes, from: number, to: number): Box[] => {
       body = at + 16
     } else if (size === 0) size = to - at
     if (size < body - at || at + size > to) throw new Error(`box ${TYPE(b, at + 4)}: size out of range`)
-    out.push({ type: TYPE(b, at + 4), body, end: at + size })
+    out.push({ type: TYPE(b, at + 4), start: at, body, end: at + size })
     at += size
   }
   return out
@@ -89,7 +103,12 @@ const child = (b: Bytes, box: Box, ...path: string[]): Box | undefined => {
   return current
 }
 
-interface Sample { offset: number, size: number, dts: number }
+/**
+ * One sample, in decode order: `dts` the sum of the `stts` durations before
+ * it, `duration` its own, `cts` its `ctts` composition offset (0 without one),
+ * all in media ticks. Exact integers, because §5 *Timing* hashes them.
+ */
+interface Sample { offset: number, size: number, dts: bigint, duration: bigint, cts: bigint }
 
 interface Track {
   handler: string
@@ -103,6 +122,8 @@ interface Track {
   delay: number
   movieTimescale: number
   mediaStart: number
+  // §5 *Timing*: the one media edit, kept exact, for the clip's trim rule.
+  mediaEdit: { mediaTime: bigint, duration: bigint } | null
   // Why the edit list describes a timeline this reader does not model, when it
   // does: the track's GOPs could be hashed, but not in the order or extent a
   // player shows them.
@@ -111,8 +132,12 @@ interface Track {
   // layout rule of §5 *Presentation* reads both.
   enabled: boolean
   sampleEntries: number
-  // A video track's presentation message (unhashed), matrix and display size.
+  // A video track's presentation message (unhashed, video part only), matrix
+  // and display size.
   binding?: { message: Bytes, matrix: number[], display: [number, number] }
+  // An audio track's `esds` boxes, whole, which close the presentation
+  // message; null when its sample entry cannot be read.
+  esds?: Bytes[] | null
 }
 
 /**
@@ -167,6 +192,20 @@ const sampleTable = (b: Bytes, stbl: Box): Sample[] => {
     for (let i = 0; i < count; i++) deltas.push(delta)
   })
 
+  // ctts: composition offsets, run-length like stts and expanded as far. ISO/IEC
+  // 14496-12: version 0 unsigned, version 1 signed — read as the version says,
+  // so two readers agree on a value even where a muxer meant otherwise.
+  const offsets: bigint[] = []
+  const ctts = find(children, 'ctts')
+  if (ctts) {
+    const signed = b[ctts.body] === 1
+    entries(b, ctts, 8, (at) => {
+      const count = Math.min(readU32BE(b, at), sizes.length - offsets.length)
+      const offset = BigInt(signed ? new DataView(b.buffer, b.byteOffset + at + 4, 4).getInt32(0) : readU32BE(b, at + 4))
+      for (let i = 0; i < count; i++) offsets.push(offset)
+    })
+  }
+
   const chunkOffsets: number[] = []
   const stco = find(children, 'stco')
   const co64 = find(children, 'co64')
@@ -180,7 +219,7 @@ const sampleTable = (b: Bytes, stbl: Box): Sample[] => {
 
   const samples: Sample[] = []
   let sample = 0
-  let dts = 0
+  let dts = 0n
   let run = -1
   for (let chunk = 1; chunk <= chunkOffsets.length && sample < sizes.length; chunk++) {
     while (run + 1 < runs.length && runs[run + 1]!.firstChunk <= chunk) run++
@@ -188,20 +227,22 @@ const sampleTable = (b: Bytes, stbl: Box): Sample[] => {
     let offset = chunkOffsets[chunk - 1]!
     for (let i = 0; i < runs[run]!.perChunk && sample < sizes.length; i++, sample++) {
       const size = sizes[sample]!
-      samples.push({ offset, size, dts })
+      const duration = BigInt(deltas[sample] ?? deltas.at(-1) ?? 0)
+      samples.push({ offset, size, dts, duration, cts: offsets[sample] ?? 0n })
       offset += size
-      dts += deltas[sample] ?? deltas.at(-1) ?? 0
+      dts += duration
     }
   }
   if (samples.length !== sizes.length) throw new Error('chunk offsets do not cover every sample')
   return samples
 }
 
-const editList = (b: Bytes, elst: Box): { delay: number, mediaStart: number, unsupportedEdit?: string } => {
+const editList = (b: Bytes, elst: Box): { delay: number, mediaStart: number, mediaEdit: Track['mediaEdit'], unsupportedEdit?: string } => {
   const version = b[elst.body]!
   const stride = version === 1 ? 20 : 12
   let delay = 0
   let mediaStart: number | null = null
+  let mediaEdit: Track['mediaEdit'] = null
   let unsupportedEdit: string | undefined
   entries(b, elst, stride, (at) => {
     // §5 reads leading empty edits and one media edit. Anything after that
@@ -224,8 +265,14 @@ const editList = (b: Bytes, elst: Box): { delay: number, mediaStart: number, uns
     }
     if (rate !== 1) unsupportedEdit ??= 'edit list changes rate'
     mediaStart = mediaTime
+    // The one media edit: where the media starts and — what §5 *Timing* reads
+    // on a clip — for how long it is shown.
+    mediaEdit = {
+      mediaTime: version === 1 ? view.getBigInt64(8) : BigInt(view.getInt32(4)),
+      duration: version === 1 ? view.getBigUint64(0) : BigInt(view.getUint32(0))
+    }
   })
-  return { delay, mediaStart: mediaStart ?? 0, ...(unsupportedEdit ? { unsupportedEdit } : {}) }
+  return { delay, mediaStart: mediaStart ?? 0, mediaEdit, ...(unsupportedEdit ? { unsupportedEdit } : {}) }
 }
 
 const timescaleOf = (b: Bytes, header: Box): number => {
@@ -279,14 +326,36 @@ const parameterSets = (b: Bytes, config: Box, codec: 'h264' | 'h265'): Bytes[] =
 /**
  * §5 *Presentation*, the message `media.presentation.config` hashes:
  * `uint32 n ‖ (uint32 length ‖ NAL unit) × n`, the parameter sets ordered by
- * NAL unit type ascending and, within one type, in record order; then every
- * `clap`, `pasp` and `colr` child box of the sample entry, header included,
- * in file order.
+ * NAL unit type ascending and, within one type, in record order; then `X`:
+ * every `clap`, `pasp` and `colr` child box of the video sample entry, header
+ * included, in file order, followed by the audio sample entry's `esds` boxes
+ * (`audioEsds`, from `esdsOf`).
  */
-export const presentationMessage = (b: Bytes, entry: Box, config: Box, codec: 'h264' | 'h265'): Bytes => {
+export const presentationMessage = (b: Bytes, entry: Box, config: Box, codec: 'h264' | 'h265', audioEsds: Bytes[] = []): Bytes => {
   const units = parameterSets(b, config, codec).map((u, i) => ({ u, i })).sort((x, y) => nalType(x.u, codec) - nalType(y.u, codec) || x.i - y.i).map((x) => x.u)
   const extras = boxes(b, entry.body + 78, entry.end).filter((x) => x.type === 'clap' || x.type === 'pasp' || x.type === 'colr')
-  return concat(u32be(units.length), ...units.flatMap((u) => [u32be(u.length), u]), ...extras.map((x) => b.subarray(x.body - 8, x.end)))
+  return concat(u32be(units.length), ...units.flatMap((u) => [u32be(u.length), u]), ...extras.map((x) => b.subarray(x.start, x.end)), ...audioEsds)
+}
+
+/**
+ * §5 *Presentation*: the `esds` boxes of an audio sample entry, whole, in file
+ * order. The AudioSpecificConfig inside says the sample rate a decoder uses:
+ * change it and the same coded frames play pitched and re-timed, which no
+ * `content_hash` and no `timing(n)` notices (vector 183).
+ *
+ * An `mp4a` entry's child boxes start 28 bytes into its payload (SampleEntry,
+ * then the AudioSampleEntry fields); a QuickTime sound description of version
+ * 1 or 2 has 16 or 36 more bytes first, and may hold the `esds` inside a
+ * `wave` child. Any other audio codec binds nothing here.
+ */
+const esdsOf = (b: Bytes, entry: Box): Bytes[] => {
+  if (entry.type !== 'mp4a' || entry.body + 28 > entry.end) return []
+  const version = (b[entry.body + 8]! << 8) | b[entry.body + 9]!
+  const start = entry.body + 28 + (version === 1 ? 16 : version === 2 ? 36 : 0)
+  if (start > entry.end) return []
+  const kids = boxes(b, start, entry.end)
+  const wave = find(kids, 'wave')
+  return [...kids, ...(wave ? boxes(b, wave.body, wave.end) : [])].filter((x) => x.type === 'esds').map((x) => b.subarray(x.start, x.end))
 }
 
 /**
@@ -323,12 +392,20 @@ const parseTrack = (b: Bytes, trak: Box, movieTimescale: number): Track => {
   let nalLength = 4
   let sampleEntries = 0
   let message: Bytes | undefined
+  let esds: Bytes[] | null = []
   const stsd = find(boxes(b, stbl.body, stbl.end), 'stsd')
   if (stsd) {
     sampleEntries = readU32BE(b, stsd.body + 4)
+    const sampleEntryBoxes = boxes(b, stsd.body + 8, stsd.end)
+    // An audio entry this reader cannot walk leaves the presentation unknown,
+    // never the whole container unread: its GOPs still locate.
+    if (handler === 'soun') {
+      const first = sampleEntryBoxes[0]
+      try { esds = first ? esdsOf(b, first) : [] } catch { esds = null }
+    }
     // Sample entries start after version/flags and the entry count; a
     // VisualSampleEntry body is 78 bytes before its child boxes.
-    for (const entry of boxes(b, stsd.body + 8, stsd.end)) {
+    for (const entry of sampleEntryBoxes) {
       if (entry.type === 'avc1' || entry.type === 'avc3') codec = 'h264'
       else if (entry.type === 'hvc1' || entry.type === 'hev1') codec = 'h265'
       else continue
@@ -345,11 +422,11 @@ const parseTrack = (b: Bytes, trak: Box, movieTimescale: number): Track => {
 
   const header = trackHeader(b, trak)
   const elst = child(b, trak, 'edts', 'elst')
-  const edit = elst ? editList(b, elst) : { delay: 0, mediaStart: 0 }
+  const edit = elst ? editList(b, elst) : { delay: 0, mediaStart: 0, mediaEdit: null }
   return {
     // A track whose header cannot be read may be shown by a player for all
     // this reader knows: it counts as enabled.
-    handler, timescale, movieTimescale, samples, codec, nalLength, ...edit, enabled: header?.enabled ?? true, sampleEntries,
+    handler, timescale, movieTimescale, samples, codec, nalLength, ...edit, enabled: header?.enabled ?? true, sampleEntries, esds,
     ...(message && header ? { binding: { message, matrix: header.matrix, display: header.display } } : {})
   }
 }
@@ -373,8 +450,8 @@ const layoutProblem = (tracks: Track[]): string | null => {
 // the delay is counted in a third one, and rounding at a segment boundary would
 // move an audio frame from one segment to the next — a wrong hash for both.
 interface Time { num: bigint, den: bigint }
-const presentation = (t: Track, dts: number): Time => ({
-  num: BigInt(t.delay) * BigInt(t.timescale) + BigInt(dts - t.mediaStart) * BigInt(t.movieTimescale),
+const presentation = (t: Track, dts: bigint): Time => ({
+  num: BigInt(t.delay) * BigInt(t.timescale) + (dts - BigInt(t.mediaStart)) * BigInt(t.movieTimescale),
   den: BigInt(t.timescale) * BigInt(t.movieTimescale)
 })
 const before = (a: Time, b: Time): boolean => a.num * b.den < b.num * a.den
@@ -551,6 +628,27 @@ const hashGop = async (media: Bytes, video: Track, gop: Gop, audio: Bytes[]): Pr
 }
 
 /**
+ * §5 *Timing*: a GOP's `timing(n)` values, in the received file's ticks — its
+ * video samples measured from the IDR's DTS, `end_n` from its own last sample
+ * (never the next GOP's DTS or `mdhd`, so a clip that cut what follows reads
+ * the same value), and the audio frames §5 assigned it, measured from the
+ * first of them — and its extent on each track.
+ */
+const gopTiming = (videoSamples: Sample[], audioFrames: Sample[]): Pick<GopHash, 'timing' | 'extent'> => {
+  const dts0 = videoSamples[0]!.dts
+  const last = videoSamples.at(-1)!
+  const adts0 = audioFrames[0]?.dts ?? null
+  const timing: TimingValues = {
+    videoDts: videoSamples.map((x) => x.dts - dts0),
+    videoCts: videoSamples.map((x) => x.cts),
+    videoEnd: last.dts + last.duration - dts0,
+    audioDts: audioFrames.map((x) => x.dts - adts0!),
+    audioDur: audioFrames.map((x) => x.duration)
+  }
+  return { timing, extent: { video: videoExtent(timing, dts0), audio: adts0 === null ? null : audioExtent(timing, adts0) } }
+}
+
+/**
  * `signed` is the set of segment indices the proof carries entries for, when
  * the caller has a proof: a GOP naming any other index names a segment this
  * proof does not sign (vector 38 drops segment 0 from the proof and leaves it
@@ -605,17 +703,31 @@ export const recomputeSegments = async (media: Bytes, captureId?: Bytes, signed?
       // of the track, and frames before the first IDR belong to no segment.
       while (next < audioTimes.length && before(audioTimes[next]!, from)) next++
       const frames: Bytes[] = []
+      const audioFrames: Sample[] = []
       while (next < audioTimes.length && (to === null || before(audioTimes[next]!, to))) {
         const sample = audio!.samples[next++]!
         if (sample.offset + sample.size > media.length) throw new Malformed('an audio sample lies outside the file')
         frames.push(media.subarray(sample.offset, sample.offset + sample.size))
+        audioFrames.push(sample)
       }
       const index = credit[g]
-      if (index !== null && index !== undefined) out.push({ index, hash: await hashGop(media, video, gop, frames) })
+      if (index !== null && index !== undefined) {
+        out.push({ index, hash: await hashGop(media, video, gop, frames), ...gopTiming(video.samples.slice(gop.first, gop.last + 1), audioFrames) })
+      }
     }
+    // The audio entry's `esds` closes the message the video entry opens; an
+    // audio entry that cannot be read is a presentation that cannot be.
     const binding = video.binding
-    const shown = binding ? { config: await sha256(binding.message), matrix: binding.matrix, display: binding.display } : null
-    return { kind: 'hashes', gops: out, problems, presentation: shown, layout }
+    const esds = audio ? audio.esds : []
+    const shown = binding && esds ? { config: await sha256(binding.message, ...esds), matrix: binding.matrix, display: binding.display } : null
+    const mediaEdit = (t: Track | undefined): MediaEdit | null => t?.mediaEdit
+      ? { ...t.mediaEdit, movieTimescale: BigInt(t.movieTimescale), mediaTimescale: BigInt(t.timescale) }
+      : null
+    const timing: TimingRead = {
+      timescales: { video: BigInt(video.timescale), audio: audio ? BigInt(audio.timescale) : null },
+      edits: { video: mediaEdit(video), audio: mediaEdit(audio) }
+    }
+    return { kind: 'hashes', gops: out, problems, presentation: shown, layout, timing }
   } catch (e) {
     if (e instanceof Malformed) return { kind: 'malformed', reason: e.message }
     return { kind: 'unsupported', reason: e instanceof Error ? e.message : 'unreadable container' }

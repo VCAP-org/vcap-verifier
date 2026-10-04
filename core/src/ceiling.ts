@@ -34,9 +34,10 @@ const AMBER = [
   'inconsistent claim',
   'integrity failed',
   'integrity not proven',
-  // verify caps an *authentic* video whose presentation differs at amber; the
-  // page owes the reader the label that did it.
-  'presentation differs'
+  // verify caps an *authentic* video whose presentation or timing differs at
+  // amber; the page owes the reader the label that did it.
+  'presentation differs',
+  'timing differs'
 ]
 
 /** A green ceiling has no fault to name, so §7 names what was proven. */

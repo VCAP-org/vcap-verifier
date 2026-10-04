@@ -3,7 +3,8 @@ import { sha256 } from './sha.js'
 import { MAX_DEPTH, jcs, jsonProblem, type Json } from './jcs.js'
 import { type ContentCredentials, type ProofFound, type ProofSource, extractProof } from './carrier.js'
 import { canonicalBytes, detectContainer } from './canonical.js'
-import { type Presentation, recomputeSegments } from './container.js'
+import { type GopHash, type Presentation, type TimingRead, recomputeSegments } from './container.js'
+import { type Timescales, editTrims, receivedTimingHash, timingRoot } from './timing.js'
 import { type StatusAttachment, type StatusEntry, chainStatus, verifyStatus } from './attestation-status.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import { type SegmentEntry, verifyChain } from './segments.js'
@@ -155,7 +156,7 @@ const HOLDS_AMBER = new Set([
   'inconsistent claim', 'chain revocation not checked', 'revocation not checked', 'attestation chain expired, capture time not proven',
   'registered after the declared capture', 'registered after the trusted time', 'capture time not declared',
   'attestation app not admitted', 'attestation app not checked', 'integrity failed', 'integrity not proven',
-  'presentation differs'
+  'presentation differs', 'timing differs'
 ])
 const SECURE_HW = new Set(['strongbox', 'tee', 'secureEnclave', 'none'])
 
@@ -188,6 +189,20 @@ const presentationShape = (v: unknown): v is { config: string, matrix: number[],
   const uint32 = (x: unknown): boolean => Number.isInteger(x) && (x as number) >= 0 && (x as number) <= 0xffffffff
   return isObj(v) && b64Len(v.config, 32) && Array.isArray(v.matrix) && v.matrix.length === 9 && v.matrix.every(int32) &&
     Array.isArray(v.display) && v.display.length === 2 && v.display.every(uint32)
+}
+
+/** §6.1 `media.timing` as a core signs it. */
+type SignedTiming = { video_timescale: number, audio_timescale?: number, root: string }
+
+/**
+ * §6.1: `{ video_timescale, audio_timescale?, root }`, the timescales uint32
+ * from 1, `audio_timescale` absent — never null, never 0 — without an audio
+ * track, `root` 32 bytes base64url, and no other key.
+ */
+const timingShape = (v: unknown): v is SignedTiming => {
+  const timescale = (x: unknown): boolean => Number.isInteger(x) && (x as number) >= 1 && (x as number) <= 0xffffffff
+  return isObj(v) && Object.keys(v).every((k) => k === 'video_timescale' || k === 'audio_timescale' || k === 'root') &&
+    timescale(v.video_timescale) && (!('audio_timescale' in v) || timescale(v.audio_timescale)) && b64Len(v.root, 32)
 }
 
 /**
@@ -242,7 +257,13 @@ const shapeProblem = (proof: Obj): string | null => {
   // absent is a missing required field, like `segment_count`. Malformed is a
   // signed payload two readers would read two ways.
   if ('segments' in proof && !('presentation' in proof.media)) return 'media.presentation missing'
+  // §6.1 `media.timing`: required wherever segments are, for presentation's
+  // reason — a clip's timing is held against it — and every entry carries the
+  // hash of its own segment's timing record.
+  if ('segments' in proof && !('timing' in proof.media)) return 'media.timing missing'
+  if ('segments' in proof && !(proof.segments as Json[]).every((e) => isObj(e) && b64Len(e.timing, 32))) return 'segments[].timing missing or malformed'
   if ('presentation' in proof.media && !presentationShape(proof.media.presentation)) return 'media.presentation malformed'
+  if ('timing' in proof.media && !timingShape(proof.media.timing)) return 'media.timing malformed'
   return coreTrouble(extractCore(proof))
 }
 
@@ -397,7 +418,7 @@ const judge = async (x: ProofFound, o: VerifyOptions, progress: Progress): Promi
     const frames = outcome.framesNameCapture === undefined ? {} : { frames_name_capture: outcome.framesNameCapture }
     if (outcome.tampered !== undefined) return { ...tampered(outcome.tampered), segments: verdict.segments, content: verdict.content, ...frames }
     if (outcome.outcome !== 'authentic') { verdict.outcome = outcome.outcome; verdict.reason = outcome.reason }
-    if (outcome.label) labels.push(outcome.label)
+    if (outcome.labels) labels.push(...outcome.labels)
   } else if (!mediaMatches) {
     return tampered('media.hash does not match the canonical bytes')
   }
@@ -753,9 +774,9 @@ interface SegmentsOutcome {
   tampered?: string
   // Whether the container was read and a GOP's vcap SEI names this capture.
   framesNameCapture?: boolean
-  // §5 *Presentation*: what keeps a located clip from being *verified clip*,
-  // or what an original's signed presentation got wrong.
-  label?: string
+  // §5 *Presentation* and *Timing*: what keeps a located clip from being
+  // *verified clip*, or what an original's signed core got wrong about it.
+  labels?: string[]
 }
 
 /**
@@ -781,8 +802,9 @@ interface SegmentsOutcome {
 const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMatches: boolean, o: VerifyOptions): Promise<SegmentsOutcome> => {
   const captureId = fromBase64(proof.capture_id as string)
   const signed = proof.segments as unknown as SegmentEntry[]
-  let located: Map<number, Bytes> | undefined
-  let read: { presentation: Presentation | null, layout: string | null } | undefined
+  const segmentCount = (proof.media as Obj).segment_count as number
+  let located: Map<number, GopHash> | undefined
+  let read: { presentation: Presentation | null, layout: string | null, timing: TimingRead } | undefined
   let content: SegmentsOutcome['content']
   let problems: string[] = []
   let framesNameCapture: boolean | undefined
@@ -794,9 +816,9 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
     }
     if (r.kind === 'hashes' || r.kind === 'unlocated') framesNameCapture = r.kind === 'hashes'
     if (r.kind === 'hashes') {
-      located = new Map(r.gops.map((g) => [g.index, g.hash]))
+      located = new Map(r.gops.map((g) => [g.index, g]))
       problems = r.problems
-      read = { presentation: r.presentation, layout: r.layout }
+      read = { presentation: r.presentation, layout: r.layout, timing: r.timing }
       content = { recomputed: true, detail: `${r.gops.length} GOPs read from the container` }
     } else {
       // Read and unplaced is still a recomputation that ran: what it found is
@@ -808,7 +830,7 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
   }
 
   const frames = framesNameCapture === undefined ? {} : { framesNameCapture }
-  const chain = await verifyChain(captureId, (proof.media as Obj).segment_count as number, signed, key, located)
+  const chain = await verifyChain(captureId, segmentCount, signed, key, located && new Map([...located].map(([n, g]) => [n, g.hash])))
   // Credit is the located GOPs whose message verified and whose bytes match:
   // with nothing located there is none, whatever the chain says (§5).
   const credited = (list: number[]): number[] => located ? list.filter((n) => located.has(n)) : []
@@ -816,32 +838,114 @@ const segmentsOutcome = async (proof: Obj, media: Bytes, key: CryptoKey, mediaMa
     return { content, segments: { verified: credited(chain.verified), ...(chain.contradicted ? { contradicted: chain.contradicted } : {}) }, outcome: 'tampered', tampered: chain.reason ?? 'segment chain', ...frames }
   }
   const verified = credited(chain.verified)
+  // §5 *Timing*: the entries' timing hashes are outside every signature and
+  // the signed root binds them. With every entry present it recomputes — no
+  // demuxer needed — and a root that does not is a binding the proof makes
+  // that does not hold (vector 177). With one missing, none is authenticated.
+  const signedTiming = (proof.media as Obj).timing as SignedTiming
+  const timingAuthenticated = timingEntriesComplete(signed, segmentCount)
+  if (timingAuthenticated && toBase64url(await entriesRoot(signed)) !== signedTiming.root) {
+    return { content, segments: { verified }, outcome: 'tampered', tampered: 'the segments\' timing hashes do not recompute media.timing.root', ...frames }
+  }
   if (problems.length > 0) return { content, segments: { verified }, outcome: 'tampered', tampered: `the container contradicts the proof: ${problems[0]}`, ...frames }
   // Present whenever segments are: `shapeProblem` refused a core without it.
   const signedPresentation = (proof.media as Obj).presentation as { config: string, matrix: number[], display: number[] }
   if (mediaMatches) {
-    // The sealed bytes, presentation included, are covered by `media.hash`. A
-    // signed presentation that does not describe them is the writer's false
-    // claim about its own file: flagged and amber, as a misreported level is,
-    // never *tampered* — the bytes are exactly the ones the key sealed.
-    const wrong = read ? presentationDiffers(signedPresentation, read.presentation) : null
-    return { content, segments: { verified }, outcome: chain.status === 'clip' ? 'verified_clip' : 'authentic', ...(chain.status === 'clip' ? { reason: 'segments missing' } : {}), ...(wrong ? { label: 'presentation differs' } : {}), ...frames }
+    // The sealed bytes, presentation and timing tables included, are covered
+    // by `media.hash`. A signed presentation or timing root that does not
+    // describe them is the writer's false claim about its own file: flagged
+    // and amber, as a misreported level is, never *tampered* — the bytes are
+    // exactly the ones the key sealed (vectors 163, 185). A container read in
+    // which no GOP names the capture reproduces no root at all.
+    const wrong = [
+      read && presentationDiffers(signedPresentation, read.presentation) ? 'presentation differs' : null,
+      framesNameCapture !== undefined && await originalTimingDiffers(read, located, signedTiming, segmentCount) ? 'timing differs' : null
+    ].filter((x): x is string => x !== null)
+    return { content, segments: { verified }, outcome: chain.status === 'clip' ? 'verified_clip' : 'authentic', ...(chain.status === 'clip' ? { reason: 'segments missing' } : {}), ...(wrong.length > 0 ? { labels: wrong } : {}), ...frames }
   }
   if (verified.length === 0) {
     return { content, segments: { verified }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and no GOP in it is tied to a signed segment (${content.detail}): the signatures hold, the frames were not compared`, ...frames }
   }
-  // §5 *Presentation*: a clip is verified only where the received file shows
-  // its frames the way the core binds them. Otherwise the
-  // frames are the signed frames under a crop, a rotation or a track nobody
-  // signed: *frames not compared*, no segment credited, and the label says
-  // which. Not *tampered*: re-muxing a clip is not an accusation, as a
-  // `media.hash` that does not match is not one.
-  const unbound = (label: string, why: string): SegmentsOutcome =>
-    ({ content, segments: { verified: [] }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and ${why}: the signed frames are present, how they are presented is not what was signed`, label, ...frames })
-  if (read!.layout !== null) return unbound('tracks not bound', read!.layout)
-  const differs = presentationDiffers(signedPresentation, read!.presentation)
-  if (differs) return unbound('presentation differs', differs)
+  // §5 *Presentation* and *Timing*: a clip is verified only where the received
+  // file shows its frames the way the core binds them, and at the instants it
+  // binds. Otherwise the frames are the signed frames under a crop, a
+  // rotation, a track or a timing nobody signed: *frames not compared*, no
+  // segment credited, and the labels say which. Not *tampered*: re-muxing a
+  // clip is not an accusation, as a `media.hash` that does not match is not one.
+  const unbound = read!.layout !== null ? { label: 'tracks not bound', why: read!.layout } : (() => {
+    const differs = presentationDiffers(signedPresentation, read!.presentation)
+    return differs ? { label: 'presentation differs', why: differs } : null
+  })()
+  const retimed = await clipTimingProblem(read!.timing, located!, signedTiming, signed, verified, timingAuthenticated)
+  if (unbound !== null || retimed !== null) {
+    const labels = [unbound?.label, retimed === null ? undefined : 'timing differs'].filter((x): x is string => x !== undefined)
+    const why = [unbound?.why, retimed ?? undefined].filter((x): x is string => x !== undefined).join('; ')
+    return { content, segments: { verified: [] }, outcome: 'frames_not_compared', reason: `media.hash does not match the received file and ${why}: the signed frames are present, how or when they are presented is not what was signed`, labels, ...frames }
+  }
   return { content, segments: { verified }, outcome: 'verified_clip', reason: 'media.hash does not match the received file', ...frames }
+}
+
+/** §5 *Timing*: the timescales a core signs, in the shape `timing.ts` converts with. */
+const signedTimescales = (t: SignedTiming): Timescales =>
+  ({ video: BigInt(t.video_timescale), audio: t.audio_timescale === undefined ? null : BigInt(t.audio_timescale) })
+
+/** Whether the proof carries an entry for every index from 0 to `segment_count − 1`, each once. */
+const timingEntriesComplete = (entries: SegmentEntry[], count: number): boolean => {
+  const indices = new Set(entries.map((e) => e.gop))
+  return entries.length === count && indices.size === count && [...indices].every((i) => Number.isInteger(i) && i >= 0 && i < count)
+}
+
+/** `media.timing.root` recomputed from the entries' `timing`, in index order. */
+const entriesRoot = async (entries: SegmentEntry[]): Promise<Bytes> =>
+  await timingRoot([...entries].sort((a, b) => a.gop - b.gop).map((e) => fromBase64(e.timing!)))
+
+/**
+ * §5 *Timing* on a clip: why the located segments are not shown at the
+ * signed instants, or null when they are. In the order checked: the entries'
+ * timing is not authenticated (an entry is missing, so the root cannot be
+ * recomputed, vector 186); a credited segment's record, read back and
+ * converted to the signed timescales, does not hash to its entry (179–181);
+ * or a track's single media edit trims inside it (184).
+ */
+const clipTimingProblem = async (
+  read: TimingRead, located: Map<number, GopHash>, signed: SignedTiming,
+  entries: SegmentEntry[], verified: number[], authenticated: boolean
+): Promise<string | null> => {
+  if (!authenticated) return 'the proof does not carry every segment entry, so no segment\'s timing is authenticated'
+  const byIndex = new Map(entries.map((e) => [e.gop, e.timing]))
+  const scales = signedTimescales(signed)
+  for (const n of verified) {
+    const gop = located.get(n)!
+    const received = await receivedTimingHash(gop.timing, read.timescales, scales)
+    if (received === null) return `segment ${n}: its timing cannot be expressed in the signed timescales`
+    if (toBase64url(received) !== byIndex.get(n)) return `segment ${n}: its timing read back differs from the signed one`
+    if (read.edits.video && editTrims(read.edits.video, gop.extent.video)) return `segment ${n}: the video edit list trims inside it`
+    if (read.edits.audio && gop.extent.audio && editTrims(read.edits.audio, gop.extent.audio)) return `segment ${n}: the audio edit list trims inside it`
+  }
+  return null
+}
+
+/**
+ * §5 *Timing* on the original: whether the root its own segments give differs
+ * from the signed one. Every index from 0 to `segment_count − 1` must be named
+ * by exactly one GOP (`container.ts` credits no other); a missing one, or a
+ * record that cannot be expressed in the signed timescales, is a timing the
+ * core does not describe. The media edit rule does not apply: `media.hash`
+ * covers the original's edit list.
+ */
+const originalTimingDiffers = async (
+  read: { timing: TimingRead } | undefined, located: Map<number, GopHash> | undefined, signed: SignedTiming, count: number
+): Promise<boolean> => {
+  if (!read || !located) return true
+  const scales = signedTimescales(signed)
+  const hashes: Bytes[] = []
+  for (let n = 0; n < count; n++) {
+    const gop = located.get(n)
+    const hash = gop ? await receivedTimingHash(gop.timing, read.timing.timescales, scales) : null
+    if (hash === null) return true
+    hashes.push(hash)
+  }
+  return toBase64url(await timingRoot(hashes)) !== signed.root
 }
 
 /**
