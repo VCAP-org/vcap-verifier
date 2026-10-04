@@ -54,8 +54,15 @@ part of correctness:
   A clip is credited only when its presentation reads back as signed and its
   track layout holds (else *presentation differs* / *tracks not bound*,
   `frames_not_compared`); a video proof without `media.presentation` is
-  `no_proof_found`. Never infer an index from position, never let the SEI
-  prove anything.
+  `no_proof_found`. §5 *Timing* (`core/src/timing.ts`, a port of vcap-spec's
+  `tools/src/timing.ts`): a video proof without `media.timing`, or with an
+  entry lacking `timing`, is `no_proof_found`; entries that do not recompute
+  the root are *tampered*; a clip whose verified segments do not read back
+  at the signed instants (converted exactly to the signed timescales), whose
+  proof lacks an entry, or whose media edit trims inside one is
+  `frames_not_compared` with *timing differs*; an original whose root its own
+  segments do not reproduce is *authentic*, *timing differs*, amber. Never
+  infer an index from position, never let the SEI prove anything.
 - `verify` never throws on input. A new parser bounds every count by the bytes
   that hold it, checks `Number.isSafeInteger` before `BigInt`/`Date`, and keeps
   DER inside `try`; `core/test/hostile.test.ts` holds one case per crash found.
