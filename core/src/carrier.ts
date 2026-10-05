@@ -1,6 +1,6 @@
 import { type Bytes, concat, equal, fromHex, fromUtf8, readU32BE } from './bytes.js'
 import { jcs, jsonProblem, type Json } from './jcs.js'
-import { parseTrailer } from './trailer.js'
+import { parseTrailer, unreadableTrailerStart } from './trailer.js'
 import { C2PA_STORE_TYPE, detectContainer, jpegSegments, jumbfGroups } from './canonical.js'
 import { boxes } from './container.js'
 import { type CborMap, decodeCbor } from './cbor.js'
@@ -302,8 +302,11 @@ const sameProof = (a: Bytes, b: Bytes): boolean => {
  *    `rival`, judged over the same bytes (the file without the trailer),
  *    labelled *trailer copy differs*; a copy in the active manifest that
  *    differs as JCS from whichever proof decides is *manifest copy differs*;
- * 2. a valid footer whose CRC fails — *corrupted proof*, whatever the store holds;
- * 3. `VCAP` with another major — *unsupported format version*;
+ * 2. a valid footer whose CRC fails — *corrupted proof*, whatever the store
+ *    holds, unless a sidecar does better without that trailer
+ *    (`unreadableAlternate`);
+ * 3. `VCAP` with another major — *unsupported format version*, with the same
+ *    exception;
  * 4. no footer — the active manifest's proof (depth 0, compared as JCS with a
  *    sidecar), then the sidecar, then the nearest proof up the `parentOf`
  *    chain (depth 1–16, no manifest twice). A sidecar that differs from the
@@ -341,4 +344,30 @@ export const extractProof = (file: Bytes, sidecar?: Bytes, externalStore?: Bytes
   const ancestor = store?.search?.(1, MAX_CHAIN_DEPTH) ?? null
   if (ancestor) return carried(ancestor, [])
   return refused('no_proof_found', 'no trailer and no sidecar')
+}
+
+/**
+ * §3.1 *A sidecar that does better*, unreadable footer: the sidecar, judged
+ * over the file without the trailer whose footer this reader cannot use
+ * (`unreadableTrailerStart`). `verify` lets its verdict replace the one the
+ * footer earns — *corrupted proof*, *unsupported format version*, or step 4
+ * over the whole file — only when its outcome ranks strictly above: such a
+ * footer is no more the file's than a valid one, and anyone can append it to
+ * a stripped file beside its genuine sidecar.
+ *
+ * One trailer is removed and nothing further is read: the remaining bytes are
+ * judged whole, as step 4 judges a sidecar, so a footer appended after an
+ * intact trailer is not peeled back to it. The active manifest's copy, if the
+ * remaining bytes carry one, is compared with the sidecar as at step 1. A
+ * C2PA store is not a sidecar and never takes this path.
+ */
+export const unreadableAlternate = (file: Bytes, sidecar?: Bytes, externalStore?: Bytes): ProofFound | undefined => {
+  if (sidecar === undefined) return undefined
+  const start = unreadableTrailerStart(file)
+  if (start === null) return undefined
+  const media = file.subarray(0, start)
+  const store = credentials(media, externalStore)
+  const active = store?.search?.(0, 0) ?? null
+  const manifest = active && !sameProof(active.payload, sidecar) ? ['manifest copy differs'] : []
+  return { kind: 'proof', payload: sidecar, media, flags: null, source: { kind: 'sidecar' }, labels: ['trailer unreadable', ...manifest], ...(store ? { c2pa: store.cc } : {}) }
 }

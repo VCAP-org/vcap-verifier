@@ -172,15 +172,24 @@ describe('vcap-verify', () => {
 
   it('applies §3.1 precedence to a discovered sidecar', async () => {
     // Trailer intact and a sidecar that differs: the trailer is the proof,
-    // the difference is a label. Trailer found and broken: corrupted, and the
-    // intact sidecar beside it changes nothing.
+    // the difference is a label. Trailer found and its CRC broken, beside an
+    // intact sidecar: the footer is set aside and the sidecar, judged over the
+    // rest, ranks above *corrupted proof* (corpus 8.0.0).
     const differs = capture()
     expect(await run(['--json', '--no-recompute', inputOf('18-jpeg-sidecar-differs')], differs.io)).toBe(0)
     expect(JSON.parse(differs.out().trim()).labels).toContain('sidecar differs')
 
-    const corrupted = capture()
-    expect(await run(['--json', '--no-recompute', inputOf('72-jpeg-footer-crc-mismatch-sidecar')], corrupted.io)).toBe(1)
-    expect(JSON.parse(corrupted.out().trim()).outcome).toBe('corrupted_proof')
+    const unreadable = capture()
+    expect(await run(['--json', '--no-recompute', inputOf('72-jpeg-footer-crc-mismatch-sidecar')], unreadable.io)).toBe(0)
+    expect(JSON.parse(unreadable.out().trim())).toMatchObject({ outcome: 'authentic', proof_source: { kind: 'sidecar' }, labels: expect.arrayContaining(['trailer unreadable']) })
+    const unreadableText = capture()
+    await run(['--no-recompute', inputOf('72-jpeg-footer-crc-mismatch-sidecar')], unreadableText.io)
+    expect(unreadableText.out()).toContain('trailer unreadable: the file ends in a proof footer this verifier cannot use')
+
+    // A tie keeps the footer's verdict: forged pixels gain nothing (vector 192).
+    const tie = capture()
+    expect(await run(['--json', '--no-recompute', inputOf('192-jpeg-crc-broken-trailer-sidecar-no-better')], tie.io)).toBe(1)
+    expect(JSON.parse(tie.out().trim()).outcome).toBe('corrupted_proof')
 
     // A foreign trailer beside a genuine sidecar: the sidecar ranks above it
     // (§3.1, *A sidecar that does better*), and the text says where it was read.

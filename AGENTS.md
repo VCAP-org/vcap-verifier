@@ -85,8 +85,12 @@ part of correctness:
   ranked by `precedence` in `verify.ts`), and wins only by a strictly better
   outcome (*authentic* > *verified clip* > *frames not compared* > the rest),
   then labelled *trailer copy differs* or *manifest copy differs*; outcomes
-  are ranked, never ceilings. Nested, CRC-fail and major ≠ 1 footers are
-  outside that rule. A depth ≥ 1 proof that does not fit the file is *no proof
+  are ranked, never ceilings. Beside an *unreadable* footer (CRC fails, major
+  ≠ 1, or a size describing no trailer) the sidecar is judged over the file
+  without that one trailer (`unreadableAlternate`, `unreadableTrailerStart`)
+  and wins the same way, labelled *trailer unreadable*; one trailer is removed,
+  never two, and a C2PA store is not a sidecar. Nested footers stay outside
+  the rule. A depth ≥ 1 proof that does not fit the file is *no proof
   found* (`SOURCE_CAPTURE`, the source's `core_hash` kept), never *tampered*.
   `proof_source` is diagnostic and never a label. §4.1 reads a JPEG JUMBF
   box's type the way the store finder does (`jumbfGroups` in `canonical.ts`):
