@@ -1,4 +1,4 @@
-import { type Bytes, concat, fromBase64, isInstant } from './bytes.js'
+import { type Bytes, concat, fromBase64, isInstant, utf8 } from './bytes.js'
 import { jcs, type Json } from './jcs.js'
 import { importP256Spki, verifyEs256 } from './es256.js'
 import type { TrustedLog } from './registry.js'
@@ -55,11 +55,16 @@ export const chainStatus = (entries: StatusEntry[], serials: string[]): { state:
 // ignores the attachment rather than guessing what the values mean.
 const KNOWN_SOURCES = new Set(['googleStatusList'])
 
-/** §6.2: `core_hash ‖ JCS(entries) ‖ uint64 BE fetched_at`. */
+// The domain separator every message the registry key signs begins with (27
+// ASCII bytes, no terminator, no length prefix): without it a status snapshot
+// and another registry message could be the same bytes under one signature.
+const SEPARATOR = utf8('vcap/1.0/attestation-status')
+
+/** §6.2: `"vcap/1.0/attestation-status" ‖ core_hash ‖ JCS(entries) ‖ uint64 BE fetched_at`. */
 export const statusMessage = (coreHash: Bytes, a: StatusAttachment): Bytes => {
   const at = new Uint8Array(8)
   new DataView(at.buffer).setBigUint64(0, BigInt(a.fetched_at))
-  return concat(coreHash, jcs(a.entries as unknown as Json), at)
+  return concat(SEPARATOR, coreHash, jcs(a.entries as unknown as Json), at)
 }
 
 /**

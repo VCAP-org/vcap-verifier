@@ -68,6 +68,8 @@ const MEANING: Record<string, string> = {
   'sidecar differs': 'the sidecar carries a different proof from the one this verdict read',
   'manifest copy differs': 'the Content Credentials carry a different proof from the one this verdict read',
   'trailer copy differs': 'the file\'s trailer carries a different proof, and the sidecar\'s verdict ranks above it over the same bytes',
+  // §3.1: a footer this verifier cannot use was set aside, never trusted.
+  'trailer unreadable': 'the file ends in a proof footer this verifier cannot use (CRC fails, another major version, or no trailer around it), and the sidecar\'s verdict over the file without it ranks above the footer\'s',
   'capture time not declared': 'nothing in the core dates the capture, so the registration cannot be placed before it',
   'registered after the trusted time': 'the key was logged after the instant a timestamp authority placed the capture at',
   'attestation evidence invalid': 'the attached attestation chain breaks a rule it must satisfy (roots, CA issuers, the extension in the leaf only)',

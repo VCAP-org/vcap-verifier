@@ -31,6 +31,33 @@ export const parseTrailer = (file: Bytes): Trailer => {
   return { kind: 'ok', payload, flags: readU16BE(footer, 6), minor: footer[5] as number, media: file.subarray(0, boxStart) }
 }
 
+/**
+ * §3.1 *A sidecar that does better*, unreadable footer: where the trailer
+ * starts when the last 16 bytes carry the `VCAP` magic but are not a footer
+ * this reader can use — CRC fails, major ≠ 1, or a size that describes no
+ * trailer. `null` when the file does not end in the magic or ends in a usable
+ * trailer.
+ *
+ * The span is the one §3's structure checks would accept with the major and
+ * the CRC set aside: `8 + payload_len + 16` bytes (`payload_len` at its v1
+ * position whatever the major; a JS number cannot overflow here), when they fit
+ * in the file and begin with a `free` box header of that size; otherwise the
+ * 16-byte footer alone. So what is removed is a `free` box every BMFF reader
+ * skips, or 16 bytes that are no box at all — never bytes a player presents.
+ */
+export const unreadableTrailerStart = (file: Bytes): number | null => {
+  if (file.length < FOOTER) return null
+  const footerStart = file.length - FOOTER
+  if (!equal(file.subarray(footerStart, footerStart + 4), MAGIC)) return null
+  if (parseTrailer(file).kind === 'ok') return null
+  const total = BOX_HEADER + readU32BE(file, footerStart + 8) + FOOTER
+  const boxStart = file.length - total
+  const declared = total <= file.length &&
+    readU32BE(file, boxStart) === total &&
+    equal(file.subarray(boxStart + 4, boxStart + 8), utf8('free'))
+  return declared ? boxStart : footerStart
+}
+
 /** §3's box and footer around a payload, the exact bytes `parseTrailer` reads back. */
 export const buildTrailer = (payload: Bytes, flags: number, minor: number): Bytes => concat(
   u32be(BOX_HEADER + payload.length + FOOTER), utf8('free'),

@@ -1,7 +1,7 @@
 import { type Bytes, fromBase64, fromUtf8, isInstant, toBase64url, toHex } from './bytes.js'
 import { sha256 } from './sha.js'
 import { MAX_DEPTH, jcs, jsonProblem, type Json } from './jcs.js'
-import { type ContentCredentials, type ProofFound, type ProofSource, extractProof } from './carrier.js'
+import { type ContentCredentials, type ProofFound, type ProofSource, extractProof, unreadableAlternate } from './carrier.js'
 import { canonicalBytes, detectContainer } from './canonical.js'
 import { type GopHash, type Presentation, type TimingRead, recomputeSegments } from './container.js'
 import { type Timescales, editTrims, receivedTimingHash, timingRoot } from './timing.js'
@@ -290,6 +290,22 @@ export const verify = async (file: Bytes, o: VerifyOptions = {}): Promise<Verdic
 interface Progress { proof: boolean, mediaMatches?: boolean }
 
 const verifyFile = async (file: Bytes, o: VerifyOptions, progress: Progress): Promise<Verdict> => {
+  const verdict = await verdictOfFile(file, o, progress)
+  // §3.1, *A sidecar that does better*, unreadable footer: beside a sidecar, a
+  // footer this reader cannot use is set aside and the sidecar judged over
+  // what remains. It decides only by a strictly better outcome — deleting the
+  // trailer would give as much — and, as every challenger, loses if it cannot
+  // be judged to the end.
+  const alt = unreadableAlternate(file, o.sidecar, o.c2paStore)
+  if (!alt) return verdict
+  const challenger: Progress = { proof: false }
+  const other = await judge(alt, o, challenger).catch(() => null)
+  if (other === null || rank(other) <= rank(verdict)) return verdict
+  if (alt.c2pa && alt.c2pa.store === 'embedded' && challenger.mediaMatches === true && detectContainer(alt.media) === 'bmff') alt.c2pa.sealed_with_capture = true
+  return { ...other, proof_source: alt.source, ...(alt.c2pa ? { content_credentials: alt.c2pa } : {}) }
+}
+
+const verdictOfFile = async (file: Bytes, o: VerifyOptions, progress: Progress): Promise<Verdict> => {
   // 1. Trailer, manifest store, sidecar, nesting (§3, §3.1).
   const x = extractProof(file, o.sidecar, o.c2paStore)
   const cc = x.c2pa ? { content_credentials: x.c2pa } : {}

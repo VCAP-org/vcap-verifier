@@ -391,6 +391,13 @@ describe('the Content Credentials lane', () => {
     expect(card('photo.jpg', v)).toContain('<dt>proof read from</dt><dd>the sidecar you supplied — the file\'s trailer carries a different proof (trailer copy differs)')
   })
 
+  it('says when a sidecar outranked an unreadable footer (vector 72)', async () => {
+    const dir = join(vectors, '72-jpeg-footer-crc-mismatch-sidecar')
+    const v = await verify(new Uint8Array(readFileSync(join(dir, 'input.jpg'))), { sidecar: new Uint8Array(readFileSync(join(dir, 'input.jpg.vcap'))) })
+    expect(card('photo.jpg', v)).toContain('<li>trailer unreadable</li>')
+    expect(card('photo.jpg', v)).toContain('<dt>proof read from</dt><dd>the sidecar you supplied — the file ends in a proof footer this page cannot use (trailer unreadable)')
+  })
+
   it('says why a store was not read, and escapes whatever a store names', async () => {
     const unread = await verify(new Uint8Array(photo), { c2paStore: new Uint8Array(12) })
     expect(contentCredentials(unread)).toContain('the .c2pa file you supplied, not read: the manifest store cannot be read')

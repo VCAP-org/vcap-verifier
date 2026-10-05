@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { equal, fromBase64, fromUtf8, toBase64, utf8 } from '../src/bytes.js'
-import { buildTrailer, parseTrailer, replaceTrailer } from '../src/trailer.js'
+import { buildTrailer, parseTrailer, replaceTrailer, unreadableTrailerStart } from '../src/trailer.js'
 import { verify } from '../src/verify.js'
 import { corpus } from './corpus.js'
 
@@ -85,6 +85,34 @@ describe('buildTrailer', () => {
     expect(fromUtf8(read.payload)).toBe('{"v":"vcap/1.0"}')
     expect(read.flags).toBe(6)
     expect(fromUtf8(read.media)).toBe('media')
+  })
+})
+
+describe('unreadableTrailerStart', () => {
+  // §3.1: exactly one candidate span, and never bytes a player presents.
+  const media = utf8('media bytes')
+  const trailer = buildTrailer(utf8('{}'), 0, 0)
+  const withFooter = (edit: (t: Uint8Array) => void): Uint8Array => {
+    const t = Uint8Array.from(trailer)
+    edit(t)
+    return Uint8Array.from([...media, ...t])
+  }
+
+  it('is null for an intact trailer and for a file without the magic', () => {
+    expect(unreadableTrailerStart(Uint8Array.from([...media, ...trailer]))).toBeNull()
+    expect(unreadableTrailerStart(media)).toBeNull()
+  })
+
+  it('spans the whole free box when its CRC fails or its major is not 1', () => {
+    expect(unreadableTrailerStart(withFooter((t) => { t[t.length - 1] = (t.at(-1) as number) ^ 1 }))).toBe(media.length)
+    expect(unreadableTrailerStart(withFooter((t) => { t[t.length - 12] = 2 }))).toBe(media.length)
+  })
+
+  it('removes only the footer when its size describes no box', () => {
+    const file = withFooter((t) => { t[t.length - 5] = (t.at(-5) as number) + 1 })
+    expect(unreadableTrailerStart(file)).toBe(file.length - 16)
+    const bare = Uint8Array.from([...utf8('VCAP'), 1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0])
+    expect(unreadableTrailerStart(bare)).toBe(0)
   })
 })
 

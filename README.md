@@ -582,7 +582,10 @@ chain to the given TSA roots, timeStamping usage, genTime) and the `attestation`
 attachment on Android (chain to a pinned Google root, leaf key = `sig.pub`,
 weaker of the two security levels, locked device with verified boot, a key
 generated in the secure hardware and not imported; revocation through the
-frozen `attestation_status` snapshot or an injected status lookup, read under
+frozen `attestation_status` snapshot — signed by a trusted log key over
+`"vcap/1.0/attestation-status" ‖ core_hash ‖ JCS(entries) ‖ uint64 BE
+fetched_at`, the separator 27 ASCII bytes with no terminator or length, as on
+every other message that key signs — or an injected status lookup, read under
 §6.2's temporal rule — a revoked certificate is *attestation key revoked*, red,
 unless a trusted instant precedes the `revoked_at` the source gives for a
 reason that is not a compromise, which is *attestation key revoked after the
@@ -655,7 +658,7 @@ outcome is **`frames_not_compared`**, amber — the signatures hold, nothing tie
 them to these frames — never *verified clip*. A proof lifted onto unrelated
 bytes used to read *verified clip*.
 
-The proof level follows §7 of corpus 7.0.0: green needs a timestamp token or a
+The proof level follows §7 of corpus 8.0.0: green needs a timestamp token or a
 verified anchor for the instant (the device clock alone is amber, *no trusted
 time*; a missing one is *capture time not declared*); an Android chain must
 have CA issuers with `keyCertSign` and the attestation extension in the leaf
@@ -713,7 +716,8 @@ for nothing else**. It is a carrier, never a verdict.
   store is no store at all.
 - **Which copy is the proof**, §3.1's precedence with the store in it: an
   intact trailer; a trailer whose CRC fails is *corrupted proof* whatever the
-  store holds; a footer of another major is *unsupported format version*; with
+  store holds; a footer of another major is *unsupported format version* (both
+  unless a sidecar does better without that trailer, below); with
   no footer, the active manifest (the store's last, depth 0), then the sidecar,
   then the nearest proof up the `parentOf` ingredient chain, depth 1 to 16,
   never the same manifest twice. `componentOf` and `inputTo` are never
@@ -743,10 +747,24 @@ for nothing else**. It is a carrier, never a verdict.
   verdict then labelled *trailer copy differs*, `proof_source` `sidecar`, and
   the active manifest's copy, if any, compared with the sidecar's proof
   instead. On a tie the trailer stands, with *sidecar differs*. A sidecar
-  identical to the trailer changes nothing; a nested trailer, a footer whose
-  CRC fails and a footer of another major are outside the rule (no proof is
-  judged there, so nothing is ranked). The page and the CLI name the sidecar
-  as where the proof was read whenever it outranked a trailer.
+  identical to the trailer changes nothing; a nested trailer is outside the
+  rule. The page and the CLI name the sidecar as where the proof was read
+  whenever it outranked a trailer.
+- **A sidecar beside an unreadable footer** (corpus 8.0.0): the last 16 bytes
+  carry `VCAP` but are no footer this verifier can use — the CRC fails, the
+  major is not 1, or the size describes no trailer. Such a footer is no more
+  the file's than a valid one, and anyone can append it to a stripped genuine
+  file beside its sidecar. With a sidecar, the footer's span is set aside
+  (`unreadableTrailerStart` in `core/src/trailer.ts`): `8 + payload_len + 16`
+  bytes, `payload_len` read at its v1 position whatever the major, when they
+  fit and start with a `free` box header of that size, otherwise the 16-byte
+  footer alone. The sidecar is judged over what remains, whole, as a sidecar
+  is; one trailer is removed and never two, so a broken footer appended after
+  an intact trailer is not peeled back to it. It decides only by ranking
+  strictly above the footer's verdict — *corrupted proof*, *unsupported format
+  version*, or the whole-file reading — and is then labelled *trailer
+  unreadable*, `proof_source` `sidecar`; on a tie the footer's verdict stands.
+  A C2PA store is not a sidecar and gains nothing here.
 - **What counts as the assertion**: one box under exactly that label (`__n`
   instances are ignored, two boxes under the label are neither), listed by its
   claim (`created_assertions`, `gathered_assertions`, or a v1 claim's
@@ -791,8 +809,8 @@ cycles, repeated labels, both redactions — with no C2PA tool involved.
 ## Conformance: which corpus, and how many vectors
 
 This repository's verdicts are checked against the `vcap-spec` vector corpus,
-and the claim is only worth what it names. Today that is **corpus 7.0.0, 187
-vectors** (manifest `ac9109e533ec…`); directory names and kinds are checked
+and the claim is only worth what it names. Today that is **corpus 8.0.0, 193
+vectors** (manifest `3073891fab1d…`); directory names and kinds are checked
 against the manifest, not only their count:
 
 | Runner | Vectors | Corpus |
