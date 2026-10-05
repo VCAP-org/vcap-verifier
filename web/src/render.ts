@@ -57,8 +57,8 @@ export const PLAIN: Record<Verdict['outcome'], string> = {
   authentic: 'Yes — this file is what it says it is.',
   verified_clip: 'In part — these are signed frames of a longer recording.',
   tampered: 'No — this file changed after it was sealed.',
-  nested_proof: 'Careful — a sealed file was sealed a second time.',
-  corrupted_proof: 'The proof is damaged and cannot be read.',
+  nested_proof: 'No — a sealed file was sealed a second time, and the outer seal cannot be trusted.',
+  corrupted_proof: 'No — the proof is damaged and cannot be read.',
   no_proof_found: 'This file carries no proof.',
   unsupported_format_version: 'This page cannot read a proof of this version.',
   frames_not_compared: 'Cannot tell — the proof is genuine, but nothing shows these frames are the ones it signed.'

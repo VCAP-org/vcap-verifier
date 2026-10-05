@@ -3,7 +3,7 @@ import type { Verdict, WatermarkOutcome } from 'vcap-verify-core'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { verify } from 'vcap-verify-core'
-import { bareMark, card, colour, contentCredentials, errorCard, markOffer } from '../src/render.js'
+import { COLOR, PLAIN, bareMark, card, colour, contentCredentials, errorCard, markOffer } from '../src/render.js'
 import { vectorVerdict } from '../../core/test/vector-verdict.js'
 import { jpegWithStore, manifest, store } from '../../core/test/c2pa-fixtures.js'
 import { parseTrailer } from '../../core/src/trailer.js'
@@ -406,5 +406,15 @@ describe('the Content Credentials lane', () => {
     expect(lane).not.toContain('<img')
     expect(lane).not.toContain('<b>')
     expect(lane).toContain('&lt;img src=x onerror=alert(1)&gt;')
+  })
+})
+
+// The headline answers before the colour does, and they must agree: a red
+// verdict that opened with "Careful" told the reader the opposite of the card.
+describe('plain headlines', () => {
+  it('open with "No" for every red outcome, and only for those', () => {
+    for (const [outcome, line] of Object.entries(PLAIN)) {
+      expect(line.startsWith('No — '), outcome).toBe(COLOR[outcome as Verdict['outcome']] === 'red')
+    }
   })
 })
