@@ -317,14 +317,30 @@ details.tech .legend { margin: 0 20px 20px; font-size: 12px; color: var(--fg-mut
 .section > ul > li.absent { font-style: normal; color: var(--fg-muted); }
 .section .state { margin-top: 12px; }
 .section .state:empty { display: none; }
-footer { max-width: 880px; margin: 0 auto; padding: 20px 20px 48px; border-top: 1px solid var(--border);
-  font-size: 12px; line-height: 1.6; color: var(--fg-muted); }
-footer p { max-width: none; }
+footer { max-width: 880px; margin: 0 auto; padding: 32px 20px 40px; border-top: 1px solid var(--border);
+  font-size: 13px; line-height: 1.6; color: var(--fg-muted); }
+footer p { max-width: none; margin: 0; }
+footer a { color: var(--fg-muted); }
+footer a:hover { color: var(--fg); }
+footer section + section { margin-top: 28px; }
+.ft-label { margin: 0 0 12px; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-subtle); }
+.ft-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px 28px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ft-list li { display: flex; gap: 10px; align-items: flex-start; }
+.ft-list strong { color: var(--fg); font-weight: 500; }
+.ft-icon { width: 16px; height: 16px; flex: none; margin-top: 3px; color: var(--fg-subtle); }
+.ft-more { margin-top: 14px; }
+.ft-build p { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.ft-build code { font-family: inherit; color: var(--fg); }
+.ft-bar { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--fg-subtle); }
+.ft-links { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.ft-links a, .ft-bar a { text-decoration: none; display: inline-flex; align-items: center; gap: 2px; }
+.ft-out { width: 12px; height: 12px; opacity: .5; }
 
 @media (max-width: 34rem) {
   header.top { padding: 0 16px; }
   .page { padding: 28px 16px 48px; }
-  footer { padding: 20px 16px 40px; }
+  footer { padding: 28px 16px 36px; }
+  .ft-list { grid-template-columns: 1fr; }
   .drop { padding: 28px 16px; }
   .verdict { padding: 16px; }
   .verdict details.tech { margin: 16px -16px -16px; }
@@ -470,9 +486,24 @@ footer p { max-width: none; }
 </main>
 
 <footer>
-  <p>What this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model. The proof level (secure hardware) is read from the Android attestation chain in the file, checked against Google's pinned roots, or from the registry leaf for iOS. A position is never “guaranteed”: the page names the level it reaches — declared by the device, or corroborated by a registry it trusts.</p>
-  <p>The log it ships with is run by the same people who publish this page: it proves a key was in our log, never that we are honest. The timestamping authorities are run by other people: a token proves a hash existed before an instant, never who made the file.</p>
-  <p>This build: bundle <code id="bundle-hash">{{bundle_sha256}}</code>, from commit <a href="https://github.com/VCAP-org/vcap-verifier/commit/{{commit}}"><code id="commit">{{commit_short}}</code></a>, esbuild {{esbuild}} — <a href="hashes.json">every shipped file, hashed</a>. Offline: <span id="offline">needs a browser with service workers</span>. Rebuild that commit yourself to check them: the <a href="https://github.com/VCAP-org/vcap-verifier#reproducing-the-published-build">README</a> says how.</p>
+  <section class="ft-trust" aria-labelledby="ft-trust-title">
+    <h2 class="ft-label" id="ft-trust-title">What this page trusts</h2>
+    <ul class="ft-list">
+      <li><svg class="ft-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5"/></svg><p><strong>The bundled log is ours.</strong> Run by the same people who publish this page, it proves a key was in our log, never that we are honest.</p></li>
+      <li><svg class="ft-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.4"/></svg><p><strong>Timestamping authorities are not.</strong> They are run by other people: a token proves a hash existed before an instant, never who made the file.</p></li>
+      <li><svg class="ft-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="8" height="8" rx="1.2"/><path d="M6.5 1.8V4M9.5 1.8V4M6.5 12v2.2M9.5 12v2.2M1.8 6.5H4M1.8 9.5H4M12 6.5h2.2M12 9.5h2.2"/></svg><p><strong>Secure hardware</strong> is read from the Android attestation chain in the file, checked against Google's pinned roots, or from the registry leaf for iOS.</p></li>
+      <li><svg class="ft-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z"/><circle cx="8" cy="6.5" r="1.6"/></svg><p><strong>A position is never “guaranteed”.</strong> The page names the level it reaches: declared by the device, or corroborated by a registry it trusts.</p></li>
+    </ul>
+    <p class="ft-more">Everything this page can and cannot tell you is written in the <a href="https://github.com/VCAP-org/vcap-spec">vcap specification</a> and its threat model.</p>
+  </section>
+  <section class="ft-build" aria-labelledby="ft-build-title">
+    <h2 class="ft-label" id="ft-build-title">This build</h2>
+    <p>Bundle <code id="bundle-hash">{{bundle_sha256}}</code> from commit <a href="https://github.com/VCAP-org/vcap-verifier/commit/{{commit}}"><code id="commit">{{commit_short}}</code></a>, esbuild {{esbuild}} · <a href="hashes.json">every shipped file, hashed</a> · Offline: <span id="offline">needs a browser with service workers</span> · <a href="https://github.com/VCAP-org/vcap-verifier#reproducing-the-published-build">rebuild it yourself</a></p>
+  </section>
+  <div class="ft-bar">
+    <p class="ft-links"><a href="https://vcap.gregoriogalante.com">Website<svg class="ft-out" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 10.5 10.5 5.5M6 5.5h4.5V10"/></svg></a><a href="https://console.vcap.gregoriogalante.com/verify">Console verifier<svg class="ft-out" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 10.5 10.5 5.5M6 5.5h4.5V10"/></svg></a><a href="https://github.com/VCAP-org/vcap-spec">Specification<svg class="ft-out" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 10.5 10.5 5.5M6 5.5h4.5V10"/></svg></a><a href="https://github.com/VCAP-org/vcap-verifier">Source<svg class="ft-out" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 10.5 10.5 5.5M6 5.5h4.5V10"/></svg></a><a href="mailto:vcap@gregoriogalante.com">Contact</a><a href="https://vcap.gregoriogalante.com/privacy">Privacy<svg class="ft-out" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 10.5 10.5 5.5M6 5.5h4.5V10"/></svg></a></p>
+    <p>© <a href="https://gregoriogalante.com/" target="_blank" rel="noopener">G. Galante</a> · MIT licence</p>
+  </div>
 </footer>
 <script type="module" src="verifier.js"></script>
 </body>
